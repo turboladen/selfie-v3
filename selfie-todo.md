@@ -21,17 +21,17 @@
 
 ### Configuration Model (Step 2)
 
-- [ ] Create Config structure
-  - [ ] Implement environment field
-  - [ ] Implement package_directory field
-- [ ] Implement validation logic
-  - [ ] Required field validation
-  - [ ] Path expansion for package_directory
-- [ ] Create configuration error types
-- [ ] Write unit tests
-  - [ ] Test validation logic
-  - [ ] Test path handling
-  - [ ] Test error cases
+- [x] Create Config structure
+  - [x] Implement environment field
+  - [x] Implement package_directory field
+- [x] Implement validation logic
+  - [x] Required field validation
+  - [x] Path expansion for package_directory
+- [x] Create configuration error types
+- [x] Write unit tests
+  - [x] Test validation logic
+  - [x] Test path handling
+  - [x] Test error cases
 
 ### Environment Resolution (Step 3)
 
