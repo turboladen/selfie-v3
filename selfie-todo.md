@@ -35,15 +35,15 @@
 
 ### Environment Resolution (Step 3)
 
-- [ ] Add environment validation to PackageNode
-- [ ] Implement environment resolution logic
-  - [ ] Config environment to PackageNode environments matching
-  - [ ] Environment compatibility checking
-- [ ] Create environment error types
-- [ ] Write tests
-  - [ ] Test valid environment matches
-  - [ ] Test missing environment handling
-  - [ ] Test case sensitivity handling
+- [x] Add environment validation to PackageNode
+- [x] Implement environment resolution logic
+  - [x] Config environment to PackageNode environments matching
+  - [x] Environment compatibility checking
+- [x] Create environment error types
+- [x] Write tests
+  - [x] Test valid environment matches
+  - [x] Test missing environment handling
+  - [x] Test case sensitivity handling
 
 ### Dependency Graph (Step 4)
 

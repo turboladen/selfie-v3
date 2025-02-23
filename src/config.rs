@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
+use crate::package::{EnvironmentConfig, PackageNode, PackageValidationError};
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Config {
     pub environment: String,
@@ -20,6 +22,12 @@ pub enum ConfigValidationError {
 
     #[error("Invalid package directory: {0}")]
     InvalidPackageDirectory(String),
+
+    #[error("Environment not found: {0}")]
+    EnvironmentNotFound(String),
+
+    #[error("Invalid package: {0}")]
+    InvalidPackage(String),
 }
 
 impl Config {
@@ -60,6 +68,31 @@ impl Config {
         let expanded_path = shellexpand::tilde(&package_dir);
         PathBuf::from(expanded_path.as_ref())
     }
+
+    pub fn resolve_environment<'a>(
+        &self,
+        package: &'a PackageNode,
+    ) -> Result<&'a EnvironmentConfig, ConfigValidationError> {
+        if self.environment.is_empty() {
+            return Err(ConfigValidationError::InvalidPackage(
+                "Package has no environments".to_string(),
+            ));
+        }
+
+        package
+            .resolve_environment(&self.environment)
+            .map_err(|e| match e {
+                PackageValidationError::EnvironmentNotSupported(_) => {
+                    ConfigValidationError::EnvironmentNotFound(self.environment.clone())
+                }
+                PackageValidationError::MissingField(_) => {
+                    ConfigValidationError::InvalidPackage("Package has no environments".to_string())
+                }
+                _ => ConfigValidationError::InvalidPackage(
+                    "Invalid package configuration".to_string(),
+                ),
+            })
+    }
 }
 
 // Builder pattern for testing
@@ -89,6 +122,8 @@ impl ConfigBuilder {
 
 #[cfg(test)]
 mod tests {
+    use crate::package::PackageNodeBuilder;
+
     use super::*;
 
     #[test]
@@ -161,5 +196,66 @@ mod tests {
         let home_dir = dirs::home_dir().unwrap();
         let expected_path = home_dir.join("test/path");
         assert_eq!(config.expanded_package_directory(), expected_path);
+    }
+
+    #[test]
+    fn test_resolve_environment_valid() {
+        let config = ConfigBuilder::default()
+            .environment("test-env")
+            .package_directory("/test/path")
+            .build();
+
+        let package = PackageNodeBuilder::default()
+            .name("test-package")
+            .version("1.0.0")
+            .environment("test-env", "test install")
+            .build();
+
+        let result = config.resolve_environment(&package);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().install, "test install");
+    }
+
+    #[test]
+    fn test_resolve_environment_not_found() {
+        let config = ConfigBuilder::default()
+            .environment("prod-env")
+            .package_directory("/test/path")
+            .build();
+
+        let package = PackageNodeBuilder::default()
+            .name("test-package")
+            .version("1.0.0")
+            .environment("test-env", "test install")
+            .build();
+
+        let result = config.resolve_environment(&package);
+        assert_eq!(
+            result,
+            Err(ConfigValidationError::EnvironmentNotFound(
+                "prod-env".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn test_resolve_environment_empty_package() {
+        let config = ConfigBuilder::default()
+            .environment("test-env")
+            .package_directory("/test/path")
+            .build();
+
+        let package = PackageNodeBuilder::default()
+            .name("test-package")
+            .version("1.0.0")
+            .build();
+
+        let result = config.resolve_environment(&package);
+        assert_eq!(
+            result,
+            Err(ConfigValidationError::InvalidPackage(
+                "Package has no environments".to_string()
+            ))
+        );
     }
 }

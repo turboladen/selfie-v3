@@ -23,6 +23,9 @@ pub enum PackageValidationError {
 
     #[error("Empty field: {0}")]
     EmptyField(String),
+
+    #[error("Environment '{0}' not supported by package")]
+    EnvironmentNotSupported(String),
 }
 
 impl PackageNode {
@@ -68,6 +71,19 @@ impl PackageNode {
             }
         }
         Ok(())
+    }
+
+    pub fn resolve_environment(
+        &self,
+        config_env: &str,
+    ) -> Result<&EnvironmentConfig, PackageValidationError> {
+        self.environments.get(config_env).ok_or_else(|| {
+            if self.environments.is_empty() {
+                PackageValidationError::MissingField("environments".to_string())
+            } else {
+                PackageValidationError::EnvironmentNotSupported(config_env.to_string())
+            }
+        })
     }
 }
 
@@ -186,6 +202,65 @@ mod tests {
             package.validate(),
             Err(PackageValidationError::EmptyField(
                 "install command for environment 'test-env'".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn test_resolve_environment_valid() {
+        let package = PackageNodeBuilder::default()
+            .name("test-package")
+            .version("1.0.0")
+            .environment("test-env", "test install")
+            .environment("prod-env", "prod install")
+            .build();
+
+        let result = package.resolve_environment("test-env");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().install, "test install");
+    }
+
+    #[test]
+    fn test_resolve_environment_case_insensitive() {
+        let package = PackageNodeBuilder::default()
+            .name("test-package")
+            .version("1.0.0")
+            .environment("Test-Env", "test install")
+            .build();
+
+        let result = package.resolve_environment("test-env");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_resolve_environment_not_found() {
+        let package = PackageNodeBuilder::default()
+            .name("test-package")
+            .version("1.0.0")
+            .environment("test-env", "test install")
+            .build();
+
+        let result = package.resolve_environment("prod-env");
+        assert_eq!(
+            result,
+            Err(PackageValidationError::EnvironmentNotSupported(
+                "prod-env".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn test_resolve_environment_empty() {
+        let package = PackageNodeBuilder::default()
+            .name("test-package")
+            .version("1.0.0")
+            .build();
+
+        let result = package.resolve_environment("test-env");
+        assert_eq!(
+            result,
+            Err(PackageValidationError::MissingField(
+                "environments".to_string()
             ))
         );
     }
