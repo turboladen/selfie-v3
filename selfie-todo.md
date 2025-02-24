@@ -62,16 +62,16 @@
 
 ### File System Port (Step 5)
 
-- [ ] Define FileSystem trait
-  - [ ] Read file operation
-  - [ ] Check path operation
-  - [ ] Expand path operation
-- [ ] Implement real file system adapter
-- [ ] Create test mock implementation
-- [ ] Write comprehensive tests
-  - [ ] Test real implementation
-  - [ ] Test mock implementation
-  - [ ] Test error cases
+- [x] Define FileSystem trait
+  - [x] Read file operation
+  - [x] Check path operation
+  - [x] Expand path operation
+- [x] Implement real file system adapter
+- [x] Create test mock implementation
+- [x] Write comprehensive tests
+  - [x] Test real implementation
+  - [x] Test mock implementation
+  - [x] Test error cases
 
 ### YAML Parsing (Step 6)
 
