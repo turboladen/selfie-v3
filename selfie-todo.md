@@ -47,16 +47,16 @@
 
 ### Dependency Graph (Step 4)
 
-- [ ] Create DependencyGraph structure
-- [ ] Implement node management
-  - [ ] Add nodes method
-  - [ ] Connect dependencies method
-- [ ] Implement graph validation
-- [ ] Implement cycle detection
-- [ ] Write tests
-  - [ ] Test graph building
-  - [ ] Test dependency chains
-  - [ ] Test cycle detection
+- [x] Create DependencyGraph structure
+- [x] Implement node management
+  - [x] Add nodes method
+  - [x] Connect dependencies method
+- [x] Implement graph validation
+- [x] Implement cycle detection
+- [x] Write tests
+  - [x] Test graph building
+  - [x] Test dependency chains
+  - [x] Test cycle detection
 
 ## Core Infrastructure Phase
 
