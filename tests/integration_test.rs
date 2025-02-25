@@ -1,10 +1,7 @@
 // tests/install_command_test.rs
 
-use std::path::PathBuf;
-use std::time::Duration;
 
 use selfie::{
-    cli::{Cli, Commands, PackageSubcommands},
     command::mock::MockCommandRunner,
     config::ConfigBuilder,
     filesystem::mock::MockFileSystem,
@@ -36,10 +33,10 @@ fn test_package_install_end_to_end() {
     "#;
 
     fs.add_file(
-        &std::path::Path::new("/test/packages/ripgrep.yaml"),
+        std::path::Path::new("/test/packages/ripgrep.yaml"),
         package_yaml,
     );
-    fs.add_existing_path(&std::path::Path::new("/test/packages"));
+    fs.add_existing_path(std::path::Path::new("/test/packages"));
 
     // Set up mock command responses
     runner.error_response("rg check", "Not found", 1); // Not installed
@@ -92,14 +89,14 @@ fn test_package_install_with_dependencies() {
     "#;
 
     fs.add_file(
-        &std::path::Path::new("/test/packages/ripgrep.yaml"),
+        std::path::Path::new("/test/packages/ripgrep.yaml"),
         package_yaml,
     );
     fs.add_file(
-        &std::path::Path::new("/test/packages/rust.yaml"),
+        std::path::Path::new("/test/packages/rust.yaml"),
         dependency_yaml,
     );
-    fs.add_existing_path(&std::path::Path::new("/test/packages"));
+    fs.add_existing_path(std::path::Path::new("/test/packages"));
 
     // Set up mock command responses
     runner.error_response("rg check", "Not found", 1); // Not installed

@@ -82,7 +82,7 @@ impl PackageNode {
         let mut package: PackageNode = serde_yaml::from_str(yaml_str)?;
 
         // Ensure defaults are set
-        for (_, env_config) in &mut package.environments {
+        for env_config in package.environments.values_mut() {
             if env_config.dependencies.is_empty() {
                 env_config.dependencies = Vec::new();
             }

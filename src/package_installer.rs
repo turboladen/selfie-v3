@@ -1,6 +1,5 @@
 // src/package_installer.rs
 
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use thiserror::Error;
@@ -8,11 +7,11 @@ use thiserror::Error;
 use crate::command::{CommandError, CommandOutput, CommandRunner};
 use crate::config::Config;
 use crate::filesystem::{FileSystem, FileSystemError};
-use crate::graph::{DependencyGraph, DependencyGraphError};
+use crate::graph::DependencyGraphError;
 use crate::installation::{InstallationError, InstallationManager, InstallationStatus};
 use crate::package::PackageNode;
 use crate::package_repo::{PackageRepoError, PackageRepository};
-use crate::progress::{MessageRenderer, ProgressReporter};
+use crate::progress::ProgressReporter;
 
 #[derive(Error, Debug)]
 pub enum PackageInstallerError {
@@ -345,8 +344,8 @@ mod tests {
         command::mock::MockCommandRunner,
         config::ConfigBuilder,
         filesystem::mock::MockFileSystem,
-        package::{EnvironmentConfig, PackageNodeBuilder},
-        progress::{ConsoleRenderer, MessageType},
+        package::PackageNodeBuilder,
+        progress::ConsoleRenderer,
     };
 
     fn create_test_package(name: &str) -> PackageNode {
@@ -374,7 +373,7 @@ mod tests {
 
     #[test]
     fn test_install_package_success() {
-        let (mut fs, mut runner, reporter, config) = create_test_environment();
+        let (fs, runner, reporter, config) = create_test_environment();
 
         // Set up the package file
         let package = create_test_package("ripgrep");
@@ -412,7 +411,7 @@ mod tests {
 
     #[test]
     fn test_install_package_already_installed() {
-        let (mut fs, mut runner, reporter, config) = create_test_environment();
+        let (fs, runner, reporter, config) = create_test_environment();
 
         // Set up the package file
         let package = create_test_package("ripgrep");
@@ -470,7 +469,7 @@ mod tests {
 
     #[test]
     fn test_install_package_with_dependencies() {
-        let (mut fs, mut runner, reporter, config) = create_test_environment();
+        let (fs, runner, reporter, config) = create_test_environment();
 
         // Set up the main package file with dependencies
         let package_yaml = r#"
@@ -495,14 +494,14 @@ mod tests {
         "#;
 
         fs.add_file(
-            &std::path::Path::new("/test/packages/ripgrep.yaml"),
+            std::path::Path::new("/test/packages/ripgrep.yaml"),
             package_yaml,
         );
         fs.add_file(
-            &std::path::Path::new("/test/packages/rust.yaml"),
+            std::path::Path::new("/test/packages/rust.yaml"),
             dependency_yaml,
         );
-        fs.add_existing_path(&std::path::Path::new("/test/packages"));
+        fs.add_existing_path(std::path::Path::new("/test/packages"));
 
         // Set up mock command responses
         runner.error_response("rg check", "Not found", 1); // Not installed
@@ -531,7 +530,7 @@ mod tests {
 
     #[test]
     fn test_install_package_with_failing_dependency() {
-        let (mut fs, mut runner, reporter, config) = create_test_environment();
+        let (fs, runner, reporter, config) = create_test_environment();
 
         // Set up the main package file with dependencies
         let package_yaml = r#"
@@ -556,14 +555,14 @@ mod tests {
         "#;
 
         fs.add_file(
-            &std::path::Path::new("/test/packages/ripgrep.yaml"),
+            std::path::Path::new("/test/packages/ripgrep.yaml"),
             package_yaml,
         );
         fs.add_file(
-            &std::path::Path::new("/test/packages/rust.yaml"),
+            std::path::Path::new("/test/packages/rust.yaml"),
             dependency_yaml,
         );
-        fs.add_existing_path(&std::path::Path::new("/test/packages"));
+        fs.add_existing_path(std::path::Path::new("/test/packages"));
 
         // Set up mock command responses - make the dependency installation fail
         runner.error_response("rust check", "Not found", 1); // Not installed
@@ -585,7 +584,7 @@ mod tests {
 
     #[test]
     fn test_install_package_installation_error() {
-        let (mut fs, mut runner, reporter, config) = create_test_environment();
+        let (fs, runner, reporter, config) = create_test_environment();
 
         // Set up the package file
         let package_yaml = r#"
@@ -598,10 +597,10 @@ mod tests {
         "#;
 
         fs.add_file(
-            &std::path::Path::new("/test/packages/ripgrep.yaml"),
+            std::path::Path::new("/test/packages/ripgrep.yaml"),
             package_yaml,
         );
-        fs.add_existing_path(&std::path::Path::new("/test/packages"));
+        fs.add_existing_path(std::path::Path::new("/test/packages"));
 
         // Set up mock command responses
         runner.error_response("test check", "Not found", 1); // Not installed
