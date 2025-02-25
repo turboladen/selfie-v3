@@ -86,15 +86,15 @@
 
 ### Command Execution (Step 7)
 
-- [ ] Create CommandRunner trait
-- [ ] Create CommandOutput structure
-- [ ] Implement shell command execution
-- [ ] Add timeout handling
-- [ ] Create test mock
-- [ ] Write tests
-  - [ ] Test basic execution
-  - [ ] Test timeout handling
-  - [ ] Test error cases
+- [x] Create CommandRunner trait
+- [x] Create CommandOutput structure
+- [x] Implement shell command execution
+- [x] Add timeout handling
+- [x] Create test mock
+- [x] Write tests
+  - [x] Test basic execution
+  - [x] Test timeout handling
+  - [x] Test error cases
 
 ### Installation Management (Step 8)
 
