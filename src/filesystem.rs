@@ -23,6 +23,21 @@ pub trait FileSystem {
     fn expand_path(&self, path: &Path) -> Result<PathBuf, FileSystemError>;
 }
 
+// Implement FileSystem for references to types that implement FileSystem
+impl<T: FileSystem + ?Sized> FileSystem for &T {
+    fn read_file(&self, path: &Path) -> Result<String, FileSystemError> {
+        (*self).read_file(path)
+    }
+
+    fn path_exists(&self, path: &Path) -> bool {
+        (*self).path_exists(path)
+    }
+
+    fn expand_path(&self, path: &Path) -> Result<PathBuf, FileSystemError> {
+        (*self).expand_path(path)
+    }
+}
+
 pub struct RealFileSystem;
 
 impl FileSystem for RealFileSystem {
@@ -49,7 +64,6 @@ impl FileSystem for RealFileSystem {
     }
 }
 
-#[cfg(test)]
 pub mod mock {
     use super::*;
     use std::cell::RefCell;
@@ -145,5 +159,21 @@ mod tests {
             fs.read_file(Path::new("/nonexistent.txt")),
             Err(FileSystemError::PathNotFound(_))
         ));
+    }
+
+    #[test]
+    fn test_reference_implementation() {
+        let fs = MockFileSystem::default();
+        let fs_ref = &fs;
+
+        // Add a mock file to the original filesystem
+        fs.add_file(Path::new("/test.txt"), "Hello, World!");
+
+        // Test that the reference implementation works
+        assert!(fs_ref.path_exists(Path::new("/test.txt")));
+        assert_eq!(
+            fs_ref.read_file(Path::new("/test.txt")).unwrap(),
+            "Hello, World!"
+        );
     }
 }

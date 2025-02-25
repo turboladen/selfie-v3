@@ -95,15 +95,13 @@ impl Config {
     }
 }
 
-// Builder pattern for testing
-#[cfg(test)]
+/// Builder pattern for testing
 #[derive(Default)]
 pub struct ConfigBuilder {
     environment: String,
     package_directory: PathBuf,
 }
 
-#[cfg(test)]
 impl ConfigBuilder {
     pub fn environment(mut self, environment: &str) -> Self {
         self.environment = environment.to_string();

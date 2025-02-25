@@ -122,33 +122,33 @@
 
 ### CLI Structure (Step 10)
 
-- [ ] Create CliOptions structure
-  - [ ] Environment override
-  - [ ] Package directory override
-  - [ ] Verbose flag
-  - [ ] No-color flag
-- [ ] Implement command parsing
-- [ ] Add options validation
-- [ ] Write tests
-  - [ ] Test option parsing
-  - [ ] Test validation
-  - [ ] Test Config integration
+- [x] Create CliOptions structure
+  - [x] Environment override
+  - [x] Package directory override
+  - [x] Verbose flag
+  - [x] No-color flag
+- [x] Implement command parsing
+- [x] Add options validation
+- [x] Write tests
+  - [x] Test option parsing
+  - [x] Test validation
+  - [x] Test Config integration
 
 ## Command Implementation Phase
 
 ### Package Installation (Step 11)
 
-- [ ] Create PackageInstaller structure
-- [ ] Integrate with:
-  - [ ] FileSystem trait
-  - [ ] CommandRunner trait
-  - [ ] MessageRenderer trait
-- [ ] Implement single package installation
-- [ ] Add error handling
-- [ ] Write tests
-  - [ ] Test basic installation
-  - [ ] Test command failures
-  - [ ] Test progress reporting
+- [x] Create PackageInstaller structure
+- [x] Integrate with:
+  - [x] FileSystem trait
+  - [x] CommandRunner trait
+  - [x] MessageRenderer trait
+- [x] Implement single package installation
+- [x] Add error handling
+- [x] Write tests
+  - [x] Test basic installation
+  - [x] Test command failures
+  - [x] Test progress reporting
 
 ### Dependency Resolution (Step 12)
 

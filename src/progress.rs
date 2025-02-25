@@ -48,7 +48,7 @@ pub struct Message {
 }
 
 /// Defines how messages should be rendered for display
-pub trait MessageRenderer {
+pub trait MessageRenderer: Send + Sync {
     /// Render a message as a string
     fn render(&self, message: &Message) -> String;
 
@@ -60,6 +60,7 @@ pub trait MessageRenderer {
 }
 
 /// Renderer that formats messages for console output with optional color and emoji support
+#[derive(Clone)]
 pub struct ConsoleRenderer {
     /// Whether to use emoji in output
     pub use_emoji: bool,
@@ -169,6 +170,18 @@ impl MessageRenderer for ConsoleRenderer {
 /// Helper for creating and rendering different types of messages
 pub struct ProgressReporter {
     renderer: Box<dyn MessageRenderer>,
+}
+
+impl Clone for ProgressReporter {
+    fn clone(&self) -> Self {
+        // We can't clone the MessageRenderer directly,
+        // so we need to create a new one
+        // In this case, we'll use a ConsoleRenderer as a default fallback
+        let console_renderer = Box::new(ConsoleRenderer::new(true, true));
+        Self {
+            renderer: console_renderer,
+        }
+    }
 }
 
 impl ProgressReporter {

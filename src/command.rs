@@ -47,6 +47,7 @@ pub trait CommandRunner {
     fn is_command_available(&self, command: &str) -> bool;
 }
 
+#[derive(Clone)] // Added Clone here
 pub struct ShellCommandRunner {
     shell: String,
     default_timeout: Duration,
@@ -139,7 +140,6 @@ impl CommandRunner for ShellCommandRunner {
     }
 }
 
-#[cfg(test)]
 pub mod mock {
     use super::*;
     use std::cell::RefCell;
@@ -149,6 +149,16 @@ pub mod mock {
     pub struct MockCommandRunner {
         responses: RefCell<HashMap<String, Result<CommandOutput, CommandError>>>,
         available_commands: RefCell<HashSet<String>>,
+    }
+
+    // Make sure the MockCommandRunner implements Clone for the integration test
+    impl Clone for MockCommandRunner {
+        fn clone(&self) -> Self {
+            MockCommandRunner {
+                responses: self.responses.clone(),
+                available_commands: self.available_commands.clone(),
+            }
+        }
     }
 
     impl MockCommandRunner {
@@ -207,8 +217,8 @@ pub mod mock {
                 .cloned()
                 .unwrap_or_else(|| {
                     Err(CommandError::ExecutionError(format!(
-                        "No mock response for command: {}",
-                        command
+                        "No mock response for command: `{}`.\nAll commands:\n{:#?}",
+                        command, self.responses
                     )))
                 })
         }
@@ -310,3 +320,4 @@ mod tests {
         assert!(!runner.is_command_available(random_cmd));
     }
 }
+
