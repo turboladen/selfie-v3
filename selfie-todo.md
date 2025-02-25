@@ -75,14 +75,14 @@
 
 ### YAML Parsing (Step 6)
 
-- [ ] Add serde derives to structures
-- [ ] Create YAML parsing functions
-- [ ] Implement error handling
-- [ ] Integrate with FileSystem trait
-- [ ] Write tests
-  - [ ] Test valid YAML parsing
-  - [ ] Test invalid YAML handling
-  - [ ] Test file system integration
+- [x] Add serde derives to structures
+- [x] Create YAML parsing functions
+- [x] Implement error handling
+- [x] Integrate with FileSystem trait
+- [x] Write tests
+  - [x] Test valid YAML parsing
+  - [x] Test invalid YAML handling
+  - [x] Test file system integration
 
 ### Command Execution (Step 7)
 
