@@ -112,13 +112,13 @@
 
 ### Progress Reporting (Step 9)
 
-- [ ] Create Message types
-- [ ] Implement MessageRenderer trait
-- [ ] Create basic console renderer
-- [ ] Write tests
-  - [ ] Test message formatting
-  - [ ] Test console output
-  - [ ] Test error reporting
+- [x] Create Message types
+- [x] Implement MessageRenderer trait
+- [x] Create basic console renderer
+- [x] Write tests
+  - [x] Test message formatting
+  - [x] Test console output
+  - [x] Test error reporting
 
 ### CLI Structure (Step 10)
 
