@@ -14,7 +14,6 @@ fn test_package_install_end_to_end() {
     // Create mock environment
     let fs = MockFileSystem::default();
     let runner = MockCommandRunner::new();
-    let reporter = ProgressReporter::new(Box::new(ConsoleRenderer::new(false, false)));
 
     // Create config
     let config = ConfigBuilder::default()
@@ -43,7 +42,7 @@ fn test_package_install_end_to_end() {
     runner.success_response("rg install", "Installed successfully");
 
     // Create package installer
-    let installer = PackageInstaller::new(fs, runner, config, reporter.clone(), false);
+    let installer = PackageInstaller::new(fs, runner, config, true, false, false);
 
     // Run the installation
     let result = installer.install_package("ripgrep");
@@ -105,7 +104,7 @@ fn test_package_install_with_dependencies() {
     runner.success_response("rust install", "Installed successfully");
 
     // Create package installer
-    let installer = PackageInstaller::new(fs, runner, config, reporter.clone(), false);
+    let installer = PackageInstaller::new(fs, runner, config, true, false, false);
 
     // Run the installation
     let result = installer.install_package("ripgrep");
@@ -195,7 +194,7 @@ fn test_package_install_with_complex_dependencies() {
     runner.success_response("dep3-install", "Installed successfully");
 
     // Create package installer
-    let installer = PackageInstaller::new(fs, runner, config, reporter, false);
+    let installer = PackageInstaller::new(fs, runner, config, true, false, false);
 
     // Run the installation
     let result = installer.install_package("main-pkg");

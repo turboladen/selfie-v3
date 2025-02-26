@@ -11,3 +11,4 @@ pub mod package;
 pub mod package_installer;
 pub mod package_repo;
 pub mod progress;
+pub mod progress_display;
