@@ -90,7 +90,7 @@ fn main() {
                 0
             }
         },
-        Commands::Config(cfg_cmd) => {
+        Commands::Config(_cfg_cmd) => {
             println!("{}", reporter.info("Config commands not implemented yet"));
             0
         }

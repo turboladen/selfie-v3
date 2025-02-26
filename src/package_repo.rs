@@ -24,13 +24,13 @@ pub enum PackageRepoError {
     DirectoryNotFound(String),
 }
 
-pub struct PackageRepository<F: FileSystem> {
-    fs: F,
+pub struct PackageRepository<'a, F: FileSystem> {
+    fs: &'a F,
     package_dir: PathBuf,
 }
 
-impl<F: FileSystem> PackageRepository<F> {
-    pub fn new(fs: F, package_dir: PathBuf) -> Self {
+impl<'a, F: FileSystem> PackageRepository<'a, F> {
+    pub fn new(fs: &'a F, package_dir: PathBuf) -> Self {
         Self { fs, package_dir }
     }
 
@@ -130,7 +130,7 @@ mod tests {
         fs.add_file(&package_path, yaml);
         fs.add_existing_path(&package_dir);
 
-        let repo = PackageRepository::new(fs, package_dir);
+        let repo = PackageRepository::new(&fs, package_dir);
         let package = repo.get_package("ripgrep").unwrap();
 
         assert_eq!(package.name, "ripgrep");
@@ -145,7 +145,7 @@ mod tests {
 
         fs.add_existing_path(&package_dir);
 
-        let repo = PackageRepository::new(fs, package_dir);
+        let repo = PackageRepository::new(&fs, package_dir);
         let result = repo.get_package("nonexistent");
 
         assert!(matches!(result, Err(PackageRepoError::PackageNotFound(_))));
@@ -156,7 +156,7 @@ mod tests {
         let fs = MockFileSystem::default();
         let package_dir = PathBuf::from("/test/nonexistent");
 
-        let repo = PackageRepository::new(fs, package_dir);
+        let repo = PackageRepository::new(&fs, package_dir);
         let result = repo.get_package("ripgrep");
 
         assert!(matches!(
@@ -186,7 +186,7 @@ mod tests {
         fs.add_file(&yml_path, yaml);
         fs.add_existing_path(&package_dir);
 
-        let repo = PackageRepository::new(fs, package_dir);
+        let repo = PackageRepository::new(&fs, package_dir);
         let result = repo.get_package("ripgrep");
 
         assert!(matches!(
@@ -208,7 +208,7 @@ mod tests {
         fs.add_file(&yml_path, "dummy content");
         fs.add_existing_path(&package_dir);
 
-        let repo = PackageRepository::new(fs, package_dir);
+        let repo = PackageRepository::new(&fs, package_dir);
 
         // Should find ripgrep.yaml
         let files = repo.find_package_files("ripgrep").unwrap();

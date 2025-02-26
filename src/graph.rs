@@ -30,7 +30,9 @@ impl DependencyGraph {
     /// Adds a package node to the graph
     pub fn add_node(&mut self, node: PackageNode) -> Result<(), DependencyGraphError> {
         if self.nodes.contains_key(&node.name) {
-            return Err(DependencyGraphError::DuplicatePackage(node.name));
+            // If node already exists, we'll just update it
+            self.nodes.insert(node.name.clone(), node.clone());
+            return Ok(());
         }
 
         self.nodes.insert(node.name.clone(), node.clone());
@@ -91,21 +93,24 @@ impl DependencyGraph {
 
     /// Returns a sorted list of packages in installation order
     pub fn installation_order(&self) -> Result<Vec<&PackageNode>, DependencyGraphError> {
+        // Use topological sort to get installation order
+        let mut result = Vec::new();
         let mut visited = HashSet::new();
-        let mut order = Vec::new();
+        let mut temp_visited = HashSet::new();
 
-        for node in self.nodes.keys() {
-            if !visited.contains(node) {
-                self.topological_sort(node, &mut visited, &mut order)?;
+        // Start DFS from each unvisited node
+        for node_name in self.nodes.keys() {
+            if !visited.contains(node_name) {
+                self.topological_sort_util(
+                    node_name,
+                    &mut visited,
+                    &mut temp_visited,
+                    &mut result,
+                )?;
             }
         }
 
-        // Claude added this, but the related test fails. Commenting out for now.
-        // order.reverse(); // Reverse to get correct installation order
-        Ok(order
-            .iter()
-            .filter_map(|name| self.nodes.get(name))
-            .collect())
+        Ok(result)
     }
 
     /// Returns the number of nodes in the graph
@@ -116,6 +121,11 @@ impl DependencyGraph {
     /// Returns true if the graph is empty
     pub fn is_empty(&self) -> bool {
         self.nodes.is_empty()
+    }
+
+    /// Returns a list of all package names in the graph
+    pub fn get_package_names(&self) -> Vec<String> {
+        self.nodes.keys().cloned().collect()
     }
 
     // Private helper methods
@@ -145,26 +155,51 @@ impl DependencyGraph {
         false
     }
 
-    fn topological_sort(
-        &self,
+    // Modified topological sort that delivers nodes in correct installation order
+    fn topological_sort_util<'a>(
+        &'a self,
         node: &str,
         visited: &mut HashSet<String>,
-        order: &mut Vec<String>,
+        temp_visited: &mut HashSet<String>,
+        result: &mut Vec<&'a PackageNode>,
     ) -> Result<(), DependencyGraphError> {
-        visited.insert(node.to_string());
+        // Check for cycle using temporary visit mark
+        if temp_visited.contains(node) {
+            return Err(DependencyGraphError::CircularDependency(format!(
+                "Detected cycle involving {}",
+                node
+            )));
+        }
 
+        // Skip if already visited
+        if visited.contains(node) {
+            return Ok(());
+        }
+
+        // Mark as temporarily visited
+        temp_visited.insert(node.to_string());
+
+        // Process all dependencies first
         if let Some(deps) = self.edges.get(node) {
             for dep in deps {
-                if !visited.contains(dep) {
-                    self.topological_sort(dep, visited, order)?;
-                }
+                self.topological_sort_util(dep, visited, temp_visited, result)?;
             }
         }
 
-        order.push(node.to_string());
+        // Mark as permanently visited
+        visited.insert(node.to_string());
+
+        // Add to result after dependencies
+        result.push(self.nodes.get(node).unwrap());
+
+        // Remove from temp visited
+        temp_visited.remove(node);
+
         Ok(())
     }
 }
+
+// src/graph.rs - add to the bottom
 
 #[cfg(test)]
 mod tests {
@@ -184,6 +219,7 @@ mod tests {
         let graph = DependencyGraph::default();
         assert!(graph.is_empty());
         assert_eq!(graph.len(), 0);
+        assert!(graph.get_package_names().is_empty());
     }
 
     #[test]
@@ -193,19 +229,28 @@ mod tests {
 
         assert!(graph.add_node(package).is_ok());
         assert_eq!(graph.len(), 1);
+        assert_eq!(graph.get_package_names(), vec!["test-package"]);
     }
 
     #[test]
-    fn test_add_duplicate_node() {
+    fn test_update_existing_node() {
         let mut graph = DependencyGraph::default();
         let package1 = create_test_package("test-package");
-        let package2 = create_test_package("test-package");
+
+        // Create a slightly different version
+        let package2 = PackageNodeBuilder::default()
+            .name("test-package")
+            .version("1.1.0") // Different version
+            .environment("test-env", "test install")
+            .build();
 
         assert!(graph.add_node(package1).is_ok());
-        assert!(matches!(
-            graph.add_node(package2),
-            Err(DependencyGraphError::DuplicatePackage(_))
-        ));
+        assert!(graph.add_node(package2).is_ok()); // Should succeed
+        assert_eq!(graph.len(), 1); // Still only 1 node
+
+        // The node should have been updated to the new version
+        let nodes = graph.installation_order().unwrap();
+        assert_eq!(nodes[0].version, "1.1.0");
     }
 
     #[test]
@@ -217,6 +262,12 @@ mod tests {
         assert!(graph.add_node(package1).is_ok());
         assert!(graph.add_node(package2).is_ok());
         assert!(graph.add_dependency("package1", "package2").is_ok());
+
+        // Check that dependency is reflected in installation order
+        let order = graph.installation_order().unwrap();
+        assert_eq!(order.len(), 2);
+        assert_eq!(order[0].name, "package2"); // Dependency comes first
+        assert_eq!(order[1].name, "package1");
     }
 
     #[test]
@@ -265,7 +316,7 @@ mod tests {
     }
 
     #[test]
-    fn test_installation_order() {
+    fn test_installation_order_simple() {
         let mut graph = DependencyGraph::default();
         let package1 = create_test_package("package1");
         let package2 = create_test_package("package2");
@@ -279,9 +330,121 @@ mod tests {
 
         let order = graph.installation_order().unwrap();
         assert_eq!(order.len(), 3);
-        dbg!(&order);
-        assert_eq!(order[0].name, "package3");
+        assert_eq!(order[0].name, "package3"); // Deepest dependency first
         assert_eq!(order[1].name, "package2");
         assert_eq!(order[2].name, "package1");
+    }
+
+    #[test]
+    fn test_installation_order_diamond() {
+        let mut graph = DependencyGraph::default();
+
+        // Create a diamond dependency: main -> (dep1, dep2) -> common
+        let main = create_test_package("main");
+        let dep1 = create_test_package("dep1");
+        let dep2 = create_test_package("dep2");
+        let common = create_test_package("common");
+
+        assert!(graph.add_node(main).is_ok());
+        assert!(graph.add_node(dep1).is_ok());
+        assert!(graph.add_node(dep2).is_ok());
+        assert!(graph.add_node(common).is_ok());
+
+        assert!(graph.add_dependency("main", "dep1").is_ok());
+        assert!(graph.add_dependency("main", "dep2").is_ok());
+        assert!(graph.add_dependency("dep1", "common").is_ok());
+        assert!(graph.add_dependency("dep2", "common").is_ok());
+
+        let order = graph.installation_order().unwrap();
+        assert_eq!(order.len(), 4);
+
+        // Common must come first, then dep1 and dep2 (order between them doesn't matter), then main
+        assert_eq!(order[0].name, "common");
+        assert!(order[1].name == "dep1" || order[1].name == "dep2");
+        assert!(order[2].name == "dep1" || order[2].name == "dep2");
+        assert_ne!(order[1].name, order[2].name); // dep1 and dep2 should be different
+        assert_eq!(order[3].name, "main");
+    }
+
+    #[test]
+    fn test_installation_order_multiple_deps() {
+        let mut graph = DependencyGraph::default();
+
+        // Create a package with multiple direct dependencies
+        let main = create_test_package("main");
+        let dep1 = create_test_package("dep1");
+        let dep2 = create_test_package("dep2");
+        let dep3 = create_test_package("dep3");
+
+        assert!(graph.add_node(main).is_ok());
+        assert!(graph.add_node(dep1).is_ok());
+        assert!(graph.add_node(dep2).is_ok());
+        assert!(graph.add_node(dep3).is_ok());
+
+        assert!(graph.add_dependency("main", "dep1").is_ok());
+        assert!(graph.add_dependency("main", "dep2").is_ok());
+        assert!(graph.add_dependency("main", "dep3").is_ok());
+
+        let order = graph.installation_order().unwrap();
+        assert_eq!(order.len(), 4);
+
+        // Dependencies can be in any order, but main must be last
+        assert!(order[0].name == "dep1" || order[0].name == "dep2" || order[0].name == "dep3");
+        assert!(order[1].name == "dep1" || order[1].name == "dep2" || order[1].name == "dep3");
+        assert!(order[2].name == "dep1" || order[2].name == "dep2" || order[2].name == "dep3");
+        assert_eq!(order[3].name, "main");
+
+        // All dependencies must be different
+        assert_ne!(order[0].name, order[1].name);
+        assert_ne!(order[0].name, order[2].name);
+        assert_ne!(order[1].name, order[2].name);
+    }
+
+    #[test]
+    fn test_complex_dependency_graph() {
+        let mut graph = DependencyGraph::default();
+
+        // Create a more complex graph:
+        // A -> B -> D
+        // A -> C -> D
+        // A -> E
+        // Where D is a shared dependency of B and C
+
+        let a = create_test_package("A");
+        let b = create_test_package("B");
+        let c = create_test_package("C");
+        let d = create_test_package("D");
+        let e = create_test_package("E");
+
+        assert!(graph.add_node(a).is_ok());
+        assert!(graph.add_node(b).is_ok());
+        assert!(graph.add_node(c).is_ok());
+        assert!(graph.add_node(d).is_ok());
+        assert!(graph.add_node(e).is_ok());
+
+        assert!(graph.add_dependency("A", "B").is_ok());
+        assert!(graph.add_dependency("A", "C").is_ok());
+        assert!(graph.add_dependency("A", "E").is_ok());
+        assert!(graph.add_dependency("B", "D").is_ok());
+        assert!(graph.add_dependency("C", "D").is_ok());
+
+        let order = graph.installation_order().unwrap();
+        assert_eq!(order.len(), 5);
+
+        // Verify the topological ordering constraints
+        let a_pos = order.iter().position(|p| p.name == "A").unwrap();
+        let b_pos = order.iter().position(|p| p.name == "B").unwrap();
+        let c_pos = order.iter().position(|p| p.name == "C").unwrap();
+        let d_pos = order.iter().position(|p| p.name == "D").unwrap();
+        let e_pos = order.iter().position(|p| p.name == "E").unwrap();
+
+        // A must come after B, C, and E
+        assert!(a_pos > b_pos);
+        assert!(a_pos > c_pos);
+        assert!(a_pos > e_pos);
+
+        // B and C must come after D
+        assert!(b_pos > d_pos);
+        assert!(c_pos > d_pos);
     }
 }

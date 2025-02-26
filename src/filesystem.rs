@@ -69,7 +69,7 @@ pub mod mock {
     use std::cell::RefCell;
     use std::collections::HashMap;
 
-    #[derive(Default)]
+    #[derive(Default, Clone)]
     pub struct MockFileSystem {
         files: RefCell<HashMap<PathBuf, String>>,
         existing_paths: RefCell<Vec<PathBuf>>,

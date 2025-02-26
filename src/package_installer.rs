@@ -1,17 +1,21 @@
 // src/package_installer.rs
+mod dependency;
 
 use std::time::{Duration, Instant};
 
 use thiserror::Error;
 
-use crate::command::{CommandError, CommandOutput, CommandRunner};
-use crate::config::Config;
-use crate::filesystem::{FileSystem, FileSystemError};
-use crate::graph::DependencyGraphError;
-use crate::installation::{InstallationError, InstallationManager, InstallationStatus};
-use crate::package::PackageNode;
-use crate::package_repo::{PackageRepoError, PackageRepository};
-use crate::progress::ProgressReporter;
+use crate::{
+    command::{CommandError, CommandOutput, CommandRunner},
+    config::Config,
+    filesystem::{FileSystem, FileSystemError},
+    installation::{InstallationError, InstallationManager, InstallationStatus},
+    package::PackageNode,
+    package_repo::PackageRepoError,
+    progress::ProgressReporter,
+};
+
+use dependency::{DependencyResolver, DependencyResolverError};
 
 #[derive(Error, Debug)]
 pub enum PackageInstallerError {
@@ -25,7 +29,7 @@ pub enum PackageInstallerError {
     PackageRepoError(#[from] PackageRepoError),
 
     #[error("Dependency error: {0}")]
-    DependencyError(#[from] DependencyGraphError),
+    DependencyError(#[from] DependencyResolverError),
 
     #[error("Installation error: {0}")]
     InstallationError(#[from] InstallationError),
@@ -142,19 +146,97 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
                 .info(&format!("Installing package '{}'", package_name))
         );
 
-        // Get the package from the repository
-        let start_time = Instant::now();
-        let repo = PackageRepository::new(&self.fs, self.config.expanded_package_directory());
-        let package = repo.get_package(package_name).map_err(|e| match e {
-            PackageRepoError::PackageNotFound(s) => PackageInstallerError::PackageNotFound(s),
-            PackageRepoError::MultiplePackagesFound(s) => {
-                PackageInstallerError::MultiplePackagesFound(s)
-            }
-            t => PackageInstallerError::PackageRepoError(t),
-        })?;
+        // Create dependency resolver
+        let resolver = DependencyResolver::new(&self.fs, &self.config);
 
-        // Build and resolve the dependency graph
-        let dependencies = self.install_dependencies(&package)?;
+        // Resolve dependencies
+        println!("{}", self.reporter.info("Resolving dependencies..."));
+
+        // Start timing the entire process
+        let start_time = Instant::now();
+
+        let packages = resolver.resolve_dependencies(package_name)?;
+
+        if packages.len() > 1 {
+            println!(
+                "{}",
+                self.reporter.info(&format!(
+                    "Found {} packages to install (including dependencies)",
+                    packages.len()
+                ))
+            );
+        }
+
+        // Get the main package (last in the list)
+        let main_package = packages.last().unwrap().clone();
+
+        // Install all packages in order
+        let mut dependency_results = Vec::new();
+
+        // All packages except the last one are dependencies
+        for package in packages.iter().take(packages.len() - 1) {
+            println!(
+                "{}",
+                self.reporter
+                    .info(&format!("Installing dependency '{}'", package.name))
+            );
+
+            // Install dependency and stop immediately on failure
+            match self.install_single_package(package) {
+                Ok(result) => {
+                    // Only continue if installation was successful or package was already installed
+                    match result.status {
+                        InstallationStatus::Complete | InstallationStatus::AlreadyInstalled => {
+                            dependency_results.push(result);
+                        }
+                        _ => {
+                            // For any other status (like Failed), return an error to stop the process
+                            return Err(PackageInstallerError::InstallationError(
+                                InstallationError::InstallationFailed(format!(
+                                    "Dependency '{}' installation failed: {:?}",
+                                    package.name, result.status
+                                )),
+                            ));
+                        }
+                    }
+                }
+                Err(err) => {
+                    // Immediately return any error during dependency installation
+                    return Err(err);
+                }
+            }
+        }
+
+        // Only install the main package if all dependencies were successfully installed
+        println!(
+            "{}",
+            self.reporter
+                .info(&format!("Installing main package '{}'", main_package.name))
+        );
+        let main_result = self.install_single_package(&main_package)?;
+
+        // Get the total installation time
+        let total_duration = start_time.elapsed();
+
+        // Create the final result with dependencies
+        let mut final_result = main_result.with_dependencies(dependency_results);
+
+        // Override the duration with the total time
+        println!("Overriding duration: {:?}", total_duration);
+        final_result.duration = total_duration;
+
+        // Report final status including timing information
+        self.report_final_status(&final_result);
+
+        Ok(final_result)
+    }
+
+    /// Install a single package (no dependency handling)
+    fn install_single_package(
+        &self,
+        package: &PackageNode,
+    ) -> Result<InstallationResult, PackageInstallerError> {
+        let start_time = Instant::now();
 
         // Create installation manager
         let installation_manager =
@@ -208,114 +290,7 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
             }
         };
 
-        // Add dependencies to the result
-        let result = result.with_dependencies(dependencies);
-
-        // Report final status including timing information
-        self.report_final_status(&result);
-
         Ok(result)
-    }
-
-    /// Install all dependencies for a package
-    fn install_dependencies(
-        &self,
-        package: &PackageNode,
-    ) -> Result<Vec<InstallationResult>, PackageInstallerError> {
-        // Resolve environment-specific dependencies
-        let env_config = self
-            .config
-            .resolve_environment(package)
-            .map_err(|e| PackageInstallerError::EnvironmentError(e.to_string()))?;
-
-        if env_config.dependencies.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        println!("{}", self.reporter.info("  Dependencies:"));
-
-        let mut results = Vec::new();
-        let repo = PackageRepository::new(&self.fs, self.config.expanded_package_directory());
-
-        // Install each dependency directly instead of creating a new installer
-        for dep_name in &env_config.dependencies {
-            println!(
-                "{}",
-                self.reporter
-                    .info(&format!("    Installing dependency '{}'", dep_name))
-            );
-
-            // Get the dependency package
-            let dep_package = repo.get_package(dep_name).map_err(|e| match e {
-                PackageRepoError::PackageNotFound(s) => PackageInstallerError::PackageNotFound(s),
-                PackageRepoError::MultiplePackagesFound(s) => {
-                    PackageInstallerError::MultiplePackagesFound(s)
-                }
-                t => PackageInstallerError::PackageRepoError(t),
-            })?;
-
-            // Create installation manager
-            let installation_manager =
-                InstallationManager::new(self.runner.clone(), self.config.clone());
-
-            // Install the dependency
-            let start_time = std::time::Instant::now();
-
-            let result = match installation_manager.install_package(dep_package.clone()) {
-                Ok(installation) => {
-                    let duration = start_time.elapsed();
-                    match installation.status {
-                        InstallationStatus::Complete => {
-                            println!(
-                                "{}",
-                                self.reporter.success(&format!(
-                                    "    Dependency installation complete ({:.1?})",
-                                    duration
-                                ))
-                            );
-                            InstallationResult::success(dep_name, duration, None)
-                        }
-                        InstallationStatus::AlreadyInstalled => {
-                            println!(
-                                "{}",
-                                self.reporter.success(&format!(
-                                    "    Dependency already installed ({:.1?})",
-                                    duration
-                                ))
-                            );
-                            InstallationResult::already_installed(dep_name, duration)
-                        }
-                        _ => {
-                            let error_msg = format!(
-                                "Dependency installation failed: {:?}",
-                                installation.status
-                            );
-                            println!("{}", self.reporter.error(&error_msg));
-                            return Err(PackageInstallerError::DependencyError(
-                                DependencyGraphError::InvalidDependency(format!(
-                                    "Failed to install dependency '{}': {}",
-                                    dep_name, error_msg
-                                )),
-                            ));
-                        }
-                    }
-                }
-                Err(err) => {
-                    let error_msg = format!("Dependency installation error: {}", err);
-                    println!("{}", self.reporter.error(&error_msg));
-                    return Err(PackageInstallerError::DependencyError(
-                        DependencyGraphError::InvalidDependency(format!(
-                            "Failed to install dependency '{}': {}",
-                            dep_name, err
-                        )),
-                    ));
-                }
-            };
-
-            results.push(result);
-        }
-
-        Ok(results)
     }
 
     /// Report the final installation status with timing information
@@ -338,23 +313,14 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
 mod tests {
     use std::time::Duration;
 
+    use dependency::DependencyResolverError;
+
     use super::*;
 
     use crate::{
-        command::mock::MockCommandRunner,
-        config::ConfigBuilder,
-        filesystem::mock::MockFileSystem,
-        package::PackageNodeBuilder,
+        command::mock::MockCommandRunner, config::ConfigBuilder, filesystem::mock::MockFileSystem,
         progress::ConsoleRenderer,
     };
-
-    fn create_test_package(name: &str) -> PackageNode {
-        PackageNodeBuilder::default()
-            .name(name)
-            .version("1.0.0")
-            .environment_with_check("test-env", "test install", "test check")
-            .build()
-    }
 
     fn create_test_config() -> Config {
         ConfigBuilder::default()
@@ -376,7 +342,6 @@ mod tests {
         let (fs, runner, reporter, config) = create_test_environment();
 
         // Set up the package file
-        let package = create_test_package("ripgrep");
         let package_yaml = r#"
             name: ripgrep
             version: 1.0.0
@@ -414,7 +379,6 @@ mod tests {
         let (fs, runner, reporter, config) = create_test_environment();
 
         // Set up the package file
-        let package = create_test_package("ripgrep");
         let package_yaml = r#"
             name: ripgrep
             version: 1.0.0
@@ -462,7 +426,11 @@ mod tests {
         // Verify the result
         assert!(result.is_err());
         match result {
-            Err(PackageInstallerError::PackageNotFound(_)) => (),
+            Err(PackageInstallerError::DependencyError(
+                DependencyResolverError::PackageNotFound(name),
+            )) => {
+                assert_eq!(name, "nonexistent");
+            }
             t => panic!("Expected PackageNotFound error; got {t:#?}"),
         }
     }
@@ -534,25 +502,25 @@ mod tests {
 
         // Set up the main package file with dependencies
         let package_yaml = r#"
-            name: ripgrep
-            version: 1.0.0
-            environments:
-              test-env:
-                install: rg install
-                check: rg check
-                dependencies:
-                  - rust
-        "#;
+        name: ripgrep
+        version: 1.0.0
+        environments:
+          test-env:
+            install: rg install
+            check: rg check
+            dependencies:
+              - rust
+    "#;
 
         // Set up the dependency package file
         let dependency_yaml = r#"
-            name: rust
-            version: 1.0.0
-            environments:
-              test-env:
-                install: rust install
-                check: rust check
-        "#;
+        name: rust
+        version: 1.0.0
+        environments:
+          test-env:
+            install: rust install
+            check: rust check
+    "#;
 
         fs.add_file(
             std::path::Path::new("/test/packages/ripgrep.yaml"),
@@ -568,17 +536,21 @@ mod tests {
         runner.error_response("rust check", "Not found", 1); // Not installed
         runner.error_response("rust install", "Installation failed", 1); // Installation fails
 
+        // Make sure we don't get to the main package install by NOT providing a response for it
+        // This will cause an error if the code tries to install the main package after a dependency fails
+        // We don't need to add responses for the main package's commands
+
         // Create the installer
         let installer = PackageInstaller::new(fs, runner, config, reporter, false);
 
         // Run the installation
         let result = installer.install_package("ripgrep");
 
-        // Verify the result
+        // Verify the result - we explicitly expect an error of type InstallationError
         assert!(result.is_err());
         match result {
-            Err(PackageInstallerError::DependencyError(_)) => (),
-            _ => panic!("Expected DependencyError"),
+            Err(PackageInstallerError::InstallationError(_)) => (), // This is what we expect
+            other => panic!("Expected InstallationError, got {:?}", other),
         }
     }
 
@@ -638,5 +610,189 @@ mod tests {
 
         assert_eq!(result.total_duration(), Duration::from_secs(10)); // 5 + 3 + 2
         assert_eq!(result.dependency_duration(), Duration::from_secs(5)); // 3 + 2
+    }
+
+    #[test]
+    fn test_install_package_with_complex_dependencies() {
+        let (fs, runner, reporter, config) = create_test_environment();
+
+        // Set up package files with a dependency chain: main-pkg -> dep1 -> dep2
+        let main_pkg_yaml = r#"
+        name: main-pkg
+        version: 1.0.0
+        environments:
+          test-env:
+            install: main-install
+            check: main-check
+            dependencies:
+              - dep1
+    "#;
+
+        let dep1_yaml = r#"
+        name: dep1
+        version: 1.0.0
+        environments:
+          test-env:
+            install: dep1-install
+            check: dep1-check
+            dependencies:
+              - dep2
+    "#;
+
+        let dep2_yaml = r#"
+        name: dep2
+        version: 1.0.0
+        environments:
+          test-env:
+            install: dep2-install
+            check: dep2-check
+    "#;
+
+        fs.add_file(
+            std::path::Path::new("/test/packages/main-pkg.yaml"),
+            main_pkg_yaml,
+        );
+        fs.add_file(std::path::Path::new("/test/packages/dep1.yaml"), dep1_yaml);
+        fs.add_file(std::path::Path::new("/test/packages/dep2.yaml"), dep2_yaml);
+        fs.add_existing_path(std::path::Path::new("/test/packages"));
+
+        // Set up mock command responses
+        runner.error_response("main-check", "Not found", 1);
+        runner.success_response("main-install", "Installed successfully");
+        runner.error_response("dep1-check", "Not found", 1);
+        runner.success_response("dep1-install", "Installed successfully");
+        runner.error_response("dep2-check", "Not found", 1);
+        runner.success_response("dep2-install", "Installed successfully");
+
+        // Create the installer
+        let installer = PackageInstaller::new(fs, runner, config, reporter, false);
+
+        // Run the installation
+        let result = installer.install_package("main-pkg");
+
+        // Verify the result
+        assert!(result.is_ok());
+        let install_result = result.unwrap();
+
+        // Main package was installed correctly
+        assert_eq!(install_result.package_name, "main-pkg");
+        assert_eq!(install_result.status, InstallationStatus::Complete);
+
+        // Dependencies were installed
+        assert_eq!(install_result.dependencies.len(), 2);
+
+        // dep2 should be first in the dependency list since it's deepest
+        assert_eq!(install_result.dependencies[0].package_name, "dep2");
+        assert_eq!(
+            install_result.dependencies[0].status,
+            InstallationStatus::Complete
+        );
+
+        // dep1 should be second
+        assert_eq!(install_result.dependencies[1].package_name, "dep1");
+        assert_eq!(
+            install_result.dependencies[1].status,
+            InstallationStatus::Complete
+        );
+    }
+
+    #[test]
+    fn test_install_package_with_dependency_already_installed() {
+        let (fs, runner, reporter, config) = create_test_environment();
+
+        // Set up package files with one dependency
+        let main_pkg_yaml = r#"
+        name: main-pkg
+        version: 1.0.0
+        environments:
+          test-env:
+            install: main-install
+            check: main-check
+            dependencies:
+              - dep1
+    "#;
+
+        let dep1_yaml = r#"
+        name: dep1
+        version: 1.0.0
+        environments:
+          test-env:
+            install: dep1-install
+            check: dep1-check
+    "#;
+
+        fs.add_file(
+            std::path::Path::new("/test/packages/main-pkg.yaml"),
+            main_pkg_yaml,
+        );
+        fs.add_file(std::path::Path::new("/test/packages/dep1.yaml"), dep1_yaml);
+        fs.add_existing_path(std::path::Path::new("/test/packages"));
+
+        // Set up mock command responses
+        runner.error_response("main-check", "Not found", 1);
+        runner.success_response("main-install", "Installed successfully");
+        runner.success_response("dep1-check", "Already installed"); // Dependency already installed
+
+        // Create the installer
+        let installer = PackageInstaller::new(fs, runner, config, reporter, false);
+
+        // Run the installation
+        let result = installer.install_package("main-pkg");
+
+        // Verify the result
+        assert!(result.is_ok());
+        let install_result = result.unwrap();
+
+        // Main package was installed correctly
+        assert_eq!(install_result.package_name, "main-pkg");
+        assert_eq!(install_result.status, InstallationStatus::Complete);
+
+        // Dependency was already installed
+        assert_eq!(install_result.dependencies.len(), 1);
+        assert_eq!(install_result.dependencies[0].package_name, "dep1");
+        assert_eq!(
+            install_result.dependencies[0].status,
+            InstallationStatus::AlreadyInstalled
+        );
+    }
+
+    #[test]
+    fn test_install_package_with_missing_dependency() {
+        let (fs, runner, reporter, config) = create_test_environment();
+
+        // Set up package file with a non-existent dependency
+        let main_pkg_yaml = r#"
+        name: main-pkg
+        version: 1.0.0
+        environments:
+          test-env:
+            install: main-install
+            check: main-check
+            dependencies:
+              - missing-dep
+    "#;
+
+        fs.add_file(
+            std::path::Path::new("/test/packages/main-pkg.yaml"),
+            main_pkg_yaml,
+        );
+        fs.add_existing_path(std::path::Path::new("/test/packages"));
+
+        // Create the installer
+        let installer = PackageInstaller::new(fs, runner, config, reporter, false);
+
+        // Run the installation
+        let result = installer.install_package("main-pkg");
+
+        // Verify the result
+        assert!(result.is_err());
+        match result {
+            Err(PackageInstallerError::DependencyError(
+                DependencyResolverError::PackageNotFound(name),
+            )) => {
+                assert_eq!(name, "missing-dep");
+            }
+            _ => panic!("Expected package not found error"),
+        }
     }
 }

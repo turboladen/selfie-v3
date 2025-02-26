@@ -152,15 +152,15 @@
 
 ### Dependency Resolution (Step 12)
 
-- [ ] Update PackageInstaller
-  - [ ] Add dependency graph building
-  - [ ] Add installation ordering
-  - [ ] Add circular dependency handling
-- [ ] Add dependency validation
-- [ ] Write tests
-  - [ ] Test dependency chains
-  - [ ] Test circular dependencies
-  - [ ] Test installation ordering
+- [x] Update PackageInstaller
+  - [x] Add dependency graph building
+  - [x] Add installation ordering
+  - [x] Add circular dependency handling
+- [x] Add dependency validation
+- [x] Write tests
+  - [x] Test dependency chains
+  - [x] Test circular dependencies
+  - [x] Test installation ordering
 
 ### Progress Display (Step 13)
 
