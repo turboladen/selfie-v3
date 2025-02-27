@@ -175,15 +175,15 @@
 
 ### Package Validation (Step 14)
 
-- [ ] Create PackageValidator
-- [ ] Implement validation rules
-  - [ ] Required fields
-  - [ ] Command syntax
-  - [ ] URL validation
-- [ ] Add error reporting
-- [ ] Write tests
-  - [ ] Test validation cases
-  - [ ] Test error reporting
+- [x] Create PackageValidator
+- [x] Implement validation rules
+  - [x] Required fields
+  - [x] Command syntax
+  - [x] URL validation
+- [x] Add error reporting
+- [x] Write tests
+  - [x] Test validation cases
+  - [x] Test error reporting
 
 ### Package Listing (Step 15)
 

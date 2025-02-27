@@ -13,6 +13,10 @@ pub struct PackageNode {
     pub name: String,
     pub version: String,
     #[serde(default)]
+    pub homepage: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
     pub environments: HashMap<String, EnvironmentConfig>,
     #[serde(skip, default)]
     pub path: Option<PathBuf>,
@@ -61,11 +65,15 @@ impl PackageNode {
     pub fn new(
         name: String,
         version: String,
+        homepage: Option<String>,
+        description: Option<String>,
         environments: HashMap<String, EnvironmentConfig>,
     ) -> Self {
         Self {
             name,
             version,
+            homepage,
+            description,
             environments,
             path: None,
         }
@@ -163,6 +171,8 @@ impl PackageNode {
 pub struct PackageNodeBuilder {
     name: String,
     version: String,
+    homepage: Option<String>,
+    description: Option<String>,
     environments: HashMap<String, EnvironmentConfig>,
 }
 
@@ -175,6 +185,16 @@ impl PackageNodeBuilder {
 
     pub fn version(mut self, version: &str) -> Self {
         self.version = version.to_string();
+        self
+    }
+
+    pub fn homepage(mut self, homepage: &str) -> Self {
+        self.homepage = Some(homepage.to_string());
+        self
+    }
+
+    pub fn description(mut self, description: &str) -> Self {
+        self.description = Some(description.to_string());
         self
     }
 
@@ -234,7 +254,13 @@ impl PackageNodeBuilder {
     }
 
     pub fn build(self) -> PackageNode {
-        PackageNode::new(self.name, self.version, self.environments)
+        PackageNode::new(
+            self.name,
+            self.version,
+            self.homepage,
+            self.description,
+            self.environments,
+        )
     }
 }
 
@@ -259,6 +285,8 @@ mod tests {
         let package = PackageNode::new(
             "test-package".to_string(),
             "1.0.0".to_string(),
+            None,
+            None,
             environments,
         );
 
@@ -269,6 +297,56 @@ mod tests {
             package.environments.get("test-env").unwrap().install,
             "test install"
         );
+    }
+
+    #[test]
+    fn test_create_package_with_metadata() {
+        let mut environments = HashMap::new();
+        environments.insert(
+            "test-env".to_string(),
+            EnvironmentConfig {
+                install: "test install".to_string(),
+                check: None,
+                dependencies: Vec::new(),
+            },
+        );
+
+        let package = PackageNode::new(
+            "test-package".to_string(),
+            "1.0.0".to_string(),
+            Some("https://example.com".to_string()),
+            Some("Test package description".to_string()),
+            environments,
+        );
+
+        assert_eq!(package.name, "test-package");
+        assert_eq!(package.version, "1.0.0");
+        assert_eq!(package.homepage, Some("https://example.com".to_string()));
+        assert_eq!(
+            package.description,
+            Some("Test package description".to_string())
+        );
+        assert_eq!(package.environments.len(), 1);
+    }
+
+    #[test]
+    fn test_package_builder_with_metadata() {
+        let package = PackageNodeBuilder::default()
+            .name("test-package")
+            .version("1.0.0")
+            .homepage("https://example.com")
+            .description("Test package description")
+            .environment("test-env", "test install")
+            .build();
+
+        assert_eq!(package.name, "test-package");
+        assert_eq!(package.version, "1.0.0");
+        assert_eq!(package.homepage, Some("https://example.com".to_string()));
+        assert_eq!(
+            package.description,
+            Some("Test package description".to_string())
+        );
+        assert_eq!(package.environments.len(), 1);
     }
 
     #[test]
@@ -386,6 +464,8 @@ mod tests {
         let yaml = r#"
             name: ripgrep
             version: 0.1.0
+            homepage: https://example.com
+            description: Fast line-oriented search tool
             environments:
               mac:
                 install: brew install ripgrep
@@ -400,6 +480,11 @@ mod tests {
 
         assert_eq!(package.name, "ripgrep");
         assert_eq!(package.version, "0.1.0");
+        assert_eq!(package.homepage, Some("https://example.com".to_string()));
+        assert_eq!(
+            package.description,
+            Some("Fast line-oriented search tool".to_string())
+        );
         assert_eq!(package.environments.len(), 2);
         assert_eq!(
             package.environments.get("mac").unwrap().install,

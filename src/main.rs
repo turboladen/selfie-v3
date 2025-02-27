@@ -7,6 +7,7 @@ use selfie::{
     command::ShellCommandRunner,
     filesystem::RealFileSystem,
     package_installer::PackageInstaller,
+    package_validate_command::{ValidateCommand, ValidateCommandResult},
     progress_display::ProgressManager,
 };
 
@@ -99,17 +100,25 @@ fn main() {
                 info_pb.finish();
                 0
             }
-            PackageSubcommands::Validate { package_name, .. } => {
-                let info_pb = progress_manager.create_progress_bar(
-                    "validate",
-                    &format!(
-                        "Package validation for '{}' not implemented yet",
-                        package_name
-                    ),
-                    selfie::progress_display::ProgressStyleType::Message,
-                );
-                info_pb.finish();
-                0
+            PackageSubcommands::Validate { .. } => {
+                // Use the new validate command
+                let validate_cmd =
+                    ValidateCommand::new(&fs, &runner, config, &progress_manager, cli.verbose);
+
+                match validate_cmd.execute(&pkg_cmd.command) {
+                    ValidateCommandResult::Valid(output) => {
+                        println!("{}", output);
+                        0
+                    }
+                    ValidateCommandResult::Invalid(output) => {
+                        println!("{}", output);
+                        1
+                    }
+                    ValidateCommandResult::Error(error) => {
+                        eprintln!("Error: {}", error);
+                        1
+                    }
+                }
             }
         },
         Commands::Config(_cfg_cmd) => {

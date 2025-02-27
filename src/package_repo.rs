@@ -75,7 +75,7 @@ impl<'a, F: FileSystem> PackageRepository<'a, F> {
     }
 
     // Find package files that match the given name
-    fn find_package_files(&self, name: &str) -> Result<Vec<PathBuf>, PackageRepoError> {
+    pub fn find_package_files(&self, name: &str) -> Result<Vec<PathBuf>, PackageRepoError> {
         if !self.fs.path_exists(&self.package_dir) {
             return Err(PackageRepoError::DirectoryNotFound(
                 self.package_dir.to_string_lossy().into_owned(),
