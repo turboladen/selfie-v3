@@ -120,6 +120,9 @@ impl PackageInstallation {
 
         let install_cmd = &self.env_config.install;
 
+        // For commands that might take a long time, we should update the progress
+        // This implementation is simplified and doesn't actually stream the output
+        // A more advanced implementation would use channels to stream output during execution
         match runner.execute(install_cmd) {
             Ok(output) => {
                 if output.success {

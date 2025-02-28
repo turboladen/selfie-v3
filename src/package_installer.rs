@@ -292,6 +292,9 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
             .update_from_status(progress_id, &InstallationStatus::Checking, None)
             .map_err(PackageInstallerError::EnvironmentError)?;
 
+        // Short delay to allow the spinner to visibly show checking state
+        std::thread::sleep(Duration::from_millis(200));
+
         // Install the package
         let result = match installation_manager.install_package(package.clone()) {
             Ok(installation) => {
@@ -301,6 +304,9 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
                 self.progress_manager
                     .update_from_status(progress_id, &installation.status, Some(duration))
                     .map_err(PackageInstallerError::EnvironmentError)?;
+
+                // Small delay to ensure the final status is visible
+                std::thread::sleep(Duration::from_millis(100));
 
                 match installation.status {
                     InstallationStatus::Complete => {
@@ -331,6 +337,9 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
                         Some(duration),
                     )
                     .map_err(PackageInstallerError::EnvironmentError)?;
+
+                // Small delay to ensure the error status is visible
+                std::thread::sleep(Duration::from_millis(100));
 
                 InstallationResult::failed(
                     &package.name,

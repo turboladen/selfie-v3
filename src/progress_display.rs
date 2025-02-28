@@ -66,6 +66,11 @@ impl ProgressManager {
         let progress_bar = self.multi_progress.add(pb);
         progress_bar.set_message(message.to_string());
 
+        // Enable spinner animation for spinner-type progress bars
+        if style_type == ProgressStyleType::Spinner {
+            self.enable_spinner(&progress_bar);
+        }
+
         // Store the progress bar for later reference
         self.progress_bars
             .lock()
@@ -186,6 +191,12 @@ impl ProgressManager {
         } else {
             message.to_string()
         }
+    }
+
+    // Add this method to enable spinner ticking
+    fn enable_spinner(&self, pb: &ProgressBar) {
+        // Set a reasonable tick rate for spinners (100ms is a good default)
+        pb.enable_steady_tick(Duration::from_millis(100));
     }
 
     /// Create a spinner style progress bar
