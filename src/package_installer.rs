@@ -3,6 +3,7 @@ mod dependency;
 
 use std::time::{Duration, Instant};
 
+use console::style;
 use thiserror::Error;
 
 use crate::{
@@ -258,13 +259,29 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
         // Get or create progress bar for this package
         let progress_bar = match self.progress_manager.get_progress_bar(progress_id) {
             Some(pb) => pb,
-            None => self.progress_manager.create_progress_bar(
-                progress_id,
-                &format!("Installing '{}'", package.name),
-                ProgressStyleType::Spinner,
-            ),
+            None => {
+                let message = if self.progress_manager.use_colors() {
+                    format!("Installing '{}'", style(&package.name).magenta().bold())
+                } else {
+                    format!("Installing '{}'", package.name)
+                };
+
+                self.progress_manager.create_progress_bar(
+                    progress_id,
+                    &message,
+                    ProgressStyleType::Spinner,
+                )
+            }
         };
-        progress_bar.set_message(format!("Installing '{}'", package.name));
+
+        // Update the message with colors
+        let install_message = if self.progress_manager.use_colors() {
+            format!("Installing '{}'", style(&package.name).magenta().bold())
+        } else {
+            format!("Installing '{}'", package.name)
+        };
+
+        progress_bar.set_message(install_message);
 
         // Create installation manager
         let installation_manager =

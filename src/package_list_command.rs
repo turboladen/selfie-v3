@@ -1,6 +1,8 @@
 // src/package_list_command.rs
 // Implements the 'selfie package list' command
 
+use console::style;
+
 use crate::{
     command::CommandRunner,
     config::Config,
@@ -24,6 +26,7 @@ pub struct ListCommand<'a, F: FileSystem, R: CommandRunner> {
     config: Config,
     progress_manager: &'a ProgressManager,
     verbose: bool,
+    use_colors: bool, // Added this field
 }
 
 impl<'a, F: FileSystem, R: CommandRunner> ListCommand<'a, F, R> {
@@ -35,12 +38,15 @@ impl<'a, F: FileSystem, R: CommandRunner> ListCommand<'a, F, R> {
         progress_manager: &'a ProgressManager,
         verbose: bool,
     ) -> Self {
+        // Get the color setting from progress_manager
+        let use_colors = progress_manager.use_colors();
         Self {
             fs,
             _runner: runner,
             config,
             progress_manager,
             verbose,
+            use_colors,
         }
     }
 
@@ -88,25 +94,67 @@ impl<'a, F: FileSystem, R: CommandRunner> ListCommand<'a, F, R> {
         sorted_packages.sort_by(|a, b| a.name.cmp(&b.name));
 
         for package in sorted_packages {
-            let compatibility = if package.environments.contains_key(&self.config.environment) {
-                "Compatible with current environment"
+            let is_compatible = package.environments.contains_key(&self.config.environment);
+
+            // Style the package name and version with color
+            let package_name = if self.use_colors {
+                style(&package.name).magenta().bold().to_string()
             } else {
-                "Not compatible with current environment"
+                package.name.clone()
+            };
+
+            let version = if self.use_colors {
+                style(format!("v{}", &package.version)).dim().to_string()
+            } else {
+                format!("v{}", &package.version)
+            };
+
+            // Style the compatibility message with color
+            let compatibility = if is_compatible {
+                if self.use_colors {
+                    style("Compatible with current environment")
+                        .green()
+                        .to_string()
+                } else {
+                    "Compatible with current environment".to_string()
+                }
+            } else {
+                if self.use_colors {
+                    style("Not compatible with current environment")
+                        .red()
+                        .to_string()
+                } else {
+                    "Not compatible with current environment".to_string()
+                }
             };
 
             output.push_str(&format!(
-                "  {} (v{}) - {}\n",
-                package.name, package.version, compatibility
+                "  {} ({}) - {}\n",
+                package_name, version, compatibility
             ));
 
             // Add more details if verbose mode is enabled
             if self.verbose {
                 if let Some(desc) = &package.description {
-                    output.push_str(&format!("    Description: {}\n", desc));
+                    let description = if self.use_colors {
+                        style(format!("    Description: {}", desc))
+                            .blue()
+                            .to_string()
+                    } else {
+                        format!("    Description: {}", desc)
+                    };
+                    output.push_str(&format!("{}\n", description));
                 }
 
                 if let Some(homepage) = &package.homepage {
-                    output.push_str(&format!("    Homepage: {}\n", homepage));
+                    let homepage_text = if self.use_colors {
+                        style(format!("    Homepage: {}", homepage))
+                            .blue()
+                            .to_string()
+                    } else {
+                        format!("    Homepage: {}", homepage)
+                    };
+                    output.push_str(&format!("{}\n", homepage_text));
                 }
 
                 // Show environments
@@ -117,7 +165,14 @@ impl<'a, F: FileSystem, R: CommandRunner> ListCommand<'a, F, R> {
 
                 // Show file path if available
                 if let Some(path) = &package.path {
-                    output.push_str(&format!("    Path: {}\n", path.display()));
+                    let path_text = if self.use_colors {
+                        style(format!("    Path: {}", path.display()))
+                            .dim()
+                            .to_string()
+                    } else {
+                        format!("    Path: {}", path.display())
+                    };
+                    output.push_str(&format!("{}\n", path_text));
                 }
 
                 // Add a separator line between packages

@@ -6,6 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use console::style;
 use thiserror::Error;
 use url::Url;
 
@@ -473,7 +474,10 @@ impl<'a, F: FileSystem> PackageValidator<'a, F> {
 
         // Check for invalid redirections
         for redirect in &[">", ">>", "<"] {
-            if command.contains(&format!("{} ", redirect)) && !command.contains(&format!("{} /", redirect)) && !command.contains(&format!("{} ~/", redirect)) {
+            if command.contains(&format!("{} ", redirect))
+                && !command.contains(&format!("{} /", redirect))
+                && !command.contains(&format!("{} ~/", redirect))
+            {
                 result.add_issue(ValidationIssue::warning(
                     ValidationErrorCategory::CommandSyntax,
                     field_name,
@@ -543,28 +547,73 @@ impl<'a, F: FileSystem> PackageValidator<'a, F> {
     }
 }
 
-/// Formats validation results for display
-pub fn format_validation_result(result: &ValidationResult) -> String {
+/// Formats validation results for display, with optional color
+pub fn format_validation_result(result: &ValidationResult, use_colors: bool) -> String {
     let mut output = String::new();
 
     if result.is_valid() {
-        output.push_str(&format!("✓ Package '{}' is valid\n", result.package_name));
+        let status = if use_colors {
+            style("✓").green().to_string()
+        } else {
+            "✓".to_string()
+        };
+
+        let package_name = if use_colors {
+            style(&result.package_name).magenta().bold().to_string()
+        } else {
+            result.package_name.clone()
+        };
+
+        output.push_str(&format!("{} Package '{}' is valid\n", status, package_name));
 
         // Add warnings if any
         let warnings = result.warnings();
         if !warnings.is_empty() {
-            output.push_str("\nWarnings:\n");
+            let warning_header = if use_colors {
+                style("Warnings:").yellow().bold().to_string()
+            } else {
+                "Warnings:".to_string()
+            };
+
+            output.push_str(&format!("\n{}\n", warning_header));
+
             for warning in warnings {
-                output.push_str(&format!("  ! {}\n", warning.message));
+                let warn_prefix = if use_colors {
+                    style("  ! ").yellow().to_string()
+                } else {
+                    "  ! ".to_string()
+                };
+
+                output.push_str(&format!("{}{}\n", warn_prefix, warning.message));
+
                 if let Some(suggestion) = &warning.suggestion {
-                    output.push_str(&format!("    Suggestion: {}\n", suggestion));
+                    let suggestion_text = if use_colors {
+                        style(format!("    Suggestion: {}", suggestion))
+                            .dim()
+                            .to_string()
+                    } else {
+                        format!("    Suggestion: {}", suggestion)
+                    };
+                    output.push_str(&format!("{}\n", suggestion_text));
                 }
             }
         }
     } else {
+        let status = if use_colors {
+            style("✗").red().bold().to_string()
+        } else {
+            "✗".to_string()
+        };
+
+        let package_name = if use_colors {
+            style(&result.package_name).magenta().bold().to_string()
+        } else {
+            result.package_name.clone()
+        };
+
         output.push_str(&format!(
-            "✗ Validation failed for package: {}\n",
-            result.package_name
+            "{} Validation failed for package: {}\n",
+            status, package_name
         ));
 
         // Group errors by category
@@ -578,33 +627,99 @@ pub fn format_validation_result(result: &ValidationResult) -> String {
 
         // Print required field errors first
         if let Some(errors) = errors_by_category.get(&ValidationErrorCategory::RequiredField) {
-            output.push_str("\nRequired field errors:\n");
+            let header = if use_colors {
+                style("\nRequired field errors:").red().bold().to_string()
+            } else {
+                "\nRequired field errors:".to_string()
+            };
+
+            output.push_str(&header);
+            output.push('\n');
+
             for error in errors {
-                output.push_str(&format!("  • {}: {}\n", error.field, error.message));
+                let field = if use_colors {
+                    style(&error.field).cyan().to_string()
+                } else {
+                    error.field.clone()
+                };
+
+                output.push_str(&format!("  • {}: {}\n", field, error.message));
+
                 if let Some(suggestion) = &error.suggestion {
-                    output.push_str(&format!("    Suggestion: {}\n", suggestion));
+                    let suggestion_text = if use_colors {
+                        style(format!("    Suggestion: {}", suggestion))
+                            .dim()
+                            .to_string()
+                    } else {
+                        format!("    Suggestion: {}", suggestion)
+                    };
+                    output.push_str(&format!("{}\n", suggestion_text));
                 }
             }
         }
 
         // Then command syntax errors
         if let Some(errors) = errors_by_category.get(&ValidationErrorCategory::CommandSyntax) {
-            output.push_str("\nCommand syntax errors:\n");
+            let header = if use_colors {
+                style("\nCommand syntax errors:").red().bold().to_string()
+            } else {
+                "\nCommand syntax errors:".to_string()
+            };
+
+            output.push_str(&header);
+            output.push('\n');
+
             for error in errors {
-                output.push_str(&format!("  • {}: {}\n", error.field, error.message));
+                let field = if use_colors {
+                    style(&error.field).cyan().to_string()
+                } else {
+                    error.field.clone()
+                };
+
+                output.push_str(&format!("  • {}: {}\n", field, error.message));
+
                 if let Some(suggestion) = &error.suggestion {
-                    output.push_str(&format!("    Suggestion: {}\n", suggestion));
+                    let suggestion_text = if use_colors {
+                        style(format!("    Suggestion: {}", suggestion))
+                            .dim()
+                            .to_string()
+                    } else {
+                        format!("    Suggestion: {}", suggestion)
+                    };
+                    output.push_str(&format!("{}\n", suggestion_text));
                 }
             }
         }
 
         // Then URL format errors
         if let Some(errors) = errors_by_category.get(&ValidationErrorCategory::UrlFormat) {
-            output.push_str("\nURL format errors:\n");
+            let header = if use_colors {
+                style("\nURL format errors:").red().bold().to_string()
+            } else {
+                "\nURL format errors:".to_string()
+            };
+
+            output.push_str(&header);
+            output.push('\n');
+
             for error in errors {
-                output.push_str(&format!("  • {}: {}\n", error.field, error.message));
+                let field = if use_colors {
+                    style(&error.field).cyan().to_string()
+                } else {
+                    error.field.clone()
+                };
+
+                output.push_str(&format!("  • {}: {}\n", field, error.message));
+
                 if let Some(suggestion) = &error.suggestion {
-                    output.push_str(&format!("    Suggestion: {}\n", suggestion));
+                    let suggestion_text = if use_colors {
+                        style(format!("    Suggestion: {}", suggestion))
+                            .dim()
+                            .to_string()
+                    } else {
+                        format!("    Suggestion: {}", suggestion)
+                    };
+                    output.push_str(&format!("{}\n", suggestion_text));
                 }
             }
         }
@@ -615,11 +730,36 @@ pub fn format_validation_result(result: &ValidationResult) -> String {
                 && *category != ValidationErrorCategory::CommandSyntax
                 && *category != ValidationErrorCategory::UrlFormat
             {
-                output.push_str(&format!("\n{:?} errors:\n", category));
+                let header = if use_colors {
+                    style(format!("\n{:?} errors:", category))
+                        .red()
+                        .bold()
+                        .to_string()
+                } else {
+                    format!("\n{:?} errors:", category)
+                };
+
+                output.push_str(&header);
+                output.push('\n');
+
                 for error in errors {
-                    output.push_str(&format!("  • {}: {}\n", error.field, error.message));
+                    let field = if use_colors {
+                        style(&error.field).cyan().to_string()
+                    } else {
+                        error.field.clone()
+                    };
+
+                    output.push_str(&format!("  • {}: {}\n", field, error.message));
+
                     if let Some(suggestion) = &error.suggestion {
-                        output.push_str(&format!("    Suggestion: {}\n", suggestion));
+                        let suggestion_text = if use_colors {
+                            style(format!("    Suggestion: {}", suggestion))
+                                .dim()
+                                .to_string()
+                        } else {
+                            format!("    Suggestion: {}", suggestion)
+                        };
+                        output.push_str(&format!("{}\n", suggestion_text));
                     }
                 }
             }
@@ -627,10 +767,18 @@ pub fn format_validation_result(result: &ValidationResult) -> String {
 
         // Show file path
         if let Some(path) = &result.package_path {
-            output.push_str(&format!(
-                "\nYou can find the package file at: {}\n",
-                path.display()
-            ));
+            let path_text = if use_colors {
+                style(format!(
+                    "\nYou can find the package file at: {}",
+                    path.display()
+                ))
+                .dim()
+                .to_string()
+            } else {
+                format!("\nYou can find the package file at: {}", path.display())
+            };
+
+            output.push_str(&format!("{}\n", path_text));
         }
     }
 

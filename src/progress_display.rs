@@ -100,7 +100,7 @@ impl ProgressManager {
         }
     }
 
-    /// Update a progress bar based on installation status
+    /// Update a progress bar based on installation status with color support
     pub fn update_from_status(
         &self,
         id: &str,
@@ -111,21 +111,46 @@ impl ProgressManager {
             InstallationStatus::NotStarted => "Waiting to start...".to_string(),
             InstallationStatus::Checking => "Checking if already installed...".to_string(),
             InstallationStatus::NotInstalled => {
-                self.format_status_with_duration("Not installed", duration)
+                let status_text = if self.use_colors {
+                    style("Not installed").red().to_string()
+                } else {
+                    "Not installed".to_string()
+                };
+                self.format_status_with_duration(&status_text, duration)
             }
             InstallationStatus::AlreadyInstalled => {
-                self.format_status_with_duration("Already installed", duration)
+                let status_text = if self.use_colors {
+                    style("Already installed").green().to_string()
+                } else {
+                    "Already installed".to_string()
+                };
+                self.format_status_with_duration(&status_text, duration)
             }
             InstallationStatus::Installing => "Installing...".to_string(),
             InstallationStatus::Complete => {
-                self.format_status_with_duration("Installation complete", duration)
+                let status_text = if self.use_colors {
+                    style("Installation complete").green().to_string()
+                } else {
+                    "Installation complete".to_string()
+                };
+                self.format_status_with_duration(&status_text, duration)
             }
-            InstallationStatus::Failed(reason) => self
-                .format_status_with_duration(&format!("Installation failed: {}", reason), duration),
-            InstallationStatus::Skipped(reason) => self.format_status_with_duration(
-                &format!("Installation skipped: {}", reason),
-                duration,
-            ),
+            InstallationStatus::Failed(reason) => {
+                let status_text = if self.use_colors {
+                    format!("Installation failed: {}", style(reason).red().bold())
+                } else {
+                    format!("Installation failed: {}", reason)
+                };
+                self.format_status_with_duration(&status_text, duration)
+            }
+            InstallationStatus::Skipped(reason) => {
+                let status_text = if self.use_colors {
+                    format!("Installation skipped: {}", style(reason).yellow())
+                } else {
+                    format!("Installation skipped: {}", reason)
+                };
+                self.format_status_with_duration(&status_text, duration)
+            }
         };
 
         match status {
@@ -276,6 +301,11 @@ impl ProgressManager {
             };
             format!("{}{}", text_emoji, message)
         }
+    }
+
+    /// Returns whether colors are enabled for this progress manager
+    pub fn use_colors(&self) -> bool {
+        self.use_colors
     }
 }
 

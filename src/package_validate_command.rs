@@ -1,7 +1,6 @@
 // src/package_validate_command.rs
 // Implements the 'selfie package validate' command
 
-
 use crate::{
     cli::PackageSubcommands,
     command::CommandRunner,
@@ -28,6 +27,7 @@ pub struct ValidateCommand<'a, F: FileSystem, R: CommandRunner> {
     config: Config,
     progress_manager: &'a ProgressManager,
     verbose: bool,
+    use_colors: bool, // Added field to track color setting
 }
 
 impl<'a, F: FileSystem, R: CommandRunner> ValidateCommand<'a, F, R> {
@@ -39,12 +39,15 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidateCommand<'a, F, R> {
         progress_manager: &'a ProgressManager,
         verbose: bool,
     ) -> Self {
+        // Get the color setting from the progress manager
+        let use_colors = progress_manager.use_colors();
         Self {
             fs,
             _runner: runner,
             config,
             progress_manager,
             verbose,
+            use_colors,
         }
     }
 
@@ -76,8 +79,9 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidateCommand<'a, F, R> {
 
                 match result {
                     Ok(validation_result) => {
-                        // Format validation result
-                        let formatted = format_validation_result(&validation_result);
+                        // Format validation result with color support
+                        let formatted =
+                            format_validation_result(&validation_result, self.use_colors);
 
                         if validation_result.is_valid() {
                             progress.finish_with_message("Validation successful");

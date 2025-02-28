@@ -1,4 +1,5 @@
 // src/main.rs
+// Update the ProgressManager initialization to enable colors by default
 
 use std::{process, time::Duration};
 
@@ -16,7 +17,7 @@ fn main() {
     // Parse command line arguments
     let cli = Cli::parse_args();
 
-    // Create a progress manager
+    // Create a progress manager - CHANGED HERE: use !cli.no_color to enable colors by default
     let progress_manager = ProgressManager::new(!cli.no_color, true, cli.verbose);
 
     // Create a base configuration (in a real app, this would be loaded from a file)
@@ -49,8 +50,8 @@ fn main() {
                                 runner,
                                 config,
                                 cli.verbose,
-                                !cli.no_color,
-                                true, // use_unicode
+                                !cli.no_color, // CHANGED: enable colors by default
+                                true,          // use_unicode
                             );
 
                             match installer.install_package(package_name) {
