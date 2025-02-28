@@ -1,4 +1,4 @@
-// src/package_repo.rs - Update list_packages implementation
+// src/package_repo.rs
 
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -35,8 +35,8 @@ impl<'a, F: FileSystem> PackageRepository<'a, F> {
     }
 
     /// Get a package by name
-    pub fn get_package(&self, name: &str) -> Result<PackageNode, PackageRepoError> {
-        let package_files = self.find_package_files(name)?;
+    pub async fn get_package(&self, name: &str) -> Result<PackageNode, PackageRepoError> {
+        let package_files = self.find_package_files(name).await?;
 
         if package_files.is_empty() {
             return Err(PackageRepoError::PackageNotFound(name.to_string()));
@@ -47,26 +47,26 @@ impl<'a, F: FileSystem> PackageRepository<'a, F> {
         }
 
         let package_file = &package_files[0];
-        let package = PackageNode::from_file(&self.fs, package_file)?;
+        let package = PackageNode::from_file(&self.fs, package_file).await?;
 
         Ok(package)
     }
 
     /// List all available packages in the package directory
-    pub fn list_packages(&self) -> Result<Vec<PackageNode>, PackageRepoError> {
-        if !self.fs.path_exists(&self.package_dir) {
+    pub async fn list_packages(&self) -> Result<Vec<PackageNode>, PackageRepoError> {
+        if !self.fs.path_exists(&self.package_dir).await {
             return Err(PackageRepoError::DirectoryNotFound(
                 self.package_dir.to_string_lossy().into_owned(),
             ));
         }
 
         // Get all YAML files in the directory
-        let yaml_files = self.list_yaml_files(&self.package_dir)?;
+        let yaml_files = self.list_yaml_files(&self.package_dir).await?;
 
         // Parse each file into a PackageNode
         let mut packages = Vec::new();
         for path in yaml_files {
-            match PackageNode::from_file(self.fs, &path) {
+            match PackageNode::from_file(self.fs, &path).await {
                 Ok(package) => packages.push(package),
                 Err(err) => {
                     // Skip invalid files but log them if we had a proper logging system
@@ -84,8 +84,8 @@ impl<'a, F: FileSystem> PackageRepository<'a, F> {
     }
 
     // Find package files that match the given name
-    pub fn find_package_files(&self, name: &str) -> Result<Vec<PathBuf>, PackageRepoError> {
-        if !self.fs.path_exists(&self.package_dir) {
+    pub async fn find_package_files(&self, name: &str) -> Result<Vec<PathBuf>, PackageRepoError> {
+        if !self.fs.path_exists(&self.package_dir).await {
             return Err(PackageRepoError::DirectoryNotFound(
                 self.package_dir.to_string_lossy().into_owned(),
             ));
@@ -96,10 +96,10 @@ impl<'a, F: FileSystem> PackageRepository<'a, F> {
         let yml_path = self.package_dir.join(format!("{}.yml", name));
 
         let mut result = Vec::new();
-        if self.fs.path_exists(&yaml_path) {
+        if self.fs.path_exists(&yaml_path).await {
             result.push(yaml_path);
         }
-        if self.fs.path_exists(&yml_path) {
+        if self.fs.path_exists(&yml_path).await {
             result.push(yml_path);
         }
 
@@ -107,10 +107,11 @@ impl<'a, F: FileSystem> PackageRepository<'a, F> {
     }
 
     // List all YAML files in a directory
-    fn list_yaml_files(&self, dir: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
+    async fn list_yaml_files(&self, dir: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
         let entries = self
             .fs
             .list_directory(dir)
+            .await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
         let yaml_files: Vec<PathBuf> = entries
@@ -134,8 +135,8 @@ mod tests {
     use super::*;
     use crate::filesystem::mock::MockFileSystem;
 
-    #[test]
-    fn test_get_package_success() {
+    #[tokio::test]
+    async fn test_get_package_success() {
         let fs = MockFileSystem::default();
         let package_dir = PathBuf::from("/test/packages");
 
@@ -153,33 +154,33 @@ mod tests {
         fs.add_existing_path(&package_dir);
 
         let repo = PackageRepository::new(&fs, package_dir);
-        let package = repo.get_package("ripgrep").unwrap();
+        let package = repo.get_package("ripgrep").await.unwrap();
 
         assert_eq!(package.name, "ripgrep");
         assert_eq!(package.version, "0.1.0");
         assert_eq!(package.environments.len(), 1);
     }
 
-    #[test]
-    fn test_get_package_not_found() {
+    #[tokio::test]
+    async fn test_get_package_not_found() {
         let fs = MockFileSystem::default();
         let package_dir = PathBuf::from("/test/packages");
 
         fs.add_existing_path(&package_dir);
 
         let repo = PackageRepository::new(&fs, package_dir);
-        let result = repo.get_package("nonexistent");
+        let result = repo.get_package("nonexistent").await;
 
         assert!(matches!(result, Err(PackageRepoError::PackageNotFound(_))));
     }
 
-    #[test]
-    fn test_get_package_directory_not_found() {
+    #[tokio::test]
+    async fn test_get_package_directory_not_found() {
         let fs = MockFileSystem::default();
         let package_dir = PathBuf::from("/test/nonexistent");
 
         let repo = PackageRepository::new(&fs, package_dir);
-        let result = repo.get_package("ripgrep");
+        let result = repo.get_package("ripgrep").await;
 
         assert!(matches!(
             result,
@@ -187,8 +188,8 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn test_get_package_multiple_found() {
+    #[tokio::test]
+    async fn test_get_package_multiple_found() {
         let fs = MockFileSystem::default();
         let package_dir = PathBuf::from("/test/packages");
 
@@ -209,7 +210,7 @@ mod tests {
         fs.add_existing_path(&package_dir);
 
         let repo = PackageRepository::new(&fs, package_dir);
-        let result = repo.get_package("ripgrep");
+        let result = repo.get_package("ripgrep").await;
 
         assert!(matches!(
             result,
@@ -217,8 +218,8 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn test_find_package_files() {
+    #[tokio::test]
+    async fn test_find_package_files() {
         let fs = MockFileSystem::default();
         let package_dir = PathBuf::from("/test/packages");
 
@@ -233,22 +234,22 @@ mod tests {
         let repo = PackageRepository::new(&fs, package_dir);
 
         // Should find ripgrep.yaml
-        let files = repo.find_package_files("ripgrep").unwrap();
+        let files = repo.find_package_files("ripgrep").await.unwrap();
         assert_eq!(files.len(), 1);
         assert_eq!(files[0], yaml_path);
 
         // Should find other.yml
-        let files = repo.find_package_files("other").unwrap();
+        let files = repo.find_package_files("other").await.unwrap();
         assert_eq!(files.len(), 1);
         assert_eq!(files[0], yml_path);
 
         // Should not find nonexistent
-        let files = repo.find_package_files("nonexistent").unwrap();
+        let files = repo.find_package_files("nonexistent").await.unwrap();
         assert_eq!(files.len(), 0);
     }
 
-    #[test]
-    fn test_list_packages() {
+    #[tokio::test]
+    async fn test_list_packages() {
         let fs = MockFileSystem::default();
         let package_dir = PathBuf::from("/test/packages");
         fs.add_existing_path(&package_dir);
@@ -277,7 +278,7 @@ mod tests {
         fs.add_file(&package_dir.join("invalid.yaml"), "not valid yaml: :");
 
         let repo = PackageRepository::new(&fs, package_dir);
-        let packages = repo.list_packages().unwrap();
+        let packages = repo.list_packages().await.unwrap();
 
         // Should find both valid packages
         assert_eq!(packages.len(), 2);
@@ -293,8 +294,8 @@ mod tests {
         assert!(fzf.environments.contains_key("other-env"));
     }
 
-    #[test]
-    fn test_list_yaml_files() {
+    #[tokio::test]
+    async fn test_list_yaml_files() {
         let fs = MockFileSystem::default();
         let dir = PathBuf::from("/test/dir");
         fs.add_existing_path(&dir);
@@ -307,7 +308,7 @@ mod tests {
         fs.add_file(&dir.join("file5.YML"), "content"); // Test case insensitivity
 
         let repo = PackageRepository::new(&fs, PathBuf::from("/dummy")); // Path doesn't matter here
-        let yaml_files = repo.list_yaml_files(&dir).unwrap();
+        let yaml_files = repo.list_yaml_files(&dir).await.unwrap();
 
         // Should find all yaml/yml files regardless of case
         assert_eq!(yaml_files.len(), 4);

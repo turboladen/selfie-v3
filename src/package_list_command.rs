@@ -1,5 +1,4 @@
 // src/package_list_command.rs
-// Implements the 'selfie package list' command
 
 use console::style;
 
@@ -26,7 +25,7 @@ pub struct ListCommand<'a, F: FileSystem, R: CommandRunner> {
     config: Config,
     progress_manager: &'a ProgressManager,
     verbose: bool,
-    use_colors: bool, // Added this field
+    use_colors: bool,
 }
 
 impl<'a, F: FileSystem, R: CommandRunner> ListCommand<'a, F, R> {
@@ -51,7 +50,7 @@ impl<'a, F: FileSystem, R: CommandRunner> ListCommand<'a, F, R> {
     }
 
     /// Execute the list command
-    pub fn execute(&self) -> ListCommandResult {
+    pub async fn execute(&self) -> ListCommandResult {
         // Create progress display - use a generic message
         let progress = self.progress_manager.create_progress_bar(
             "list",
@@ -64,7 +63,7 @@ impl<'a, F: FileSystem, R: CommandRunner> ListCommand<'a, F, R> {
             PackageRepository::new(self.fs, self.config.expanded_package_directory());
 
         // Get list of packages
-        match self.list_packages(&package_repo) {
+        match self.list_packages(&package_repo).await {
             Ok(output) => {
                 // Just show a simple success message in the progress bar
                 progress.finish_with_message("Done");
@@ -79,11 +78,11 @@ impl<'a, F: FileSystem, R: CommandRunner> ListCommand<'a, F, R> {
     }
 
     /// List packages with compatibility information
-    fn list_packages<FS: FileSystem>(
+    async fn list_packages<FS: FileSystem>(
         &self,
-        repo: &PackageRepository<FS>,
+        repo: &PackageRepository<'_, FS>,
     ) -> Result<String, PackageRepoError> {
-        let packages = repo.list_packages()?;
+        let packages = repo.list_packages().await?;
 
         if packages.is_empty() {
             return Ok("No packages found in package directory.".to_string());
@@ -120,14 +119,12 @@ impl<'a, F: FileSystem, R: CommandRunner> ListCommand<'a, F, R> {
                 } else {
                     "Compatible with current environment".to_string()
                 }
+            } else if self.use_colors {
+                style("Not compatible with current environment")
+                    .red()
+                    .to_string()
             } else {
-                if self.use_colors {
-                    style("Not compatible with current environment")
-                        .red()
-                        .to_string()
-                } else {
-                    "Not compatible with current environment".to_string()
-                }
+                "Not compatible with current environment".to_string()
             };
 
             output.push_str(&format!(
@@ -194,8 +191,8 @@ mod tests {
     };
     use std::path::Path;
 
-    #[test]
-    fn test_list_empty_directory() {
+    #[tokio::test]
+    async fn test_list_empty_directory() {
         let fs = MockFileSystem::default();
         let config = ConfigBuilder::default()
             .environment("test-env")
@@ -211,13 +208,13 @@ mod tests {
 
         let cmd = ListCommand::new(&fs, &runner, config, &manager, false);
 
-        let result = cmd.list_packages(&repo);
+        let result = cmd.list_packages(&repo).await;
         assert!(result.is_ok());
         assert!(result.unwrap().contains("No packages found"));
     }
 
-    #[test]
-    fn test_list_packages() {
+    #[tokio::test]
+    async fn test_list_packages() {
         let fs = MockFileSystem::default();
         let config = ConfigBuilder::default()
             .environment("test-env")
@@ -254,7 +251,7 @@ mod tests {
         let cmd = ListCommand::new(&fs, &runner, config, &manager, false);
 
         // Test the list_packages function with our repo
-        let result = cmd.list_packages(&repo);
+        let result = cmd.list_packages(&repo).await;
         assert!(result.is_ok());
         let output = result.unwrap();
 
@@ -267,8 +264,8 @@ mod tests {
         assert!(output.contains("Not compatible with current environment"));
     }
 
-    #[test]
-    fn test_list_packages_verbose() {
+    #[tokio::test]
+    async fn test_list_packages_verbose() {
         let fs = MockFileSystem::default();
         let config = ConfigBuilder::default()
             .environment("test-env")
@@ -300,7 +297,7 @@ mod tests {
         );
 
         // Test the list_packages function with our repo
-        let result = cmd.list_packages(&repo);
+        let result = cmd.list_packages(&repo).await;
         assert!(result.is_ok());
         let output = result.unwrap();
 

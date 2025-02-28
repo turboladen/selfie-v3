@@ -1,5 +1,4 @@
 // src/package_validate_command.rs
-// Implements the 'selfie package validate' command
 
 use crate::{
     cli::PackageSubcommands,
@@ -52,7 +51,7 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidateCommand<'a, F, R> {
     }
 
     /// Execute the validate command
-    pub fn execute(&self, cmd: &PackageSubcommands) -> ValidateCommandResult {
+    pub async fn execute(&self, cmd: &PackageSubcommands) -> ValidateCommandResult {
         match cmd {
             PackageSubcommands::Validate {
                 package_name,
@@ -70,9 +69,9 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidateCommand<'a, F, R> {
 
                 // Validate package
                 let result = if let Some(path) = package_path {
-                    validator.validate_package_file(path)
+                    validator.validate_package_file(path).await
                 } else {
-                    validator.validate_package(package_name)
+                    validator.validate_package(package_name).await
                 };
 
                 match result {
@@ -90,7 +89,7 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidateCommand<'a, F, R> {
                             progress.println("Detailed package structure:");
                             if let Some(package) = &validation_result.package {
                                 // Show more details about environments and configurations
-                                progress.println(&format!(
+                                progress.println(format!(
                                     "  Environments: {}",
                                     package
                                         .environments
@@ -114,7 +113,7 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidateCommand<'a, F, R> {
                     Err(err) => {
                         // More verbose error handling
                         if self.verbose {
-                            progress.println(&format!("Error details: {:#?}", err));
+                            progress.println(format!("Error details: {:#?}", err));
                         }
 
                         progress.abandon_with_message("Validation failed");

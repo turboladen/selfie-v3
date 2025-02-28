@@ -209,7 +209,7 @@ impl<'a, F: FileSystem> PackageValidator<'a, F> {
     }
 
     /// Validate a package by name
-    pub fn validate_package(
+    pub async fn validate_package(
         &self,
         package_name: &str,
     ) -> Result<ValidationResult, PackageValidatorError> {
@@ -217,6 +217,7 @@ impl<'a, F: FileSystem> PackageValidator<'a, F> {
         let package_files = self
             .package_repo
             .find_package_files(package_name)
+            .await
             .map_err(PackageValidatorError::RepoError)?;
 
         if package_files.is_empty() {
@@ -232,11 +233,11 @@ impl<'a, F: FileSystem> PackageValidator<'a, F> {
         }
 
         let package_path = &package_files[0];
-        self.validate_package_file(package_path)
+        self.validate_package_file(package_path).await
     }
 
     /// Validate a specific package file
-    pub fn validate_package_file(
+    pub async fn validate_package_file(
         &self,
         package_path: &Path,
     ) -> Result<ValidationResult, PackageValidatorError> {
@@ -244,6 +245,7 @@ impl<'a, F: FileSystem> PackageValidator<'a, F> {
         let file_content = self
             .fs
             .read_file(package_path)
+            .await
             .map_err(PackageValidatorError::FileSystemError)?;
 
         // Try to parse the package, but continue even if it fails
@@ -902,8 +904,8 @@ environments:
         .to_string()
     }
 
-    #[test]
-    fn test_validate_valid_package() {
+    #[tokio::test]
+    async fn test_validate_valid_package() {
         let (fs, config) = setup_test_environment();
 
         // Add a valid package file
@@ -911,14 +913,14 @@ environments:
         fs.add_file(Path::new("/test/packages/test-package.yaml"), &yaml);
 
         let validator = PackageValidator::new(&fs, &config);
-        let result = validator.validate_package("test-package").unwrap();
+        let result = validator.validate_package("test-package").await.unwrap();
 
         assert!(result.is_valid());
         assert_eq!(result.issues.len(), 0);
     }
 
-    #[test]
-    fn test_validate_missing_required_fields() {
+    #[tokio::test]
+    async fn test_validate_missing_required_fields() {
         let (fs, config) = setup_test_environment();
 
         // Add an invalid package file with missing fields
@@ -935,6 +937,7 @@ environments:
         let validator = PackageValidator::new(&fs, &config);
         let result = validator
             .validate_package_file(Path::new("/test/packages/incomplete.yaml"))
+            .await
             .unwrap();
 
         assert!(!result.is_valid());
@@ -952,8 +955,8 @@ environments:
         assert!(version_error.is_some());
     }
 
-    #[test]
-    fn test_validate_invalid_url() {
+    #[tokio::test]
+    async fn test_validate_invalid_url() {
         let (fs, config) = setup_test_environment();
 
         // Add a package with invalid URL
@@ -970,6 +973,7 @@ environments:
         let validator = PackageValidator::new(&fs, &config);
         let result = validator
             .validate_package_file(Path::new("/test/packages/invalid-url.yaml"))
+            .await
             .unwrap();
 
         // Should have a URL format error
@@ -978,8 +982,8 @@ environments:
         assert_eq!(url_errors[0].field, "homepage");
     }
 
-    #[test]
-    fn test_validate_command_syntax() {
+    #[tokio::test]
+    async fn test_validate_command_syntax() {
         let (fs, config) = setup_test_environment();
 
         // Add a package with command syntax errors
@@ -996,6 +1000,7 @@ environments:
         let validator = PackageValidator::new(&fs, &config);
         let result = validator
             .validate_package_file(Path::new("/test/packages/bad-commands.yaml"))
+            .await
             .unwrap();
 
         // Should have command syntax errors
@@ -1011,8 +1016,8 @@ environments:
             .any(|e| e.message.contains("Invalid pipe usage")));
     }
 
-    #[test]
-    fn test_validate_version_format() {
+    #[tokio::test]
+    async fn test_validate_version_format() {
         let (fs, config) = setup_test_environment();
 
         // Add a package with non-semver version
@@ -1028,6 +1033,7 @@ environments:
         let validator = PackageValidator::new(&fs, &config);
         let result = validator
             .validate_package_file(Path::new("/test/packages/bad-version.yaml"))
+            .await
             .unwrap();
 
         // Should have a version format warning (not error)
@@ -1037,8 +1043,8 @@ environments:
         assert_eq!(version_issues[0].field, "version");
     }
 
-    #[test]
-    fn test_validate_missing_environment() {
+    #[tokio::test]
+    async fn test_validate_missing_environment() {
         let (fs, config) = setup_test_environment();
 
         // Add a package without the current environment
@@ -1054,6 +1060,7 @@ environments:
         let validator = PackageValidator::new(&fs, &config);
         let result = validator
             .validate_package_file(Path::new("/test/packages/missing-env.yaml"))
+            .await
             .unwrap();
 
         // Should have an environment warning
@@ -1095,12 +1102,12 @@ environments:
         assert!(formatted.contains("Add 'name: your-package-name'"));
     }
 
-    #[test]
-    fn test_package_not_found() {
+    #[tokio::test]
+    async fn test_package_not_found() {
         let (fs, config) = setup_test_environment();
 
         let validator = PackageValidator::new(&fs, &config);
-        let result = validator.validate_package("nonexistent");
+        let result = validator.validate_package("nonexistent").await;
 
         assert!(matches!(
             result,
@@ -1108,8 +1115,8 @@ environments:
         ));
     }
 
-    #[test]
-    fn test_multiple_packages_found() {
+    #[tokio::test]
+    async fn test_multiple_packages_found() {
         let (fs, config) = setup_test_environment();
 
         // Add two files for the same package
@@ -1118,7 +1125,7 @@ environments:
         fs.add_file(Path::new("/test/packages/duplicate.yml"), &yaml);
 
         let validator = PackageValidator::new(&fs, &config);
-        let result = validator.validate_package("duplicate");
+        let result = validator.validate_package("duplicate").await;
 
         assert!(matches!(
             result,

@@ -5,8 +5,8 @@ use selfie::{
     installation::InstallationStatus, package_installer::PackageInstaller,
 };
 
-#[test]
-fn test_package_install_end_to_end() {
+#[tokio::test]
+async fn test_package_install_end_to_end() {
     // Create mock environment
     let fs = MockFileSystem::default();
     let runner = MockCommandRunner::new();
@@ -41,7 +41,7 @@ fn test_package_install_end_to_end() {
     let installer = PackageInstaller::new(fs, runner, config, true, false, false);
 
     // Run the installation
-    let result = installer.install_package("ripgrep");
+    let result = installer.install_package("ripgrep").await;
 
     // Verify the result
     assert!(result.is_ok());
@@ -49,8 +49,8 @@ fn test_package_install_end_to_end() {
     assert_eq!(install_result.package_name, "ripgrep");
 }
 
-#[test]
-fn test_package_install_with_dependencies() {
+#[tokio::test]
+async fn test_package_install_with_dependencies() {
     // Create mock environment
     let fs = MockFileSystem::default();
     let runner = MockCommandRunner::new();
@@ -102,7 +102,7 @@ fn test_package_install_with_dependencies() {
     let installer = PackageInstaller::new(fs, runner, config, true, false, false);
 
     // Run the installation
-    let result = installer.install_package("ripgrep");
+    let result = installer.install_package("ripgrep").await;
 
     // Verify the result
     assert!(result.is_ok());
@@ -114,8 +114,8 @@ fn test_package_install_with_dependencies() {
 
 // Update the test in tests/integration_test.rs to test dependency resolution
 
-#[test]
-fn test_package_install_with_complex_dependencies() {
+#[tokio::test]
+async fn test_package_install_with_complex_dependencies() {
     // Create mock environment
     let fs = MockFileSystem::default();
     let runner = MockCommandRunner::new();
@@ -191,7 +191,7 @@ fn test_package_install_with_complex_dependencies() {
     let installer = PackageInstaller::new(fs, runner, config, true, false, false);
 
     // Run the installation
-    let result = installer.install_package("main-pkg");
+    let result = installer.install_package("main-pkg").await;
 
     // Verify the result
     assert!(result.is_ok());

@@ -1,4 +1,4 @@
-// src/package_installer_enhanced.rs
+// src/package_installer.rs
 mod dependency;
 
 use std::time::{Duration, Instant};
@@ -68,7 +68,7 @@ impl From<DependencyResolverError> for PackageInstallerError {
             DependencyResolverError::RepoError(e) => PackageInstallerError::PackageRepoError(e),
             DependencyResolverError::GraphError(e) => match e {
                 DependencyGraphError::CircularDependency(msg, path) => {
-                    PackageInstallerError::CircularDependency(format!("{}", msg))
+                    PackageInstallerError::CircularDependency(msg.to_string())
                 }
                 DependencyGraphError::PackageNotFound(pkg) => {
                     PackageInstallerError::PackageNotFound(pkg)
@@ -171,7 +171,7 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
     }
 
     /// Install a package by name with enhanced progress reporting
-    pub fn install_package(
+    pub async fn install_package(
         &self,
         package_name: &str,
     ) -> Result<InstallationResult, PackageInstallerError> {
@@ -201,7 +201,7 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
         let start_time = Instant::now();
 
         // Resolve dependencies - handle circular dependency errors specially
-        let packages = match resolver.resolve_dependencies(package_name) {
+        let packages = match resolver.resolve_dependencies(package_name).await {
             Ok(packages) => packages,
             Err(err) => {
                 // Handle the error case
@@ -237,7 +237,6 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
             }
         };
 
-        // Rest of the method remains the same...
         // Show dependency information
         if packages.len() > 1 {
             let deps_count = packages.len() - 1;
@@ -281,7 +280,7 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
             );
 
             // Install dependency and stop immediately on failure
-            match self.install_single_package(package, &dep_id) {
+            match self.install_single_package(package, &dep_id).await {
                 Ok(result) => {
                     // Only continue if installation was successful or package was already installed
                     match result.status {
@@ -349,7 +348,7 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
             main_pb.set_message(deps_message);
         }
 
-        let main_result = self.install_single_package(&main_package, &main_id)?;
+        let main_result = self.install_single_package(&main_package, &main_id).await?;
 
         // Get the total installation time
         let total_duration = start_time.elapsed();
@@ -367,7 +366,7 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
     }
 
     /// Install a single package (no dependency handling) with progress reporting
-    fn install_single_package(
+    async fn install_single_package(
         &self,
         package: &PackageNode,
         progress_id: &str,
@@ -411,10 +410,10 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
             .map_err(PackageInstallerError::EnvironmentError)?;
 
         // Short delay to allow the spinner to visibly show checking state
-        std::thread::sleep(Duration::from_millis(200));
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         // Install the package
-        let result = match installation_manager.install_package(package.clone()) {
+        let result = match installation_manager.install_package(package.clone()).await {
             Ok(installation) => {
                 let duration = start_time.elapsed();
 
@@ -458,7 +457,6 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
                 let duration = start_time.elapsed();
                 let error_msg = format!("Installation error: {}", err);
 
-                // Update progress bar with error
                 self.progress_manager
                     .update_from_status(
                         progress_id,
@@ -477,7 +475,7 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
         };
 
         // Small delay to ensure the final status is visible
-        std::thread::sleep(Duration::from_millis(100));
+        tokio::time::sleep(Duration::from_millis(100)).await;
 
         Ok(result)
     }
@@ -515,15 +513,13 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
                 summary_pb.println(format!("Dependencies: {:.1?}", dep_duration));
                 summary_pb.println(format!("Package: {:.1?}", package_duration));
             }
+        } else if self.progress_manager.use_colors() {
+            summary_pb.println(format!(
+                "Total time: {}",
+                style(format!("{:.1?}", total_duration)).cyan()
+            ));
         } else {
-            if self.progress_manager.use_colors() {
-                summary_pb.println(format!(
-                    "Total time: {}",
-                    style(format!("{:.1?}", total_duration)).cyan()
-                ));
-            } else {
-                summary_pb.println(format!("Total time: {:.1?}", total_duration));
-            }
+            summary_pb.println(format!("Total time: {:.1?}", total_duration));
         }
 
         // Special handling for already installed packages
@@ -596,8 +592,8 @@ mod tests {
         (fs, runner, reporter, config)
     }
 
-    #[test]
-    fn test_install_package_success() {
+    #[tokio::test]
+    async fn test_install_package_success() {
         let (fs, runner, _, config) = create_test_environment();
 
         // Set up the package file
@@ -624,7 +620,7 @@ mod tests {
         let installer = PackageInstaller::new(fs, runner, config, false, false, false);
 
         // Run the installation
-        let result = installer.install_package("ripgrep");
+        let result = installer.install_package("ripgrep").await;
 
         // Verify the result
         assert!(result.is_ok());
@@ -633,8 +629,8 @@ mod tests {
         assert_eq!(install_result.status, InstallationStatus::Complete);
     }
 
-    #[test]
-    fn test_install_package_already_installed() {
+    #[tokio::test]
+    async fn test_install_package_already_installed() {
         let (fs, runner, _, config) = create_test_environment();
 
         // Set up the package file
@@ -660,7 +656,7 @@ mod tests {
         let installer = PackageInstaller::new(fs, runner, config, false, false, false);
 
         // Run the installation
-        let result = installer.install_package("ripgrep");
+        let result = installer.install_package("ripgrep").await;
 
         // Verify the result
         assert!(result.is_ok());
@@ -669,8 +665,8 @@ mod tests {
         assert_eq!(install_result.status, InstallationStatus::AlreadyInstalled);
     }
 
-    #[test]
-    fn test_install_package_with_dependencies() {
+    #[tokio::test]
+    async fn test_install_package_with_dependencies() {
         let (fs, runner, _, config) = create_test_environment();
 
         // Set up the main package file with dependencies
@@ -715,7 +711,7 @@ mod tests {
         let installer = PackageInstaller::new(fs, runner, config, false, false, false);
 
         // Run the installation
-        let result = installer.install_package("ripgrep");
+        let result = installer.install_package("ripgrep").await;
 
         // Verify the result
         assert!(result.is_ok());
@@ -730,8 +726,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_install_package_with_failing_dependency() {
+    #[tokio::test]
+    async fn test_install_package_with_failing_dependency() {
         let (fs, runner, _, config) = create_test_environment();
 
         // Set up the main package file with dependencies
@@ -774,7 +770,7 @@ mod tests {
         let installer = PackageInstaller::new(fs, runner, config, false, false, false);
 
         // Run the installation
-        let result = installer.install_package("ripgrep");
+        let result = installer.install_package("ripgrep").await;
 
         // Verify the result - we explicitly expect an error of type InstallationError
         assert!(result.is_err());
@@ -784,8 +780,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_complex_dependency_chain() {
+    #[tokio::test]
+    async fn test_complex_dependency_chain() {
         let (fs, runner, _, config) = create_test_environment();
 
         // Set up package files with a dependency chain: main-pkg -> dep1 -> dep2
@@ -840,7 +836,7 @@ mod tests {
         let installer = PackageInstaller::new(fs, runner, config, false, false, false);
 
         // Run the installation
-        let result = installer.install_package("main-pkg");
+        let result = installer.install_package("main-pkg").await;
 
         // Verify the result
         assert!(result.is_ok());

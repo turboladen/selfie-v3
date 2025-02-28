@@ -1,4 +1,6 @@
 // src/package_installer/dependency.rs
+use std::{future::Future, pin::Pin};
+
 use thiserror::Error;
 
 use crate::{
@@ -46,13 +48,14 @@ impl<'a, F: FileSystem> DependencyResolver<'a, F> {
 
     /// Resolve dependencies for a package and return an ordered list of packages
     /// that need to be installed
-    pub fn resolve_dependencies(
+    pub async fn resolve_dependencies(
         &self,
         package_name: &str,
     ) -> Result<Vec<PackageNode>, DependencyResolverError> {
         // Build the dependency graph starting with the requested package
         let mut graph = DependencyGraph::default();
-        self.build_dependency_graph(&mut graph, package_name, &mut Vec::new())?;
+        self.build_dependency_graph(&mut graph, package_name, &mut Vec::new())
+            .await?;
 
         // Get the installation order
         let installation_order = match graph.installation_order() {
@@ -72,7 +75,7 @@ impl<'a, F: FileSystem> DependencyResolver<'a, F> {
     }
 
     /// Recursively build the dependency graph
-    fn build_dependency_graph(
+    async fn build_dependency_graph(
         &self,
         graph: &mut DependencyGraph,
         package_name: &str,
@@ -93,6 +96,7 @@ impl<'a, F: FileSystem> DependencyResolver<'a, F> {
         let package = self
             .package_repo
             .get_package(package_name)
+            .await
             .map_err(|e| match e {
                 PackageRepoError::PackageNotFound(name) => {
                     DependencyResolverError::PackageNotFound(name)
@@ -124,18 +128,19 @@ impl<'a, F: FileSystem> DependencyResolver<'a, F> {
 
         for dep_name in &env_config.dependencies {
             // Get dependency package
-            let dep_package = self
-                .package_repo
-                .get_package(dep_name)
-                .map_err(|e| match e {
-                    PackageRepoError::PackageNotFound(name) => {
-                        DependencyResolverError::PackageNotFound(name)
-                    }
-                    PackageRepoError::MultiplePackagesFound(name) => {
-                        DependencyResolverError::MultiplePackagesFound(name)
-                    }
-                    other => DependencyResolverError::RepoError(other),
-                })?;
+            let dep_package =
+                self.package_repo
+                    .get_package(dep_name)
+                    .await
+                    .map_err(|e| match e {
+                        PackageRepoError::PackageNotFound(name) => {
+                            DependencyResolverError::PackageNotFound(name)
+                        }
+                        PackageRepoError::MultiplePackagesFound(name) => {
+                            DependencyResolverError::MultiplePackagesFound(name)
+                        }
+                        other => DependencyResolverError::RepoError(other),
+                    })?;
 
             // Add dependency node if not already in the graph
             if !graph
@@ -150,10 +155,23 @@ impl<'a, F: FileSystem> DependencyResolver<'a, F> {
 
             // Recursively process this dependency
             let mut dep_visited = visited.clone();
-            self.build_dependency_graph(graph, dep_name, &mut dep_visited)?;
+
+            // Use Box::pin to handle recursion in async function
+            let future = self.build_dependency_graph_boxed(graph, dep_name, &mut dep_visited);
+            future.await?;
         }
 
         Ok(())
+    }
+
+    // Helper method that returns a boxed future to enable recursion
+    fn build_dependency_graph_boxed<'b>(
+        &'b self,
+        graph: &'b mut DependencyGraph,
+        package_name: &'b str,
+        visited: &'b mut Vec<String>,
+    ) -> Pin<Box<dyn Future<Output = Result<(), DependencyResolverError>> + 'b>> {
+        Box::pin(self.build_dependency_graph(graph, package_name, visited))
     }
 }
 
@@ -198,8 +216,8 @@ environments:
         yaml
     }
 
-    #[test]
-    fn test_resolve_simple_dependency() {
+    #[tokio::test]
+    async fn test_resolve_simple_dependency() {
         let (fs, config) = setup_test_environment();
 
         // Add package and dependency to the filesystem
@@ -211,7 +229,7 @@ environments:
 
         // Create resolver and resolve dependencies
         let resolver = DependencyResolver::new(&fs, &config);
-        let result = resolver.resolve_dependencies("main-pkg");
+        let result = resolver.resolve_dependencies("main-pkg").await;
 
         assert!(result.is_ok());
         let packages = result.unwrap();
@@ -220,8 +238,8 @@ environments:
         assert_eq!(packages[1].name, "main-pkg"); // Main package should be last
     }
 
-    #[test]
-    fn test_resolve_deep_dependency_chain() {
+    #[tokio::test]
+    async fn test_resolve_deep_dependency_chain() {
         let (fs, config) = setup_test_environment();
 
         // Create a chain: main -> dep1 -> dep2 -> dep3
@@ -237,21 +255,19 @@ environments:
 
         // Create resolver and resolve dependencies
         let resolver = DependencyResolver::new(&fs, &config);
-        let result = resolver.resolve_dependencies("main-pkg");
+        let result = resolver.resolve_dependencies("main-pkg").await;
 
         assert!(result.is_ok());
         let packages = result.unwrap();
         assert_eq!(packages.len(), 4);
-
-        // Check order: deepest dependencies first
-        assert_eq!(packages[0].name, "dep3");
+        assert_eq!(packages[0].name, "dep3"); // Deepest dependency first
         assert_eq!(packages[1].name, "dep2");
         assert_eq!(packages[2].name, "dep1");
         assert_eq!(packages[3].name, "main-pkg");
     }
 
-    #[test]
-    fn test_resolve_diamond_dependency() {
+    #[tokio::test]
+    async fn test_resolve_diamond_dependency() {
         let (fs, config) = setup_test_environment();
 
         // Create a diamond: main -> (dep1, dep2) -> common-dep
@@ -267,7 +283,7 @@ environments:
 
         // Create resolver and resolve dependencies
         let resolver = DependencyResolver::new(&fs, &config);
-        let result = resolver.resolve_dependencies("main-pkg");
+        let result = resolver.resolve_dependencies("main-pkg").await;
 
         assert!(result.is_ok());
         let packages = result.unwrap();
@@ -282,8 +298,8 @@ environments:
         assert_eq!(packages.last().unwrap().name, "main-pkg");
     }
 
-    #[test]
-    fn test_detect_circular_dependency() {
+    #[tokio::test]
+    async fn test_detect_circular_dependency() {
         let (fs, config) = setup_test_environment();
 
         // Create a circular dependency: main -> dep1 -> main
@@ -295,7 +311,7 @@ environments:
 
         // Create resolver and resolve dependencies
         let resolver = DependencyResolver::new(&fs, &config);
-        let result = resolver.resolve_dependencies("main-pkg");
+        let result = resolver.resolve_dependencies("main-pkg").await;
 
         assert!(result.is_err());
         match result {
@@ -312,8 +328,8 @@ environments:
         }
     }
 
-    #[test]
-    fn test_dependency_not_found() {
+    #[tokio::test]
+    async fn test_dependency_not_found() {
         let (fs, config) = setup_test_environment();
 
         // Create a package with a non-existent dependency
@@ -322,7 +338,7 @@ environments:
 
         // Create resolver and resolve dependencies
         let resolver = DependencyResolver::new(&fs, &config);
-        let result = resolver.resolve_dependencies("main-pkg");
+        let result = resolver.resolve_dependencies("main-pkg").await;
 
         assert!(result.is_err());
         match result {
@@ -333,8 +349,8 @@ environments:
         }
     }
 
-    #[test]
-    fn test_environment_not_supported() {
+    #[tokio::test]
+    async fn test_environment_not_supported() {
         let (fs, config) = setup_test_environment();
 
         // Create a package with a dependency that doesn't support the current environment
@@ -354,7 +370,7 @@ environments:
 
         // Create resolver and resolve dependencies
         let resolver = DependencyResolver::new(&fs, &config);
-        let result = resolver.resolve_dependencies("main-pkg");
+        let result = resolver.resolve_dependencies("main-pkg").await;
 
         assert!(result.is_err());
         match result {

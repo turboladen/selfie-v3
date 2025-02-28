@@ -2,11 +2,12 @@
 
 use std::{
     collections::HashMap,
-    process::{Command, Output, Stdio},
+    process::{Output, Stdio},
     time::{Duration, Instant},
 };
 
 use thiserror::Error;
+use tokio::process::Command;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommandOutput {
@@ -17,7 +18,7 @@ pub struct CommandOutput {
     pub duration: Duration,
 }
 
-#[derive(Error, Debug, Clone)] // Added Clone here
+#[derive(Error, Debug, Clone)]
 pub enum CommandError {
     #[error("Command execution failed: {0}")]
     ExecutionError(String),
@@ -32,22 +33,23 @@ pub enum CommandError {
     InterruptedError(String),
 }
 
-pub trait CommandRunner {
+#[async_trait::async_trait]
+pub trait CommandRunner: Send + Sync {
     /// Execute a command and return its output.
-    fn execute(&self, command: &str) -> Result<CommandOutput, CommandError>;
+    async fn execute(&self, command: &str) -> Result<CommandOutput, CommandError>;
 
     /// Execute a command with a timeout and return its output.
-    fn execute_with_timeout(
+    async fn execute_with_timeout(
         &self,
         command: &str,
         timeout: Duration,
     ) -> Result<CommandOutput, CommandError>;
 
     /// Check if a command is available in the current environment
-    fn is_command_available(&self, command: &str) -> bool;
+    async fn is_command_available(&self, command: &str) -> bool;
 }
 
-#[derive(Clone)] // Added Clone here
+#[derive(Clone)]
 pub struct ShellCommandRunner {
     shell: String,
     default_timeout: Duration,
@@ -89,13 +91,14 @@ impl ShellCommandRunner {
     }
 }
 
+#[async_trait::async_trait]
 impl CommandRunner for ShellCommandRunner {
-    fn execute(&self, command: &str) -> Result<CommandOutput, CommandError> {
+    async fn execute(&self, command: &str) -> Result<CommandOutput, CommandError> {
         self.execute_with_timeout(command, self.default_timeout)
+            .await
     }
 
-    // Update in ShellCommandRunner implementation
-    fn execute_with_timeout(
+    async fn execute_with_timeout(
         &self,
         command: &str,
         timeout: Duration,
@@ -114,26 +117,28 @@ impl CommandRunner for ShellCommandRunner {
             cmd.env(key, value);
         }
 
-        // Execute the command
-        // Note: this is a simplified implementation and doesn't truly enforce timeouts
-        // A more robust implementation would involve async processing or threading
-        let output = cmd
-            .output()
-            .map_err(|e| CommandError::IoError(e.to_string()))?;
+        // Execute the command with timeout
+        let output = tokio::time::timeout(timeout, async {
+            cmd.output()
+                .await
+                .map_err(|e| CommandError::IoError(e.to_string()))
+        })
+        .await;
+
+        // Handle timeout
+        let output = match output {
+            Ok(result) => result?,
+            Err(_) => return Err(CommandError::Timeout(timeout)),
+        };
+
         let duration = start_time.elapsed();
-
-        // Simple timeout check (after the fact)
-        if duration > timeout {
-            return Err(CommandError::Timeout(timeout));
-        }
-
         Ok(self.process_output(output, duration))
     }
 
-    fn is_command_available(&self, command: &str) -> bool {
+    async fn is_command_available(&self, command: &str) -> bool {
         // Shell-agnostic way to check if a command exists
         let check_cmd = format!("command -v {} >/dev/null 2>&1", command);
-        match self.execute(&check_cmd) {
+        match self.execute(&check_cmd).await {
             Ok(output) => output.success,
             Err(_) => false,
         }
@@ -142,23 +147,13 @@ impl CommandRunner for ShellCommandRunner {
 
 pub mod mock {
     use super::*;
-    use std::cell::RefCell;
     use std::collections::{HashMap, HashSet};
+    use std::sync::{Arc, Mutex};
 
-    #[derive(Default)]
+    #[derive(Default, Clone)]
     pub struct MockCommandRunner {
-        responses: RefCell<HashMap<String, Result<CommandOutput, CommandError>>>,
-        available_commands: RefCell<HashSet<String>>,
-    }
-
-    // Make sure the MockCommandRunner implements Clone for the integration test
-    impl Clone for MockCommandRunner {
-        fn clone(&self) -> Self {
-            MockCommandRunner {
-                responses: self.responses.clone(),
-                available_commands: self.available_commands.clone(),
-            }
-        }
+        responses: Arc<Mutex<HashMap<String, Result<CommandOutput, CommandError>>>>,
+        available_commands: Arc<Mutex<HashSet<String>>>,
     }
 
     impl MockCommandRunner {
@@ -168,13 +163,15 @@ pub mod mock {
 
         pub fn add_response(&self, command: &str, response: Result<CommandOutput, CommandError>) {
             self.responses
-                .borrow_mut()
+                .lock()
+                .unwrap()
                 .insert(command.to_string(), response);
         }
 
         pub fn add_command(&self, command: &str) {
             self.available_commands
-                .borrow_mut()
+                .lock()
+                .unwrap()
                 .insert(command.to_string());
         }
 
@@ -209,10 +206,12 @@ pub mod mock {
         }
     }
 
+    #[async_trait::async_trait]
     impl CommandRunner for MockCommandRunner {
-        fn execute(&self, command: &str) -> Result<CommandOutput, CommandError> {
+        async fn execute(&self, command: &str) -> Result<CommandOutput, CommandError> {
             self.responses
-                .borrow()
+                .lock()
+                .unwrap()
                 .get(command)
                 .cloned()
                 .unwrap_or_else(|| {
@@ -223,17 +222,17 @@ pub mod mock {
                 })
         }
 
-        fn execute_with_timeout(
+        async fn execute_with_timeout(
             &self,
             command: &str,
             _timeout: Duration,
         ) -> Result<CommandOutput, CommandError> {
             // For the mock, we'll ignore the timeout parameter and just return the pre-configured response
-            self.execute(command)
+            self.execute(command).await
         }
 
-        fn is_command_available(&self, command: &str) -> bool {
-            self.available_commands.borrow().contains(command)
+        async fn is_command_available(&self, command: &str) -> bool {
+            self.available_commands.lock().unwrap().contains(command)
         }
     }
 }
@@ -242,82 +241,81 @@ pub mod mock {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_mock_command_runner_success() {
+    #[tokio::test]
+    async fn test_mock_command_runner_success() {
         let runner = mock::MockCommandRunner::new();
         runner.success_response("echo hello", "hello");
 
-        let output = runner.execute("echo hello").unwrap();
+        let output = runner.execute("echo hello").await.unwrap();
         assert_eq!(output.stdout, "hello");
         assert_eq!(output.stderr, "");
         assert_eq!(output.status, 0);
         assert!(output.success);
     }
 
-    #[test]
-    fn test_mock_command_runner_error() {
+    #[tokio::test]
+    async fn test_mock_command_runner_error() {
         let runner = mock::MockCommandRunner::new();
         runner.error_response("invalid command", "command not found", 127);
 
-        let output = runner.execute("invalid command").unwrap();
+        let output = runner.execute("invalid command").await.unwrap();
         assert_eq!(output.stdout, "");
         assert_eq!(output.stderr, "command not found");
         assert_eq!(output.status, 127);
         assert!(!output.success);
     }
 
-    #[test]
-    fn test_mock_command_runner_timeout() {
+    #[tokio::test]
+    async fn test_mock_command_runner_timeout() {
         let runner = mock::MockCommandRunner::new();
         let timeout = Duration::from_secs(30);
         runner.timeout_response("slow command", timeout);
 
-        let result = runner.execute("slow command");
+        let result = runner.execute("slow command").await;
         assert!(matches!(result, Err(CommandError::Timeout(_))));
         if let Err(CommandError::Timeout(duration)) = result {
             assert_eq!(duration, timeout);
         }
     }
 
-    #[test]
-    fn test_mock_command_availability() {
+    #[tokio::test]
+    async fn test_mock_command_availability() {
         let runner = mock::MockCommandRunner::new();
         runner.add_command("available");
 
-        assert!(runner.is_command_available("available"));
-        assert!(!runner.is_command_available("not_available"));
+        assert!(runner.is_command_available("available").await);
+        assert!(!runner.is_command_available("not_available").await);
     }
 
     // Add test for ShellCommandRunner when run in a test environment
-    #[test]
-    fn test_shell_command_runner_basic() {
+    #[tokio::test]
+    async fn test_shell_command_runner_basic() {
         let runner = ShellCommandRunner::new("/bin/sh", Duration::from_secs(10));
 
         // Test a basic echo command
-        let result = runner.execute("echo hello");
+        let result = runner.execute("echo hello").await;
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.stdout.contains("hello"));
         assert!(output.success);
 
         // Test command failure
-        let result = runner.execute("exit 1");
+        let result = runner.execute("exit 1").await;
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(!output.success);
         assert_eq!(output.status, 1);
     }
 
-    #[test]
-    fn test_command_availability() {
+    #[tokio::test]
+    async fn test_command_availability() {
         let runner = ShellCommandRunner::new("/bin/sh", Duration::from_secs(10));
 
         // "echo" should be available in most environments
-        assert!(runner.is_command_available("echo"));
+        assert!(runner.is_command_available("echo").await);
 
         // A random string should not be a valid command
         let random_cmd = "xyzabc123notarealcommand";
-        assert!(!runner.is_command_available(random_cmd));
+        assert!(!runner.is_command_available(random_cmd).await);
     }
 }
-

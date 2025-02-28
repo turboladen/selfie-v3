@@ -100,12 +100,13 @@ impl PackageNode {
     }
 
     // Load a PackageNode from a file using the FileSystem trait
-    pub fn from_file<F: crate::filesystem::FileSystem>(
+    pub async fn from_file<F: crate::filesystem::FileSystem>(
         fs: &F,
         path: &Path,
     ) -> Result<Self, PackageParseError> {
         let content = fs
             .read_file(path)
+            .await
             .map_err(|e| PackageParseError::FileSystemError(e.to_string()))?;
 
         let mut package = Self::from_yaml(&content)?;
@@ -531,8 +532,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_package_from_file() {
+    #[tokio::test]
+    async fn test_package_from_file() {
         let fs = MockFileSystem::default();
         let path = Path::new("/test/packages/ripgrep.yaml");
 
@@ -551,7 +552,7 @@ mod tests {
 
         fs.add_file(path, yaml);
 
-        let package = PackageNode::from_file(&fs, path).unwrap();
+        let package = PackageNode::from_file(&fs, path).await.unwrap();
 
         assert_eq!(package.name, "ripgrep");
         assert_eq!(package.version, "0.1.0");
@@ -559,12 +560,12 @@ mod tests {
         assert_eq!(package.path, Some(path.to_path_buf()));
     }
 
-    #[test]
-    fn test_package_from_file_not_found() {
+    #[tokio::test]
+    async fn test_package_from_file_not_found() {
         let fs = MockFileSystem::default();
         let path = Path::new("/test/packages/nonexistent.yaml");
 
-        let result = PackageNode::from_file(&fs, path);
+        let result = PackageNode::from_file(&fs, path).await;
         assert!(result.is_err());
     }
 

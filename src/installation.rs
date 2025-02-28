@@ -1,6 +1,4 @@
 // src/installation.rs
-// Implements the basic installation management system that tracks package installation status
-// and executes installation commands.
 
 use std::time::{Duration, Instant};
 
@@ -80,7 +78,7 @@ impl PackageInstallation {
         self.update_status(status);
     }
 
-    pub fn execute_check<R: CommandRunner>(
+    pub async fn execute_check<R: CommandRunner>(
         &mut self,
         runner: &R,
     ) -> Result<bool, InstallationError> {
@@ -95,7 +93,7 @@ impl PackageInstallation {
             }
         };
 
-        match runner.execute(check_cmd) {
+        match runner.execute(check_cmd).await {
             Ok(output) => {
                 let installed = output.success;
                 if installed {
@@ -112,7 +110,7 @@ impl PackageInstallation {
         }
     }
 
-    pub fn execute_install<R: CommandRunner>(
+    pub async fn execute_install<R: CommandRunner>(
         &mut self,
         runner: &R,
     ) -> Result<CommandOutput, InstallationError> {
@@ -121,9 +119,7 @@ impl PackageInstallation {
         let install_cmd = &self.env_config.install;
 
         // For commands that might take a long time, we should update the progress
-        // This implementation is simplified and doesn't actually stream the output
-        // A more advanced implementation would use channels to stream output during execution
-        match runner.execute(install_cmd) {
+        match runner.execute(install_cmd).await {
             Ok(output) => {
                 if output.success {
                     self.update_status(InstallationStatus::Complete);
@@ -152,7 +148,7 @@ impl<R: CommandRunner> InstallationManager<R> {
         Self { runner, config }
     }
 
-    pub fn install_package(
+    pub async fn install_package(
         &self,
         package: PackageNode,
     ) -> Result<PackageInstallation, InstallationError> {
@@ -173,14 +169,14 @@ impl<R: CommandRunner> InstallationManager<R> {
         installation.start();
 
         // Check if already installed
-        let already_installed = installation.execute_check(&self.runner)?;
+        let already_installed = installation.execute_check(&self.runner).await?;
         if already_installed {
             installation.complete(InstallationStatus::AlreadyInstalled);
             return Ok(installation);
         }
 
         // Execute installation
-        installation.execute_install(&self.runner)?;
+        installation.execute_install(&self.runner).await?;
         installation.complete(InstallationStatus::Complete);
 
         Ok(installation)
@@ -210,8 +206,8 @@ mod tests {
             .build()
     }
 
-    #[test]
-    fn test_installation_status_updates() {
+    #[tokio::test]
+    async fn test_installation_status_updates() {
         let package = create_test_package();
         let env_config = package.environments.get("test-env").unwrap().clone();
 
@@ -228,8 +224,8 @@ mod tests {
         assert_eq!(installation.status, InstallationStatus::Complete);
     }
 
-    #[test]
-    fn test_installation_timing() {
+    #[tokio::test]
+    async fn test_installation_timing() {
         let package = create_test_package();
         let env_config = package.environments.get("test-env").unwrap().clone();
 
@@ -245,8 +241,8 @@ mod tests {
         assert!(installation.duration.is_some());
     }
 
-    #[test]
-    fn test_execute_check_no_check_command() {
+    #[tokio::test]
+    async fn test_execute_check_no_check_command() {
         let package = PackageNodeBuilder::default()
             .name("test-package")
             .version("1.0.0")
@@ -258,14 +254,14 @@ mod tests {
 
         let runner = MockCommandRunner::new();
 
-        let result = installation.execute_check(&runner);
+        let result = installation.execute_check(&runner).await;
         assert!(result.is_ok());
         assert!(!result.unwrap());
         assert_eq!(installation.status, InstallationStatus::NotInstalled);
     }
 
-    #[test]
-    fn test_execute_check_installed() {
+    #[tokio::test]
+    async fn test_execute_check_installed() {
         let package = create_test_package();
         let env_config = package.environments.get("test-env").unwrap().clone();
         let mut installation = PackageInstallation::new(package, "test-env", env_config);
@@ -273,14 +269,14 @@ mod tests {
         let runner = MockCommandRunner::new();
         runner.success_response("test check", "Package found");
 
-        let result = installation.execute_check(&runner);
+        let result = installation.execute_check(&runner).await;
         assert!(result.is_ok());
         assert!(result.unwrap());
         assert_eq!(installation.status, InstallationStatus::AlreadyInstalled);
     }
 
-    #[test]
-    fn test_execute_check_not_installed() {
+    #[tokio::test]
+    async fn test_execute_check_not_installed() {
         let package = create_test_package();
         let env_config = package.environments.get("test-env").unwrap().clone();
         let mut installation = PackageInstallation::new(package, "test-env", env_config);
@@ -288,14 +284,14 @@ mod tests {
         let runner = MockCommandRunner::new();
         runner.error_response("test check", "Not found", 1);
 
-        let result = installation.execute_check(&runner);
+        let result = installation.execute_check(&runner).await;
         assert!(result.is_ok());
         assert!(!result.unwrap());
         assert_eq!(installation.status, InstallationStatus::NotInstalled);
     }
 
-    #[test]
-    fn test_execute_check_error() {
+    #[tokio::test]
+    async fn test_execute_check_error() {
         let package = create_test_package();
         let env_config = package.environments.get("test-env").unwrap().clone();
         let mut installation = PackageInstallation::new(package, "test-env", env_config);
@@ -306,7 +302,7 @@ mod tests {
             Err(CommandError::ExecutionError("Command failed".to_string())),
         );
 
-        let result = installation.execute_check(&runner);
+        let result = installation.execute_check(&runner).await;
         assert!(result.is_err());
         assert_eq!(
             installation.status,
@@ -314,8 +310,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_execute_install_success() {
+    #[tokio::test]
+    async fn test_execute_install_success() {
         let package = create_test_package();
         let env_config = package.environments.get("test-env").unwrap().clone();
         let mut installation = PackageInstallation::new(package, "test-env", env_config);
@@ -323,13 +319,13 @@ mod tests {
         let runner = MockCommandRunner::new();
         runner.success_response("test install", "Installed successfully");
 
-        let result = installation.execute_install(&runner);
+        let result = installation.execute_install(&runner).await;
         assert!(result.is_ok());
         assert_eq!(installation.status, InstallationStatus::Complete);
     }
 
-    #[test]
-    fn test_execute_install_failure() {
+    #[tokio::test]
+    async fn test_execute_install_failure() {
         let package = create_test_package();
         let env_config = package.environments.get("test-env").unwrap().clone();
         let mut installation = PackageInstallation::new(package, "test-env", env_config);
@@ -337,13 +333,13 @@ mod tests {
         let runner = MockCommandRunner::new();
         runner.error_response("test install", "Installation failed", 1);
 
-        let result = installation.execute_install(&runner);
+        let result = installation.execute_install(&runner).await;
         assert!(result.is_err());
         assert!(matches!(installation.status, InstallationStatus::Failed(_)));
     }
 
-    #[test]
-    fn test_execute_install_error() {
+    #[tokio::test]
+    async fn test_execute_install_error() {
         let package = create_test_package();
         let env_config = package.environments.get("test-env").unwrap().clone();
         let mut installation = PackageInstallation::new(package, "test-env", env_config);
@@ -354,13 +350,13 @@ mod tests {
             Err(CommandError::ExecutionError("Command failed".to_string())),
         );
 
-        let result = installation.execute_install(&runner);
+        let result = installation.execute_install(&runner).await;
         assert!(result.is_err());
         assert!(matches!(installation.status, InstallationStatus::Failed(_)));
     }
 
-    #[test]
-    fn test_installation_manager_install_success() {
+    #[tokio::test]
+    async fn test_installation_manager_install_success() {
         let package = create_test_package();
         let config = create_test_config();
 
@@ -369,15 +365,15 @@ mod tests {
         runner.success_response("test install", "Installed successfully");
 
         let manager = InstallationManager::new(runner, config);
-        let result = manager.install_package(package);
+        let result = manager.install_package(package).await;
 
         assert!(result.is_ok());
         let installation = result.unwrap();
         assert_eq!(installation.status, InstallationStatus::Complete);
     }
 
-    #[test]
-    fn test_installation_manager_already_installed() {
+    #[tokio::test]
+    async fn test_installation_manager_already_installed() {
         let package = create_test_package();
         let config = create_test_config();
 
@@ -385,15 +381,15 @@ mod tests {
         runner.success_response("test check", "Found"); // Already installed
 
         let manager = InstallationManager::new(runner, config);
-        let result = manager.install_package(package);
+        let result = manager.install_package(package).await;
 
         assert!(result.is_ok());
         let installation = result.unwrap();
         assert_eq!(installation.status, InstallationStatus::AlreadyInstalled);
     }
 
-    #[test]
-    fn test_installation_manager_install_failure() {
+    #[tokio::test]
+    async fn test_installation_manager_install_failure() {
         let package = create_test_package();
         let config = create_test_config();
 
@@ -402,13 +398,13 @@ mod tests {
         runner.error_response("test install", "Installation failed", 1);
 
         let manager = InstallationManager::new(runner, config);
-        let result = manager.install_package(package);
+        let result = manager.install_package(package).await;
 
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_installation_manager_environment_incompatible() {
+    #[tokio::test]
+    async fn test_installation_manager_environment_incompatible() {
         let package = create_test_package();
         let config = ConfigBuilder::default()
             .environment("different-env")
@@ -417,7 +413,7 @@ mod tests {
 
         let runner = MockCommandRunner::new();
         let manager = InstallationManager::new(runner, config);
-        let result = manager.install_package(package);
+        let result = manager.install_package(package).await;
 
         assert!(result.is_err());
         assert!(matches!(

@@ -1,5 +1,4 @@
 // src/main.rs
-// Update the ProgressManager initialization to enable colors by default
 
 use std::{process, time::Duration};
 
@@ -13,11 +12,12 @@ use selfie::{
     progress_display::ProgressManager,
 };
 
-fn main() {
+#[tokio::main]
+async fn main() {
     // Parse command line arguments
     let cli = Cli::parse_args();
 
-    // Create a progress manager - CHANGED HERE: use !cli.no_color to enable colors by default
+    // Create a progress manager - use !cli.no_color to enable colors by default
     let progress_manager = ProgressManager::new(!cli.no_color, true, cli.verbose);
 
     // Create a base configuration (in a real app, this would be loaded from a file)
@@ -29,6 +29,7 @@ fn main() {
 
     // Display command that will be executed
     let cmd_desc = cli::get_command_description(&cli);
+
     let info_pb = progress_manager.create_progress_bar(
         "info",
         &cmd_desc,
@@ -50,11 +51,11 @@ fn main() {
                                 runner,
                                 config,
                                 cli.verbose,
-                                !cli.no_color, // CHANGED: enable colors by default
+                                !cli.no_color, // enable colors by default
                                 true,          // use_unicode
                             );
 
-                            match installer.install_package(package_name) {
+                            match installer.install_package(package_name).await {
                                 Ok(_) => 0,
                                 Err(err) => {
                                     let error_pb = progress_manager.create_progress_bar(
@@ -88,7 +89,7 @@ fn main() {
                                 cli.verbose,
                             );
 
-                            match list_cmd.execute() {
+                            match list_cmd.execute().await {
                                 ListCommandResult::Success(output) => {
                                     // The progress bar already showed "Done"
                                     // Just print the package list
@@ -147,7 +148,7 @@ fn main() {
                                 cli.verbose,
                             );
 
-                            match validate_cmd.execute(&pkg_cmd.command) {
+                            match validate_cmd.execute(&pkg_cmd.command).await {
                                 ValidateCommandResult::Valid(output) => {
                                     // The progress bar already showed "Validation successful"
                                     // Just print the details now

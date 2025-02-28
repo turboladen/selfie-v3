@@ -12,8 +12,8 @@ use selfie::{
 // Import the enhanced package installer
 use std::path::Path;
 
-#[test]
-fn test_package_install_with_progress_display() {
+#[tokio::test]
+async fn test_package_install_with_progress_display() {
     // Create mock environment
     let fs = MockFileSystem::default();
     let runner = MockCommandRunner::new();
@@ -80,7 +80,7 @@ fn test_package_install_with_progress_display() {
     );
 
     // Run the installation
-    let result = installer.install_package("main-pkg");
+    let result = installer.install_package("main-pkg").await;
 
     // Verify the result
     assert!(result.is_ok());
