@@ -1,7 +1,4 @@
 // src/installation.rs
-// Implements the basic installation management system that tracks package installation status
-// and executes installation commands.
-
 use std::time::{Duration, Instant};
 
 use thiserror::Error;
@@ -80,6 +77,26 @@ impl PackageInstallation {
         self.update_status(status);
     }
 
+    // New helper method to execute commands and handle status updates
+    fn execute_command<R: CommandRunner>(
+        &mut self,
+        runner: &R,
+        command: &str,
+        initial_status: InstallationStatus,
+        error_constructor: impl FnOnce(String) -> InstallationError,
+    ) -> Result<CommandOutput, InstallationError> {
+        self.update_status(initial_status);
+
+        match runner.execute(command) {
+            Ok(output) => Ok(output),
+            Err(e) => {
+                let error_msg = e.to_string();
+                self.update_status(InstallationStatus::Failed(error_msg.clone()));
+                Err(error_constructor(error_msg))
+            }
+        }
+    }
+
     pub fn execute_check<R: CommandRunner>(
         &mut self,
         runner: &R,
@@ -95,50 +112,43 @@ impl PackageInstallation {
             }
         };
 
-        match runner.execute(check_cmd) {
-            Ok(output) => {
-                let installed = output.success;
-                if installed {
-                    self.update_status(InstallationStatus::AlreadyInstalled);
-                } else {
-                    self.update_status(InstallationStatus::NotInstalled);
-                }
-                Ok(installed)
-            }
-            Err(e) => {
-                self.update_status(InstallationStatus::Failed(e.to_string()));
-                Err(InstallationError::CheckFailed(e.to_string()))
-            }
+        // Use the shared execution method
+        let output =
+            self.execute_command(runner, check_cmd, InstallationStatus::Checking, |e| {
+                InstallationError::CheckFailed(e)
+            })?;
+
+        let installed = output.success;
+        if installed {
+            self.update_status(InstallationStatus::AlreadyInstalled);
+        } else {
+            self.update_status(InstallationStatus::NotInstalled);
         }
+
+        Ok(installed)
     }
 
     pub fn execute_install<R: CommandRunner>(
         &mut self,
         runner: &R,
     ) -> Result<CommandOutput, InstallationError> {
-        self.update_status(InstallationStatus::Installing);
-
         let install_cmd = &self.env_config.install;
 
-        // For commands that might take a long time, we should update the progress
-        // This implementation is simplified and doesn't actually stream the output
-        // A more advanced implementation would use channels to stream output during execution
-        match runner.execute(install_cmd) {
-            Ok(output) => {
-                if output.success {
-                    self.update_status(InstallationStatus::Complete);
-                } else {
-                    let error_msg = format!("Install command failed with status {}", output.status);
-                    self.update_status(InstallationStatus::Failed(error_msg.clone()));
-                    return Err(InstallationError::InstallationFailed(error_msg));
-                }
-                Ok(output)
-            }
-            Err(e) => {
-                self.update_status(InstallationStatus::Failed(e.to_string()));
-                Err(InstallationError::CommandError(e))
-            }
+        // Use the shared execution method
+        let output =
+            self.execute_command(runner, install_cmd, InstallationStatus::Installing, |e| {
+                InstallationError::CommandError(CommandError::ExecutionError(e))
+            })?;
+
+        if output.success {
+            self.update_status(InstallationStatus::Complete);
+        } else {
+            let error_msg = format!("Install command failed with status {}", output.status);
+            self.update_status(InstallationStatus::Failed(error_msg.clone()));
+            return Err(InstallationError::InstallationFailed(error_msg));
         }
+
+        Ok(output)
     }
 }
 
