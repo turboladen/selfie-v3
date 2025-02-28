@@ -267,7 +267,7 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
         // Update progress status to checking
         self.progress_manager
             .update_from_status(progress_id, &InstallationStatus::Checking, None)
-            .map_err(|e| PackageInstallerError::EnvironmentError(e))?;
+            .map_err(PackageInstallerError::EnvironmentError)?;
 
         // Install the package
         let result = match installation_manager.install_package(package.clone()) {
@@ -277,7 +277,7 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
                 // Update progress bar with final status
                 self.progress_manager
                     .update_from_status(progress_id, &installation.status, Some(duration))
-                    .map_err(|e| PackageInstallerError::EnvironmentError(e))?;
+                    .map_err(PackageInstallerError::EnvironmentError)?;
 
                 match installation.status {
                     InstallationStatus::Complete => {
@@ -303,7 +303,7 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
                         &InstallationStatus::Failed(err.to_string()),
                         Some(duration),
                     )
-                    .map_err(|e| PackageInstallerError::EnvironmentError(e))?;
+                    .map_err(PackageInstallerError::EnvironmentError)?;
 
                 InstallationResult::failed(
                     &package.name,
@@ -370,7 +370,7 @@ mod tests {
         filesystem::mock::MockFileSystem,
         progress::{ConsoleRenderer, ProgressReporter},
     };
-    use std::path::Path;
+    
 
     fn create_test_config() -> Config {
         ConfigBuilder::default()

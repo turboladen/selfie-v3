@@ -12,7 +12,7 @@ use url::Url;
 use crate::{
     config::Config,
     filesystem::{FileSystem, FileSystemError},
-    package::{EnvironmentConfig, PackageNode, PackageParseError, PackageValidationError},
+    package::{EnvironmentConfig, PackageNode, PackageParseError},
     package_repo::{PackageRepoError, PackageRepository},
 };
 
@@ -354,7 +354,7 @@ impl<'a, F: FileSystem> PackageValidator<'a, F> {
 
         // Check if current environment is configured
         let current_env = &self.config.environment;
-        if !package.environments.contains_key(current_env) {
+        if !current_env.is_empty() && !package.environments.contains_key(current_env) {
             result.add_issue(ValidationIssue::warning(
                 ValidationErrorCategory::Environment,
                 "environments",
@@ -473,18 +473,14 @@ impl<'a, F: FileSystem> PackageValidator<'a, F> {
 
         // Check for invalid redirections
         for redirect in &[">", ">>", "<"] {
-            if command.contains(&format!("{} ", redirect)) {
-                if !command.contains(&format!("{} /", redirect))
-                    && !command.contains(&format!("{} ~/", redirect))
-                {
-                    result.add_issue(ValidationIssue::warning(
-                        ValidationErrorCategory::CommandSyntax,
-                        field_name,
-                        &format!("Potential invalid redirection with {}", redirect),
-                        None,
-                        Some("Ensure the redirection path is valid and absolute."),
-                    ));
-                }
+            if command.contains(&format!("{} ", redirect)) && !command.contains(&format!("{} /", redirect)) && !command.contains(&format!("{} ~/", redirect)) {
+                result.add_issue(ValidationIssue::warning(
+                    ValidationErrorCategory::CommandSyntax,
+                    field_name,
+                    &format!("Potential invalid redirection with {}", redirect),
+                    None,
+                    Some("Ensure the redirection path is valid and absolute."),
+                ));
             }
         }
 
@@ -710,7 +706,7 @@ environments:
   test-env:
     install: brew install test-package
 "#;
-        fs.add_file(Path::new("/test/packages/incomplete.yaml"), &yaml);
+        fs.add_file(Path::new("/test/packages/incomplete.yaml"), yaml);
 
         let validator = PackageValidator::new(&fs, &config);
         let result = validator
@@ -745,7 +741,7 @@ environments:
   test-env:
     install: brew install test-package
 "#;
-        fs.add_file(Path::new("/test/packages/invalid-url.yaml"), &yaml);
+        fs.add_file(Path::new("/test/packages/invalid-url.yaml"), yaml);
 
         let validator = PackageValidator::new(&fs, &config);
         let result = validator
@@ -771,7 +767,7 @@ environments:
     install: brew install test-package "with unmatched quote
     check: echo "hello | | invalid pipes"
 "#;
-        fs.add_file(Path::new("/test/packages/bad-commands.yaml"), &yaml);
+        fs.add_file(Path::new("/test/packages/bad-commands.yaml"), yaml);
 
         let validator = PackageValidator::new(&fs, &config);
         let result = validator
@@ -803,7 +799,7 @@ environments:
   test-env:
     install: brew install test-package
 "#;
-        fs.add_file(Path::new("/test/packages/bad-version.yaml"), &yaml);
+        fs.add_file(Path::new("/test/packages/bad-version.yaml"), yaml);
 
         let validator = PackageValidator::new(&fs, &config);
         let result = validator
@@ -829,7 +825,7 @@ environments:
   other-env:  # Not the current environment (test-env)
     install: brew install test-package
 "#;
-        fs.add_file(Path::new("/test/packages/missing-env.yaml"), &yaml);
+        fs.add_file(Path::new("/test/packages/missing-env.yaml"), yaml);
 
         let validator = PackageValidator::new(&fs, &config);
         let result = validator

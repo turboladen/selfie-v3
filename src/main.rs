@@ -21,15 +21,6 @@ fn main() {
     // Create a base configuration (in a real app, this would be loaded from a file)
     let base_config = None;
 
-    // Validate and build the configuration
-    let config = match cli.validate_and_build_config(base_config) {
-        Ok(config) => config,
-        Err(err) => {
-            eprintln!("Error: {}", err);
-            process::exit(1);
-        }
-    };
-
     // Set up file system and command runner
     let fs = RealFileSystem;
     let runner = ShellCommandRunner::new("/bin/sh", Duration::from_secs(60));
@@ -45,82 +36,111 @@ fn main() {
 
     // Execute the command
     let result = match &cli.command {
-        Commands::Package(pkg_cmd) => match &pkg_cmd.command {
-            PackageSubcommands::Install { package_name } => {
-                // Use the enhanced installer with progress display
-                let installer = PackageInstaller::new(
-                    fs,
-                    runner,
-                    config,
-                    cli.verbose,
-                    !cli.no_color,
-                    true, // use_unicode
-                );
+        Commands::Package(pkg_cmd) => {
+            match &pkg_cmd.command {
+                PackageSubcommands::Install { package_name } => {
+                    // For install commands, we need a fully valid config
+                    match cli.validate_and_build_config(base_config) {
+                        Ok(config) => {
+                            // Use the enhanced installer with progress display
+                            let installer = PackageInstaller::new(
+                                fs,
+                                runner,
+                                config,
+                                cli.verbose,
+                                !cli.no_color,
+                                true, // use_unicode
+                            );
 
-                match installer.install_package(package_name) {
-                    Ok(_) => 0,
-                    Err(err) => {
-                        let error_pb = progress_manager.create_progress_bar(
-                            "error",
-                            &format!("Installation failed: {}", err),
-                            selfie::progress_display::ProgressStyleType::Message,
-                        );
-                        error_pb.abandon();
-                        1
+                            match installer.install_package(package_name) {
+                                Ok(_) => 0,
+                                Err(err) => {
+                                    let error_pb = progress_manager.create_progress_bar(
+                                        "error",
+                                        &format!("Installation failed: {}", err),
+                                        selfie::progress_display::ProgressStyleType::Message,
+                                    );
+                                    error_pb.abandon();
+                                    1
+                                }
+                            }
+                        }
+                        Err(err) => {
+                            eprintln!("Error: {}", err);
+                            1
+                        }
+                    }
+                }
+                PackageSubcommands::List => {
+                    let info_pb = progress_manager.create_progress_bar(
+                        "list",
+                        "Package listing not implemented yet",
+                        selfie::progress_display::ProgressStyleType::Message,
+                    );
+                    info_pb.finish();
+                    0
+                }
+                PackageSubcommands::Info { package_name } => {
+                    let info_pb = progress_manager.create_progress_bar(
+                        "info",
+                        &format!("Package info for '{}' not implemented yet", package_name),
+                        selfie::progress_display::ProgressStyleType::Message,
+                    );
+                    info_pb.finish();
+                    0
+                }
+                PackageSubcommands::Create { package_name } => {
+                    let info_pb = progress_manager.create_progress_bar(
+                        "create",
+                        &format!(
+                            "Package creation for '{}' not implemented yet",
+                            package_name
+                        ),
+                        selfie::progress_display::ProgressStyleType::Message,
+                    );
+                    info_pb.finish();
+                    0
+                }
+                PackageSubcommands::Validate { .. } => {
+                    // For validation commands, use minimal config validation that only checks package directory
+                    match cli.build_minimal_config(base_config) {
+                        Ok(config) => {
+                            // Use the validate command
+                            let validate_cmd = ValidateCommand::new(
+                                &fs,
+                                &runner,
+                                config,
+                                &progress_manager,
+                                cli.verbose,
+                            );
+
+                            match validate_cmd.execute(&pkg_cmd.command) {
+                                ValidateCommandResult::Valid(output) => {
+                                    println!("{}", output);
+                                    0
+                                }
+                                ValidateCommandResult::Invalid(output) => {
+                                    println!("{}", output);
+                                    1
+                                }
+                                ValidateCommandResult::Error(error) => {
+                                    eprintln!("Error: {}", error);
+                                    1
+                                }
+                            }
+                        }
+                        Err(err) => {
+                            eprintln!("Error: {}", err);
+                            eprintln!("\nPackage directory is required for validation.");
+                            eprintln!("You can set it with:");
+                            eprintln!("  1. The --package-directory flag: --package-directory /path/to/packages");
+                            eprintln!("  2. In your config.yaml file: package_directory: /path/to/packages");
+                            1
+                        }
                     }
                 }
             }
-            PackageSubcommands::List => {
-                let info_pb = progress_manager.create_progress_bar(
-                    "list",
-                    "Package listing not implemented yet",
-                    selfie::progress_display::ProgressStyleType::Message,
-                );
-                info_pb.finish();
-                0
-            }
-            PackageSubcommands::Info { package_name } => {
-                let info_pb = progress_manager.create_progress_bar(
-                    "info",
-                    &format!("Package info for '{}' not implemented yet", package_name),
-                    selfie::progress_display::ProgressStyleType::Message,
-                );
-                info_pb.finish();
-                0
-            }
-            PackageSubcommands::Create { package_name } => {
-                let info_pb = progress_manager.create_progress_bar(
-                    "create",
-                    &format!(
-                        "Package creation for '{}' not implemented yet",
-                        package_name
-                    ),
-                    selfie::progress_display::ProgressStyleType::Message,
-                );
-                info_pb.finish();
-                0
-            }
-            PackageSubcommands::Validate { .. } => {
-                // Use the new validate command
-                let validate_cmd =
-                    ValidateCommand::new(&fs, &runner, config, &progress_manager, cli.verbose);
-
-                match validate_cmd.execute(&pkg_cmd.command) {
-                    ValidateCommandResult::Valid(output) => {
-                        println!("{}", output);
-                        0
-                    }
-                    ValidateCommandResult::Invalid(output) => {
-                        println!("{}", output);
-                        1
-                    }
-                    ValidateCommandResult::Error(error) => {
-                        eprintln!("Error: {}", error);
-                        1
-                    }
-                }
-            }
-        },
+        }
         Commands::Config(_cfg_cmd) => {
             let info_pb = progress_manager.create_progress_bar(
                 "config",

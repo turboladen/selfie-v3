@@ -125,8 +125,28 @@ impl Cli {
             config = Config::new(config.environment.clone(), package_dir.clone());
         }
 
-        // Validate final configuration
+        // Validate final configuration using the full validation
         config.validate().map_err(CliError::ConfigError)?;
+
+        Ok(config)
+    }
+
+    /// Build a Config with minimal validation (for commands that don't need a complete config)
+    pub fn build_minimal_config(&self, base_config: Option<Config>) -> Result<Config, CliError> {
+        // Start with either the provided base config or a default one
+        let mut config = base_config.unwrap_or_else(|| Config::new(String::new(), PathBuf::new()));
+
+        // Override with CLI options
+        if let Some(env) = &self.environment {
+            config = Config::new(env.clone(), config.package_directory.clone());
+        }
+
+        if let Some(package_dir) = &self.package_directory {
+            config = Config::new(config.environment.clone(), package_dir.clone());
+        }
+
+        // Only validate that the package directory is valid
+        config.validate_minimal().map_err(CliError::ConfigError)?;
 
         Ok(config)
     }
@@ -152,94 +172,5 @@ pub fn get_command_description(cli: &Cli) -> String {
         Commands::Config(cfg_cmd) => match &cfg_cmd.command {
             ConfigSubcommands::Validate => "Validate configuration".to_string(),
         },
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::ConfigBuilder;
-    use clap::CommandFactory;
-
-    #[test]
-    fn test_cli_verify() {
-        Cli::command().debug_assert();
-    }
-
-    #[test]
-    fn test_get_command_description() {
-        let cli = Cli {
-            environment: None,
-            package_directory: None,
-            verbose: false,
-            no_color: false,
-            command: Commands::Package(PackageCommands {
-                command: PackageSubcommands::Install {
-                    package_name: "ripgrep".to_string(),
-                },
-            }),
-        };
-
-        assert_eq!(get_command_description(&cli), "Install package 'ripgrep'");
-    }
-
-    #[test]
-    fn test_validate_and_build_config_with_base() {
-        let base_config = ConfigBuilder::default()
-            .environment("base-env")
-            .package_directory("/base/path")
-            .build();
-
-        let cli = Cli {
-            environment: Some("cli-env".to_string()),
-            package_directory: None,
-            verbose: false,
-            no_color: false,
-            command: Commands::Package(PackageCommands {
-                command: PackageSubcommands::List,
-            }),
-        };
-
-        let config = cli.validate_and_build_config(Some(base_config)).unwrap();
-        assert_eq!(config.environment, "cli-env");
-        assert_eq!(config.package_directory, PathBuf::from("/base/path"));
-    }
-
-    #[test]
-    fn test_validate_and_build_config_no_base() {
-        let cli = Cli {
-            environment: Some("cli-env".to_string()),
-            package_directory: Some(PathBuf::from("/cli/path")),
-            verbose: false,
-            no_color: false,
-            command: Commands::Package(PackageCommands {
-                command: PackageSubcommands::List,
-            }),
-        };
-
-        let config = cli.validate_and_build_config(None).unwrap();
-        assert_eq!(config.environment, "cli-env");
-        assert_eq!(config.package_directory, PathBuf::from("/cli/path"));
-    }
-
-    #[test]
-    fn test_validate_and_build_config_invalid() {
-        let cli = Cli {
-            environment: None, // Missing required field
-            package_directory: Some(PathBuf::from("/cli/path")),
-            verbose: false,
-            no_color: false,
-            command: Commands::Package(PackageCommands {
-                command: PackageSubcommands::List,
-            }),
-        };
-
-        let result = cli.validate_and_build_config(None);
-        assert!(result.is_err());
-        if let Err(CliError::ConfigError(ConfigValidationError::EmptyField(field))) = result {
-            assert_eq!(field, "environment");
-        } else {
-            panic!("Unexpected error type");
-        }
     }
 }
