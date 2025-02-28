@@ -68,6 +68,8 @@ fn main() {
                             }
                         }
                         Err(err) => {
+                            // The progress already showed a failure indicator
+                            // Just print the error details
                             eprintln!("Error: {}", err);
                             1
                         }
@@ -88,10 +90,14 @@ fn main() {
 
                             match list_cmd.execute() {
                                 ListCommandResult::Success(output) => {
+                                    // The progress bar already showed "Done"
+                                    // Just print the package list
                                     println!("{}", output);
                                     0
                                 }
                                 ListCommandResult::Error(error) => {
+                                    // The progress bar already showed "Failed"
+                                    // Print the detailed error
                                     eprintln!("{}", error);
                                     1
                                 }
@@ -143,15 +149,21 @@ fn main() {
 
                             match validate_cmd.execute(&pkg_cmd.command) {
                                 ValidateCommandResult::Valid(output) => {
+                                    // The progress bar already showed "Validation successful"
+                                    // Just print the details now
                                     println!("{}", output);
                                     0
                                 }
                                 ValidateCommandResult::Invalid(output) => {
+                                    // The progress bar already showed "Validation failed"
+                                    // Just print the details now
                                     println!("{}", output);
                                     1
                                 }
                                 ValidateCommandResult::Error(error) => {
-                                    eprintln!("Error: {}", error);
+                                    // The progress bar already showed a generic failure message
+                                    // Print the detailed error to stderr
+                                    eprintln!("{}", error);
                                     1
                                 }
                             }

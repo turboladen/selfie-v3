@@ -52,10 +52,10 @@ impl<'a, F: FileSystem, R: CommandRunner> ListCommand<'a, F, R> {
 
     /// Execute the list command
     pub fn execute(&self) -> ListCommandResult {
-        // Create progress display
+        // Create progress display - use a generic message
         let progress = self.progress_manager.create_progress_bar(
             "list",
-            "Listing packages...",
+            "Searching for packages...",
             ProgressStyleType::Spinner,
         );
 
@@ -66,11 +66,13 @@ impl<'a, F: FileSystem, R: CommandRunner> ListCommand<'a, F, R> {
         // Get list of packages
         match self.list_packages(&package_repo) {
             Ok(output) => {
-                progress.finish_with_message("Package listing complete");
+                // Just show a simple success message in the progress bar
+                progress.finish_with_message("Done");
                 ListCommandResult::Success(output)
             }
             Err(err) => {
-                progress.abandon_with_message(format!("Failed to list packages: {}", err));
+                // Simplify the progress bar message
+                progress.abandon_with_message("Failed");
                 ListCommandResult::Error(format!("Error: {}", err))
             }
         }

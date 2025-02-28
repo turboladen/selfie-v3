@@ -58,7 +58,7 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidateCommand<'a, F, R> {
                 package_name,
                 package_path,
             } => {
-                // Create progress display
+                // Create progress display - use a more generic message
                 let progress = self.progress_manager.create_progress_bar(
                     "validate",
                     &format!("Validating package '{}'", package_name),
@@ -66,8 +66,6 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidateCommand<'a, F, R> {
                 );
 
                 // Create validator
-                // Note: For validation, we only need a minimal config with package directory
-                // We don't need a valid environment for basic validation
                 let validator = PackageValidator::new(self.fs, &self.config);
 
                 // Validate package
@@ -84,15 +82,20 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidateCommand<'a, F, R> {
                             format_validation_result(&validation_result, self.use_colors);
 
                         if validation_result.is_valid() {
+                            // For successful validation, just show success in progress bar
                             progress.finish_with_message("Validation successful");
                             ValidateCommandResult::Valid(formatted)
                         } else {
+                            // For failed validation, keep it simple in the progress bar
                             progress.abandon_with_message("Validation failed");
                             ValidateCommandResult::Invalid(formatted)
                         }
                     }
                     Err(err) => {
-                        progress.abandon_with_message(format!("Validation error: {}", err));
+                        // For errors, use a generic message in the progress bar
+                        // and return the detailed error for main to display
+                        progress.abandon_with_message("Validation failed");
+
                         match err {
                             PackageValidatorError::PackageNotFound(name) => {
                                 ValidateCommandResult::Error(format!(

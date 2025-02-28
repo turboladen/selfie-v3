@@ -358,40 +358,92 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
         let dep_duration = result.dependency_duration();
         let package_duration = result.duration;
 
-        // Create a summary progress bar
+        // Create a summary progress bar - with a more generic message
         let summary_pb = self.progress_manager.create_progress_bar(
             "summary",
-            "Installation Summary",
+            "Finishing up...",
             ProgressStyleType::Message,
         );
 
-        // Display summary information
+        // Display summary information with colors where appropriate
         if !result.dependencies.is_empty() {
-            summary_pb.println(format!("Total time: {:.1?}", total_duration));
-            summary_pb.println(format!("Dependencies: {:.1?}", dep_duration));
-            summary_pb.println(format!("Package: {:.1?}", package_duration));
+            if self.progress_manager.use_colors() {
+                summary_pb.println(format!(
+                    "Total time: {}",
+                    style(format!("{:.1?}", total_duration)).cyan()
+                ));
+                summary_pb.println(format!(
+                    "Dependencies: {}",
+                    style(format!("{:.1?}", dep_duration)).cyan()
+                ));
+                summary_pb.println(format!(
+                    "Package: {}",
+                    style(format!("{:.1?}", package_duration)).cyan()
+                ));
+            } else {
+                summary_pb.println(format!("Total time: {:.1?}", total_duration));
+                summary_pb.println(format!("Dependencies: {:.1?}", dep_duration));
+                summary_pb.println(format!("Package: {:.1?}", package_duration));
+            }
         } else {
-            summary_pb.println(format!("Total time: {:.1?}", total_duration));
+            if self.progress_manager.use_colors() {
+                summary_pb.println(format!(
+                    "Total time: {}",
+                    style(format!("{:.1?}", total_duration)).cyan()
+                ));
+            } else {
+                summary_pb.println(format!("Total time: {:.1?}", total_duration));
+            }
         }
 
-        // Display success or failure status
+        // Display success or failure status with appropriate colors
         match result.status {
             InstallationStatus::Complete => {
-                summary_pb.finish_with_message(format!(
-                    "Successfully installed '{}' and {} dependencies",
-                    result.package_name,
-                    result.dependencies.len()
-                ));
+                let success_message = if self.progress_manager.use_colors() {
+                    format!(
+                        "Successfully installed '{}' and {} dependencies",
+                        style(&result.package_name).magenta().bold(),
+                        style(result.dependencies.len()).cyan()
+                    )
+                } else {
+                    format!(
+                        "Successfully installed '{}' and {} dependencies",
+                        result.package_name,
+                        result.dependencies.len()
+                    )
+                };
+                // Just use "Complete" in the progress bar to avoid duplication
+                summary_pb.finish_with_message("Complete");
+                // Print the success message separately
+                println!("{}", success_message);
             }
             InstallationStatus::AlreadyInstalled => {
-                summary_pb.finish_with_message(format!(
-                    "'{}' was already installed",
-                    result.package_name
-                ));
+                let already_message = if self.progress_manager.use_colors() {
+                    format!(
+                        "'{}' was already installed",
+                        style(&result.package_name).magenta().bold()
+                    )
+                } else {
+                    format!("'{}' was already installed", result.package_name)
+                };
+                // Use a simple message in the progress bar
+                summary_pb.finish_with_message("Done");
+                // Print the detailed message separately
+                println!("{}", already_message);
             }
             _ => {
-                summary_pb
-                    .abandon_with_message(format!("Failed to install '{}'", result.package_name));
+                let error_message = if self.progress_manager.use_colors() {
+                    format!(
+                        "Failed to install '{}'",
+                        style(&result.package_name).magenta().bold()
+                    )
+                } else {
+                    format!("Failed to install '{}'", result.package_name)
+                };
+                // Keep progress bar message simple
+                summary_pb.abandon_with_message("Failed");
+                // Print detailed error separately
+                eprintln!("{}", error_message);
             }
         }
     }
