@@ -57,7 +57,18 @@ impl<'a, F: FileSystem> DependencyResolver<'a, F> {
         self.build_dependency_graph(&mut graph, package_name, &mut Vec::new())?;
 
         // Get the installation order
-        let installation_order = graph.installation_order()?;
+        let installation_order = match graph.installation_order() {
+            Ok(order) => order,
+            Err(DependencyGraphError::CircularDependency(msg, path)) => {
+                // Convert the graph error to our error type with the cycle path
+                return Err(DependencyResolverError::CircularDependency(format!(
+                    "{} (path: {})",
+                    msg,
+                    path.join(" -> ")
+                )));
+            }
+            Err(e) => return Err(DependencyResolverError::GraphError(e)),
+        };
 
         Ok(installation_order.into_iter().cloned().collect())
     }
@@ -71,6 +82,9 @@ impl<'a, F: FileSystem> DependencyResolver<'a, F> {
     ) -> Result<(), DependencyResolverError> {
         // Check for circular dependencies during traversal
         if visited.contains(&package_name.to_string()) {
+            let mut cycle_path = visited.clone();
+            cycle_path.push(package_name.to_string());
+
             return Err(DependencyResolverError::CircularDependency(format!(
                 "Circular dependency detected: {}",
                 visited.join(" -> ") + " -> " + package_name
@@ -144,8 +158,6 @@ impl<'a, F: FileSystem> DependencyResolver<'a, F> {
         Ok(())
     }
 }
-
-// src/package_installer/dependency.rs - add to the bottom
 
 #[cfg(test)]
 mod tests {

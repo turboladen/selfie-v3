@@ -11,7 +11,7 @@ pub enum DependencyGraphError {
     PackageNotFound(String),
 
     #[error("Circular dependency detected: {0}")]
-    CircularDependency(String),
+    CircularDependency(String, Vec<String>),
 
     #[error("Duplicate package: {0}")]
     DuplicatePackage(String),
@@ -41,7 +41,7 @@ impl DependencyGraph {
         Ok(())
     }
 
-    /// Adds a dependency relationship between two packages
+    // Fix the add_dependency method
     pub fn add_dependency(
         &mut self,
         package: &str,
@@ -68,10 +68,17 @@ impl DependencyGraph {
             if let Some(deps) = self.edges.get_mut(package) {
                 deps.remove(dependency);
             }
-            return Err(DependencyGraphError::CircularDependency(format!(
-                "Adding {} as dependency of {} would create a cycle",
-                dependency, package
-            )));
+
+            // Create a simple path for the cycle
+            let path = vec![package.to_string(), dependency.to_string()];
+
+            return Err(DependencyGraphError::CircularDependency(
+                format!(
+                    "Adding {} as dependency of {} would create a cycle",
+                    dependency, package
+                ),
+                path,
+            ));
         }
 
         Ok(())
@@ -155,7 +162,70 @@ impl DependencyGraph {
         false
     }
 
-    // Modified topological sort that delivers nodes in correct installation order
+    /// Find and return descriptions of any cycles in the graph
+    pub fn find_cycles(&self) -> Vec<Vec<String>> {
+        let mut cycles = Vec::new();
+        let mut visited = HashSet::new();
+        let mut path = Vec::new();
+        let mut on_path = HashSet::new();
+
+        // Start DFS from each node
+        for node in self.nodes.keys() {
+            if !visited.contains(node) {
+                self.find_cycles_util(node, &mut visited, &mut path, &mut on_path, &mut cycles);
+            }
+        }
+
+        cycles
+    }
+
+    // Helper for find_cycles that actually performs the DFS
+    fn find_cycles_util(
+        &self,
+        node: &str,
+        visited: &mut HashSet<String>,
+        path: &mut Vec<String>,
+        on_path: &mut HashSet<String>,
+        cycles: &mut Vec<Vec<String>>,
+    ) {
+        // If already on current path, we found a cycle
+        if on_path.contains(node) {
+            // Find the start of the cycle
+            let cycle_start = path.iter().position(|n| n == node).unwrap();
+
+            // Extract the cycle path
+            let mut cycle = path[cycle_start..].to_vec();
+            cycle.push(node.to_string()); // Complete the cycle
+            cycles.push(cycle);
+            return;
+        }
+
+        // Mark as visited and on current path
+        visited.insert(node.to_string());
+        on_path.insert(node.to_string());
+        path.push(node.to_string());
+
+        // Visit all adjacent nodes
+        if let Some(deps) = self.edges.get(node) {
+            for dep in deps {
+                if !visited.contains(dep) {
+                    self.find_cycles_util(dep, visited, path, on_path, cycles);
+                } else if on_path.contains(dep) {
+                    // Cycle with an already visited node on current path
+                    let cycle_start = path.iter().position(|n| n == dep).unwrap();
+                    let mut cycle = path[cycle_start..].to_vec();
+                    cycle.push(dep.to_string());
+                    cycles.push(cycle);
+                }
+            }
+        }
+
+        // Remove from current path when done with this node
+        on_path.remove(node);
+        path.pop();
+    }
+
+    // Fix the enhanced implementation of topological_sort_util
     fn topological_sort_util<'a>(
         &'a self,
         node: &str,
@@ -165,10 +235,17 @@ impl DependencyGraph {
     ) -> Result<(), DependencyGraphError> {
         // Check for cycle using temporary visit mark
         if temp_visited.contains(node) {
-            return Err(DependencyGraphError::CircularDependency(format!(
-                "Detected cycle involving {}",
-                node
-            )));
+            // Find the cycle path for better error reporting
+            let mut cycle_path = Vec::new();
+            for n in temp_visited.iter() {
+                cycle_path.push(n.clone());
+            }
+            cycle_path.push(node.to_string());
+
+            return Err(DependencyGraphError::CircularDependency(
+                format!("Circular dependency detected involving {}", node),
+                cycle_path,
+            ));
         }
 
         // Skip if already visited
@@ -198,8 +275,6 @@ impl DependencyGraph {
         Ok(())
     }
 }
-
-// src/graph.rs - add to the bottom
 
 #[cfg(test)]
 mod tests {

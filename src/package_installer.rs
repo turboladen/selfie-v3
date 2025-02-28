@@ -10,6 +10,7 @@ use crate::{
     command::{CommandError, CommandOutput, CommandRunner},
     config::Config,
     filesystem::{FileSystem, FileSystemError},
+    graph::DependencyGraphError,
     installation::{InstallationError, InstallationManager, InstallationStatus},
     package::PackageNode,
     package_repo::PackageRepoError,
@@ -30,7 +31,10 @@ pub enum PackageInstallerError {
     PackageRepoError(#[from] PackageRepoError),
 
     #[error("Dependency error: {0}")]
-    DependencyError(#[from] DependencyResolverError),
+    DependencyError(DependencyResolverError),
+
+    #[error("Circular dependency detected: {0}")]
+    CircularDependency(String),
 
     #[error("Installation error: {0}")]
     InstallationError(#[from] InstallationError),
@@ -46,6 +50,34 @@ pub enum PackageInstallerError {
 
     #[error("Environment error: {0}")]
     EnvironmentError(String),
+}
+
+// Implementation to convert DependencyResolverError to PackageInstallerError
+impl From<DependencyResolverError> for PackageInstallerError {
+    fn from(err: DependencyResolverError) -> Self {
+        match err {
+            DependencyResolverError::CircularDependency(cycle) => {
+                PackageInstallerError::CircularDependency(cycle)
+            }
+            DependencyResolverError::PackageNotFound(pkg) => {
+                PackageInstallerError::PackageNotFound(pkg)
+            }
+            DependencyResolverError::MultiplePackagesFound(pkg) => {
+                PackageInstallerError::MultiplePackagesFound(pkg)
+            }
+            DependencyResolverError::RepoError(e) => PackageInstallerError::PackageRepoError(e),
+            DependencyResolverError::GraphError(e) => match e {
+                DependencyGraphError::CircularDependency(msg, path) => {
+                    PackageInstallerError::CircularDependency(format!("{}", msg))
+                }
+                DependencyGraphError::PackageNotFound(pkg) => {
+                    PackageInstallerError::PackageNotFound(pkg)
+                }
+                _ => PackageInstallerError::DependencyError(DependencyResolverError::GraphError(e)),
+            },
+            _ => PackageInstallerError::DependencyError(err),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -168,9 +200,44 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
         // Start timing the entire process
         let start_time = Instant::now();
 
-        // Resolve dependencies
-        let packages = resolver.resolve_dependencies(package_name)?;
+        // Resolve dependencies - handle circular dependency errors specially
+        let packages = match resolver.resolve_dependencies(package_name) {
+            Ok(packages) => packages,
+            Err(err) => {
+                // Handle the error case
+                let error_message = match &err {
+                    DependencyResolverError::CircularDependency(cycle) => {
+                        // Format a more user-friendly circular dependency error
+                        if self.progress_manager.use_colors() {
+                            format!(
+                                "Circular dependency detected: {}",
+                                style(cycle).red().bold()
+                            )
+                        } else {
+                            format!("Circular dependency detected: {}", cycle)
+                        }
+                    }
+                    _ => format!("{}", err),
+                };
 
+                // Update the progress bar with the error
+                main_progress.abandon_with_message("Dependency resolution failed");
+
+                // Print the specific error message
+                eprintln!("Error: {}", error_message);
+
+                // Include more details in verbose mode
+                if self.verbose {
+                    eprintln!("\nInstallation cannot proceed with circular dependencies.");
+                    eprintln!("Please fix the circular dependency in your package definitions.");
+                }
+
+                // Return the error
+                return Err(err.into());
+            }
+        };
+
+        // Rest of the method remains the same...
         // Show dependency information
         if packages.len() > 1 {
             let deps_count = packages.len() - 1;
@@ -269,13 +336,13 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
                 format!(
                     "Installing '{}' and {} dependencies...",
                     style(&main_package.name).magenta().bold(),
-                    style(packages.len() - 1).cyan()
+                    style(dependency_results.len()).cyan()
                 )
             } else {
                 format!(
                     "Installing '{}' and {} dependencies...",
                     main_package.name,
-                    packages.len() - 1
+                    dependency_results.len()
                 )
             };
 
