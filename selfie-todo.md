@@ -187,13 +187,13 @@
 
 ### Package Listing (Step 15)
 
-- [ ] Create PackageLister
-- [ ] Implement directory scanning
-- [ ] Add environment compatibility checking
-- [ ] Add output formatting
-- [ ] Write tests
-  - [ ] Test directory scanning
-  - [ ] Test output formatting
+- [x] Create PackageLister
+- [x] Implement directory scanning
+- [x] Add environment compatibility checking
+- [x] Add output formatting
+- [x] Write tests
+  - [x] Test directory scanning
+  - [x] Test output formatting
 
 ## Enhancement Phase
 

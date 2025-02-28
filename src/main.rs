@@ -7,6 +7,7 @@ use selfie::{
     command::ShellCommandRunner,
     filesystem::RealFileSystem,
     package_installer::PackageInstaller,
+    package_list_command::{ListCommand, ListCommandResult},
     package_validate_command::{ValidateCommand, ValidateCommandResult},
     progress_display::ProgressManager,
 };
@@ -72,13 +73,38 @@ fn main() {
                     }
                 }
                 PackageSubcommands::List => {
-                    let info_pb = progress_manager.create_progress_bar(
-                        "list",
-                        "Package listing not implemented yet",
-                        selfie::progress_display::ProgressStyleType::Message,
-                    );
-                    info_pb.finish();
-                    0
+                    // For list commands, we only need a minimal config validation
+                    match cli.build_minimal_config(base_config) {
+                        Ok(config) => {
+                            // Use the list command
+                            let list_cmd = ListCommand::new(
+                                &fs,
+                                &runner,
+                                config,
+                                &progress_manager,
+                                cli.verbose,
+                            );
+
+                            match list_cmd.execute() {
+                                ListCommandResult::Success(output) => {
+                                    println!("{}", output);
+                                    0
+                                }
+                                ListCommandResult::Error(error) => {
+                                    eprintln!("{}", error);
+                                    1
+                                }
+                            }
+                        }
+                        Err(err) => {
+                            eprintln!("Error: {}", err);
+                            eprintln!("\nPackage directory is required for listing packages.");
+                            eprintln!("You can set it with:");
+                            eprintln!("  1. The --package-directory flag: --package-directory /path/to/packages");
+                            eprintln!("  2. In your config.yaml file: package_directory: /path/to/packages");
+                            1
+                        }
+                    }
                 }
                 PackageSubcommands::Info { package_name } => {
                     let info_pb = progress_manager.create_progress_bar(

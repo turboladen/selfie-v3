@@ -9,6 +9,7 @@ pub mod graph;
 pub mod installation;
 pub mod package;
 pub mod package_installer;
+pub mod package_list_command;
 pub mod package_repo;
 pub mod package_validate_command;
 pub mod package_validator;

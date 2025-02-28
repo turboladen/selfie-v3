@@ -1,12 +1,8 @@
 // tests/install_command_test.rs
 
 use selfie::{
-    command::mock::MockCommandRunner,
-    config::ConfigBuilder,
-    filesystem::mock::MockFileSystem,
-    installation::InstallationStatus,
-    package_installer::PackageInstaller,
-    progress::{ConsoleRenderer, ProgressReporter},
+    command::mock::MockCommandRunner, config::ConfigBuilder, filesystem::mock::MockFileSystem,
+    installation::InstallationStatus, package_installer::PackageInstaller,
 };
 
 #[test]
@@ -58,7 +54,6 @@ fn test_package_install_with_dependencies() {
     // Create mock environment
     let fs = MockFileSystem::default();
     let runner = MockCommandRunner::new();
-    let reporter = ProgressReporter::new(Box::new(ConsoleRenderer::new(false, false)));
 
     // Create config
     let config = ConfigBuilder::default()
@@ -124,7 +119,6 @@ fn test_package_install_with_complex_dependencies() {
     // Create mock environment
     let fs = MockFileSystem::default();
     let runner = MockCommandRunner::new();
-    let reporter = ProgressReporter::new(Box::new(ConsoleRenderer::new(false, false)));
 
     // Create config
     let config = ConfigBuilder::default()

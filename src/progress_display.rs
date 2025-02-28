@@ -349,7 +349,7 @@ mod tests {
     #[test]
     fn test_create_progress_bar() {
         let manager = ProgressManager::new(false, false, true);
-        let pb = manager.create_progress_bar("test", "Test Progress", ProgressStyleType::Spinner);
+        let _pb = manager.create_progress_bar("test", "Test Progress", ProgressStyleType::Spinner);
         assert!(manager.get_progress_bar("test").is_some());
     }
 

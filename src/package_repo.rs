@@ -1,4 +1,4 @@
-// src/package_repo.rs
+// src/package_repo.rs - Update list_packages implementation
 
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -60,18 +60,27 @@ impl<'a, F: FileSystem> PackageRepository<'a, F> {
             ));
         }
 
-        // This would need to be implemented in the real FileSystem implementation
-        // Here we'll just stub it and use it in tests
-        self.list_yaml_files(&self.package_dir)
-            .map_err(PackageRepoError::IoError)?
-            .into_iter()
-            .filter_map(|path| {
-                match PackageNode::from_file(&self.fs, &path) {
-                    Ok(package) => Some(Ok(package)),
-                    Err(_) => None, // Skip invalid files
+        // Get all YAML files in the directory
+        let yaml_files = self.list_yaml_files(&self.package_dir)?;
+
+        // Parse each file into a PackageNode
+        let mut packages = Vec::new();
+        for path in yaml_files {
+            match PackageNode::from_file(self.fs, &path) {
+                Ok(package) => packages.push(package),
+                Err(err) => {
+                    // Skip invalid files but log them if we had a proper logging system
+                    if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+                        eprintln!(
+                            "Warning: Failed to parse package file '{}': {}",
+                            file_name, err
+                        );
+                    }
                 }
-            })
-            .collect()
+            }
+        }
+
+        Ok(packages)
     }
 
     // Find package files that match the given name
@@ -98,12 +107,25 @@ impl<'a, F: FileSystem> PackageRepository<'a, F> {
     }
 
     // List all YAML files in a directory
-    // This would need to be properly implemented in the FileSystem trait
-    fn list_yaml_files(&self, _dir: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
-        // For now, we'll implement a simple stub that we can use in tests
-        // In a real implementation, this would be part of the FileSystem trait
+    fn list_yaml_files(&self, dir: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
+        let entries = self
+            .fs
+            .list_directory(dir)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
-        Ok(Vec::new()) // Stub that returns empty vector
+        let yaml_files: Vec<PathBuf> = entries
+            .into_iter()
+            .filter(|path| {
+                if let Some(ext) = path.extension() {
+                    let ext_str = ext.to_string_lossy().to_lowercase();
+                    ext_str == "yaml" || ext_str == "yml"
+                } else {
+                    false
+                }
+            })
+            .collect();
+
+        Ok(yaml_files)
     }
 }
 
@@ -223,5 +245,80 @@ mod tests {
         // Should not find nonexistent
         let files = repo.find_package_files("nonexistent").unwrap();
         assert_eq!(files.len(), 0);
+    }
+
+    #[test]
+    fn test_list_packages() {
+        let fs = MockFileSystem::default();
+        let package_dir = PathBuf::from("/test/packages");
+        fs.add_existing_path(&package_dir);
+
+        // Add valid package files
+        let package1 = r#"
+            name: ripgrep
+            version: 1.0.0
+            environments:
+              test-env:
+                install: brew install ripgrep
+        "#;
+
+        let package2 = r#"
+            name: fzf
+            version: 0.2.0
+            environments:
+              other-env:
+                install: brew install fzf
+        "#;
+
+        fs.add_file(&package_dir.join("ripgrep.yaml"), package1);
+        fs.add_file(&package_dir.join("fzf.yml"), package2);
+
+        // Also add an invalid package file
+        fs.add_file(&package_dir.join("invalid.yaml"), "not valid yaml: :");
+
+        let repo = PackageRepository::new(&fs, package_dir);
+        let packages = repo.list_packages().unwrap();
+
+        // Should find both valid packages
+        assert_eq!(packages.len(), 2);
+
+        // Check package details
+        let ripgrep = packages.iter().find(|p| p.name == "ripgrep").unwrap();
+        let fzf = packages.iter().find(|p| p.name == "fzf").unwrap();
+
+        assert_eq!(ripgrep.version, "1.0.0");
+        assert!(ripgrep.environments.contains_key("test-env"));
+
+        assert_eq!(fzf.version, "0.2.0");
+        assert!(fzf.environments.contains_key("other-env"));
+    }
+
+    #[test]
+    fn test_list_yaml_files() {
+        let fs = MockFileSystem::default();
+        let dir = PathBuf::from("/test/dir");
+        fs.add_existing_path(&dir);
+
+        // Add various file types
+        fs.add_file(&dir.join("file1.yaml"), "content");
+        fs.add_file(&dir.join("file2.yml"), "content");
+        fs.add_file(&dir.join("file3.txt"), "content");
+        fs.add_file(&dir.join("file4.YAML"), "content"); // Test case insensitivity
+        fs.add_file(&dir.join("file5.YML"), "content"); // Test case insensitivity
+
+        let repo = PackageRepository::new(&fs, PathBuf::from("/dummy")); // Path doesn't matter here
+        let yaml_files = repo.list_yaml_files(&dir).unwrap();
+
+        // Should find all yaml/yml files regardless of case
+        assert_eq!(yaml_files.len(), 4);
+
+        // Check each expected file is found
+        assert!(yaml_files.contains(&dir.join("file1.yaml")));
+        assert!(yaml_files.contains(&dir.join("file2.yml")));
+        assert!(yaml_files.contains(&dir.join("file4.YAML")));
+        assert!(yaml_files.contains(&dir.join("file5.YML")));
+
+        // Check that non-yaml file is not included
+        assert!(!yaml_files.contains(&dir.join("file3.txt")));
     }
 }

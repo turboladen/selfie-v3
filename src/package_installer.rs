@@ -224,6 +224,11 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
             &format!("Installing '{}'", main_package.name),
             ProgressStyleType::Spinner,
         );
+        main_pb.set_message(format!(
+            "Installing '{}' and {} dependencies...",
+            main_package.name,
+            packages.len() - 1
+        ));
 
         let main_result = self.install_single_package(&main_package, &main_id)?;
 
@@ -259,6 +264,7 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
                 ProgressStyleType::Spinner,
             ),
         };
+        progress_bar.set_message(format!("Installing '{}'", package.name));
 
         // Create installation manager
         let installation_manager =
@@ -288,7 +294,11 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
                     }
                     _ => {
                         let error_msg = format!("Installation failed: {:?}", installation.status);
-                        InstallationResult::failed(&package.name, installation.status, duration)
+                        InstallationResult::failed(
+                            &package.name,
+                            InstallationStatus::Failed(error_msg.clone()),
+                            duration,
+                        )
                     }
                 }
             }
@@ -307,7 +317,7 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
 
                 InstallationResult::failed(
                     &package.name,
-                    InstallationStatus::Failed(err.to_string()),
+                    InstallationStatus::Failed(error_msg.clone()),
                     duration,
                 )
             }
@@ -370,7 +380,6 @@ mod tests {
         filesystem::mock::MockFileSystem,
         progress::{ConsoleRenderer, ProgressReporter},
     };
-    
 
     fn create_test_config() -> Config {
         ConfigBuilder::default()
@@ -389,7 +398,7 @@ mod tests {
 
     #[test]
     fn test_install_package_success() {
-        let (fs, runner, reporter, config) = create_test_environment();
+        let (fs, runner, _, config) = create_test_environment();
 
         // Set up the package file
         let package_yaml = r#"
@@ -426,7 +435,7 @@ mod tests {
 
     #[test]
     fn test_install_package_already_installed() {
-        let (fs, runner, reporter, config) = create_test_environment();
+        let (fs, runner, _, config) = create_test_environment();
 
         // Set up the package file
         let package_yaml = r#"
@@ -462,7 +471,7 @@ mod tests {
 
     #[test]
     fn test_install_package_with_dependencies() {
-        let (fs, runner, reporter, config) = create_test_environment();
+        let (fs, runner, _, config) = create_test_environment();
 
         // Set up the main package file with dependencies
         let package_yaml = r#"
@@ -523,7 +532,7 @@ mod tests {
 
     #[test]
     fn test_install_package_with_failing_dependency() {
-        let (fs, runner, reporter, config) = create_test_environment();
+        let (fs, runner, _, config) = create_test_environment();
 
         // Set up the main package file with dependencies
         let package_yaml = r#"
@@ -577,7 +586,7 @@ mod tests {
 
     #[test]
     fn test_complex_dependency_chain() {
-        let (fs, runner, reporter, config) = create_test_environment();
+        let (fs, runner, _, config) = create_test_environment();
 
         // Set up package files with a dependency chain: main-pkg -> dep1 -> dep2
         let main_pkg_yaml = r#"
