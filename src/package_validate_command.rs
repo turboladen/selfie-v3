@@ -58,7 +58,7 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidateCommand<'a, F, R> {
                 package_name,
                 package_path,
             } => {
-                // Create progress display - use a more generic message
+                // Create progress display
                 let progress = self.progress_manager.create_progress_bar(
                     "validate",
                     &format!("Validating package '{}'", package_name),
@@ -77,23 +77,46 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidateCommand<'a, F, R> {
 
                 match result {
                     Ok(validation_result) => {
-                        // Format validation result with color support
-                        let formatted =
-                            format_validation_result(&validation_result, self.use_colors);
+                        // Format validation result with color support and verbose flag
+                        let formatted = format_validation_result(
+                            &validation_result,
+                            self.use_colors,
+                            self.verbose, // Pass verbose flag to control detail level
+                        );
+
+                        // Additional verbose info - show package path and structure
+                        if self.verbose && validation_result.package.is_some() {
+                            // Add more detailed package information when in verbose mode
+                            progress.println("Detailed package structure:");
+                            if let Some(package) = &validation_result.package {
+                                // Show more details about environments and configurations
+                                progress.println(&format!(
+                                    "  Environments: {}",
+                                    package
+                                        .environments
+                                        .keys()
+                                        .map(|k| k.to_string())
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                ));
+                                // Could add more verbose details here
+                            }
+                        }
 
                         if validation_result.is_valid() {
-                            // For successful validation, just show success in progress bar
                             progress.finish_with_message("Validation successful");
                             ValidateCommandResult::Valid(formatted)
                         } else {
-                            // For failed validation, keep it simple in the progress bar
                             progress.abandon_with_message("Validation failed");
                             ValidateCommandResult::Invalid(formatted)
                         }
                     }
                     Err(err) => {
-                        // For errors, use a generic message in the progress bar
-                        // and return the detailed error for main to display
+                        // More verbose error handling
+                        if self.verbose {
+                            progress.println(&format!("Error details: {:#?}", err));
+                        }
+
                         progress.abandon_with_message("Validation failed");
 
                         match err {

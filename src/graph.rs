@@ -368,7 +368,7 @@ mod tests {
         assert!(graph.add_dependency("package1", "package2").is_ok());
         assert!(matches!(
             graph.add_dependency("package2", "package1"),
-            Err(DependencyGraphError::CircularDependency(_))
+            Err(DependencyGraphError::CircularDependency(_, _))
         ));
     }
 
@@ -386,7 +386,7 @@ mod tests {
         assert!(graph.add_dependency("package2", "package3").is_ok());
         assert!(matches!(
             graph.add_dependency("package3", "package1"),
-            Err(DependencyGraphError::CircularDependency(_))
+            Err(DependencyGraphError::CircularDependency(_, _))
         ));
     }
 

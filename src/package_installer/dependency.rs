@@ -31,7 +31,6 @@ pub enum DependencyResolverError {
 }
 
 pub struct DependencyResolver<'a, F: FileSystem> {
-    fs: &'a F,
     package_repo: PackageRepository<'a, F>,
     config: &'a Config,
 }
@@ -40,7 +39,6 @@ impl<'a, F: FileSystem> DependencyResolver<'a, F> {
     pub fn new(fs: &'a F, config: &'a Config) -> Self {
         let package_repo = PackageRepository::new(fs, config.expanded_package_directory());
         Self {
-            fs,
             package_repo,
             config,
         }
@@ -302,6 +300,7 @@ environments:
         assert!(result.is_err());
         match result {
             Err(DependencyResolverError::GraphError(DependencyGraphError::CircularDependency(
+                _,
                 _,
             ))) => {
                 // Expected error - the circular dependency was detected in the graph component

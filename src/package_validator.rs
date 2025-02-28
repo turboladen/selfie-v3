@@ -3,10 +3,12 @@
 
 use std::{
     collections::HashMap,
+    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
 };
 
 use console::style;
+use jiff::{fmt::friendly::SpanPrinter, Unit, Zoned};
 use thiserror::Error;
 use url::Url;
 
@@ -548,7 +550,11 @@ impl<'a, F: FileSystem> PackageValidator<'a, F> {
 }
 
 /// Formats validation results for display, with optional color
-pub fn format_validation_result(result: &ValidationResult, use_colors: bool) -> String {
+pub fn format_validation_result(
+    result: &ValidationResult,
+    use_colors: bool,
+    verbose: bool,
+) -> String {
     let mut output = String::new();
 
     if result.is_valid() {
@@ -782,6 +788,76 @@ pub fn format_validation_result(result: &ValidationResult, use_colors: bool) -> 
         }
     }
 
+    if verbose {
+        // Add additional details like file structure, YAML parsing details, etc.
+        if let Some(path) = &result.package_path {
+            output.push_str("\nPackage file details:\n");
+            output.push_str(&format!("  Path: {}\n", path.display()));
+
+            let metadata = path.metadata().expect("metadata call failed");
+            output.push_str(&format!(
+                "  Permissions: {:o}\n",
+                metadata.permissions().mode()
+            ));
+
+            let now = Zoned::now();
+            let printer = SpanPrinter::new();
+            {
+                let created = Zoned::try_from(metadata.created().unwrap()).unwrap();
+                let ago = now
+                    .duration_since(&created)
+                    .round(Unit::Second)
+                    .unwrap_or_default();
+                output.push_str(&format!(
+                    "  Created: {:?} ({} ago)\n",
+                    &created.round(Unit::Second),
+                    printer.duration_to_string(&ago)
+                ));
+            }
+            {
+                let modified = Zoned::try_from(metadata.modified().unwrap()).unwrap();
+                let ago = now
+                    .duration_since(&modified)
+                    .round(Unit::Second)
+                    .unwrap_or_default();
+                output.push_str(&format!(
+                    "  Modified: {:?} ({} ago)\n",
+                    &modified.round(Unit::Second),
+                    printer.duration_to_string(&ago)
+                ));
+            }
+        }
+
+        if let Some(package) = &result.package {
+            output.push_str("\nPackage structure details:\n");
+            output.push_str(&format!("  Version: {}\n", &package.version));
+            output.push_str(&format!(
+                "  Homepage: {}\n",
+                package.homepage.as_deref().unwrap_or_default()
+            ));
+            output.push_str(&format!(
+                "  Description: {}\n",
+                package.description.as_deref().unwrap_or_default()
+            ));
+
+            output.push_str("  Environments:\n");
+
+            for (name, env) in &package.environments {
+                output.push_str(&format!("    {}:\n", name));
+                output.push_str(&format!(
+                    "      Check: {}\n",
+                    &env.check.as_deref().unwrap_or_default()
+                ));
+                output.push_str(&format!("      Install: {}\n", &env.install));
+                output.push_str("      Dependencies:\n");
+
+                for dep in &env.dependencies {
+                    output.push_str(&format!("        {}\n", &dep));
+                }
+            }
+        }
+    }
+
     output
 }
 
@@ -1011,7 +1087,7 @@ environments:
         ));
 
         // Format the result
-        let formatted = format_validation_result(&result);
+        let formatted = format_validation_result(&result, false, false);
 
         // Check the output contains expected content
         assert!(formatted.contains("Validation failed"));
