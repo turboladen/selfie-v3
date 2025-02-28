@@ -11,7 +11,10 @@ use std::{
 use console::{style, Color};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
-use crate::{installation::InstallationStatus, progress::MessageType};
+use crate::{
+    installation::InstallationStatus,
+    progress::{MessageRenderer, MessageType, ProgressReporter},
+};
 
 /// Represents the style of a progress element
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -30,6 +33,8 @@ pub struct ProgressManager {
     multi_progress: Arc<MultiProgress>,
     /// Map of progress bars by their IDs
     progress_bars: Arc<Mutex<HashMap<String, ProgressBar>>>,
+    /// Progress reporter for message formatting
+    progress_reporter: ProgressReporter,
     /// Whether to use colors
     use_colors: bool,
     /// Whether terminal supports Unicode
@@ -41,9 +46,14 @@ pub struct ProgressManager {
 impl ProgressManager {
     /// Create a new progress manager with the specified options
     pub fn new(use_colors: bool, use_unicode: bool, verbose: bool) -> Self {
+        // Create a console renderer for the progress reporter
+        let console_renderer = crate::progress::ConsoleRenderer::new(use_unicode, use_colors);
+        let progress_reporter = ProgressReporter::new(Box::new(console_renderer));
+
         Self {
             multi_progress: Arc::new(MultiProgress::new()),
             progress_bars: Arc::new(Mutex::new(HashMap::new())),
+            progress_reporter,
             use_colors,
             use_unicode,
             verbose,
@@ -297,29 +307,15 @@ impl ProgressManager {
         }
     }
 
-    /// Create a status message line with appropriate styling
+    /// Create a status message line with appropriate styling using ProgressReporter
     pub fn status_line(&self, message_type: MessageType, message: &str) -> String {
-        let (emoji, color) = match message_type {
-            MessageType::Info => ("ℹ️ ", Color::Blue),
-            MessageType::Success => ("✓ ", Color::Green),
-            MessageType::Error => ("✗ ", Color::Red),
-            MessageType::Warning => ("⚠️ ", Color::Yellow),
-            MessageType::Loading => ("⌛ ", Color::Cyan),
-            MessageType::Status => ("• ", Color::White),
-        };
-
-        if self.use_colors {
-            format!("{}{}", emoji, style(message).fg(color))
-        } else {
-            let text_emoji = match message_type {
-                MessageType::Info => "[i] ",
-                MessageType::Success => "[√] ",
-                MessageType::Error => "[x] ",
-                MessageType::Warning => "[!] ",
-                MessageType::Loading => "[*] ",
-                MessageType::Status => "[•] ",
-            };
-            format!("{}{}", text_emoji, message)
+        match message_type {
+            MessageType::Info => self.progress_reporter.info(message),
+            MessageType::Success => self.progress_reporter.success(message),
+            MessageType::Error => self.progress_reporter.error(message),
+            MessageType::Warning => self.progress_reporter.warning(message),
+            MessageType::Loading => self.progress_reporter.loading(message),
+            MessageType::Status => self.progress_reporter.status(message, None, None, 0),
         }
     }
 
