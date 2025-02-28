@@ -105,7 +105,7 @@ impl ProgressManager {
         }
     }
 
-    /// Update a progress bar based on installation status with color support
+    /// Update a progress bar based on installation status
     pub fn update_from_status(
         &self,
         id: &str,
@@ -160,7 +160,16 @@ impl ProgressManager {
 
         match status {
             InstallationStatus::Complete | InstallationStatus::AlreadyInstalled => {
-                self.complete_progress(id, &message)
+                // For a package that is already installed or was just installed,
+                // just update the message, don't call finish_with_message
+                if let Some(pb) = self.get_progress_bar(id) {
+                    pb.set_message(message);
+                    // Signal completion without duplicating the message
+                    pb.finish();
+                    Ok(())
+                } else {
+                    Err(format!("Progress bar with ID '{}' not found", id))
+                }
             }
             InstallationStatus::Failed(_) | InstallationStatus::Skipped(_) => {
                 if let Some(pb) = self.get_progress_bar(id) {

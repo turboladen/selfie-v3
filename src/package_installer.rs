@@ -143,10 +143,19 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
         &self,
         package_name: &str,
     ) -> Result<InstallationResult, PackageInstallerError> {
-        // Create main progress display
+        // Create main progress display with proper styling
+        let main_message = if self.progress_manager.use_colors() {
+            format!(
+                "Installing package '{}'",
+                style(package_name).magenta().bold()
+            )
+        } else {
+            format!("Installing package '{}'", package_name)
+        };
+
         let main_progress = self.progress_manager.create_progress_bar(
             "main",
-            &format!("Installing package '{}'", package_name),
+            &main_message,
             ProgressStyleType::Message,
         );
 
@@ -165,11 +174,20 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
         // Show dependency information
         if packages.len() > 1 {
             let deps_count = packages.len() - 1;
-            main_progress.set_message(format!(
-                "Found {} packages to install (including {} dependencies)",
-                packages.len(),
-                deps_count
-            ));
+            let deps_message = if self.progress_manager.use_colors() {
+                format!(
+                    "Found {} packages to install (including {} dependencies)",
+                    style(packages.len()).cyan(),
+                    style(deps_count).cyan()
+                )
+            } else {
+                format!(
+                    "Found {} packages to install (including {} dependencies)",
+                    packages.len(),
+                    deps_count
+                )
+            };
+            main_progress.set_message(deps_message);
         }
 
         // Get the main package (last in the list)
@@ -181,9 +199,17 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
         // All packages except the last one are dependencies
         for package in packages.iter().take(packages.len() - 1) {
             let dep_id = format!("dep-{}", package.name);
+
+            // Create colored dependency message
+            let dep_message = if self.progress_manager.use_colors() {
+                format!("Installing dependency '{}'", style(&package.name).magenta())
+            } else {
+                format!("Installing dependency '{}'", &package.name)
+            };
+
             let dep_progress = self.progress_manager.create_progress_bar(
                 &dep_id,
-                &format!("Installing dependency '{}'", package.name),
+                &dep_message,
                 ProgressStyleType::Spinner,
             );
 
@@ -220,16 +246,41 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
 
         // Only install the main package if all dependencies were successfully installed
         let main_id = format!("pkg-{}", main_package.name);
+
+        // Create colored main package message
+        let main_message = if self.progress_manager.use_colors() {
+            format!(
+                "Installing '{}'",
+                style(&main_package.name).magenta().bold()
+            )
+        } else {
+            format!("Installing '{}'", &main_package.name)
+        };
+
         let main_pb = self.progress_manager.create_progress_bar(
             &main_id,
-            &format!("Installing '{}'", main_package.name),
+            &main_message,
             ProgressStyleType::Spinner,
         );
-        main_pb.set_message(format!(
-            "Installing '{}' and {} dependencies...",
-            main_package.name,
-            packages.len() - 1
-        ));
+
+        // Only show the full "and dependencies" message if there are actual dependencies
+        if !dependency_results.is_empty() {
+            let deps_message = if self.progress_manager.use_colors() {
+                format!(
+                    "Installing '{}' and {} dependencies...",
+                    style(&main_package.name).magenta().bold(),
+                    style(packages.len() - 1).cyan()
+                )
+            } else {
+                format!(
+                    "Installing '{}' and {} dependencies...",
+                    main_package.name,
+                    packages.len() - 1
+                )
+            };
+
+            main_pb.set_message(deps_message);
+        }
 
         let main_result = self.install_single_package(&main_package, &main_id)?;
 
@@ -300,22 +351,33 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
             Ok(installation) => {
                 let duration = start_time.elapsed();
 
-                // Update progress bar with final status
-                self.progress_manager
-                    .update_from_status(progress_id, &installation.status, Some(duration))
-                    .map_err(PackageInstallerError::EnvironmentError)?;
-
-                // Small delay to ensure the final status is visible
-                std::thread::sleep(Duration::from_millis(100));
-
                 match installation.status {
-                    InstallationStatus::Complete => {
-                        InstallationResult::success(&package.name, duration, None)
-                    }
                     InstallationStatus::AlreadyInstalled => {
+                        // For already installed packages, update the progress bar
+                        // with the status, but don't repeat it in the final status
+                        self.progress_manager
+                            .update_from_status(progress_id, &installation.status, Some(duration))
+                            .map_err(PackageInstallerError::EnvironmentError)?;
+
+                        // Return the result directly without further status messages
                         InstallationResult::already_installed(&package.name, duration)
                     }
+                    InstallationStatus::Complete => {
+                        // For successfully installed packages, update progress
+                        self.progress_manager
+                            .update_from_status(progress_id, &installation.status, Some(duration))
+                            .map_err(PackageInstallerError::EnvironmentError)?;
+
+                        // Return the successful result
+                        InstallationResult::success(&package.name, duration, None)
+                    }
                     _ => {
+                        // For other states (usually errors), update progress
+                        self.progress_manager
+                            .update_from_status(progress_id, &installation.status, Some(duration))
+                            .map_err(PackageInstallerError::EnvironmentError)?;
+
+                        // Return error result
                         let error_msg = format!("Installation failed: {:?}", installation.status);
                         InstallationResult::failed(
                             &package.name,
@@ -338,9 +400,7 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
                     )
                     .map_err(PackageInstallerError::EnvironmentError)?;
 
-                // Small delay to ensure the error status is visible
-                std::thread::sleep(Duration::from_millis(100));
-
+                // Return error result
                 InstallationResult::failed(
                     &package.name,
                     InstallationStatus::Failed(error_msg.clone()),
@@ -348,6 +408,9 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
                 )
             }
         };
+
+        // Small delay to ensure the final status is visible
+        std::thread::sleep(Duration::from_millis(100));
 
         Ok(result)
     }
@@ -358,10 +421,10 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
         let dep_duration = result.dependency_duration();
         let package_duration = result.duration;
 
-        // Create a summary progress bar - with a more generic message
+        // Create a summary progress bar
         let summary_pb = self.progress_manager.create_progress_bar(
             "summary",
-            "Finishing up...",
+            "Summary",
             ProgressStyleType::Message,
         );
 
@@ -396,7 +459,14 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
             }
         }
 
-        // Display success or failure status with appropriate colors
+        // Special handling for already installed packages
+        if matches!(result.status, InstallationStatus::AlreadyInstalled) {
+            // Just show a generic success message, since "Already installed" was already shown
+            summary_pb.finish_with_message("Done");
+            return;
+        }
+
+        // Handle other status cases
         match result.status {
             InstallationStatus::Complete => {
                 let success_message = if self.progress_manager.use_colors() {
@@ -412,24 +482,11 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
                         result.dependencies.len()
                     )
                 };
-                // Just use "Complete" in the progress bar to avoid duplication
                 summary_pb.finish_with_message("Complete");
-                // Print the success message separately
                 println!("{}", success_message);
             }
             InstallationStatus::AlreadyInstalled => {
-                let already_message = if self.progress_manager.use_colors() {
-                    format!(
-                        "'{}' was already installed",
-                        style(&result.package_name).magenta().bold()
-                    )
-                } else {
-                    format!("'{}' was already installed", result.package_name)
-                };
-                // Use a simple message in the progress bar
-                summary_pb.finish_with_message("Done");
-                // Print the detailed message separately
-                println!("{}", already_message);
+                // This case is handled above, but included for completeness
             }
             _ => {
                 let error_message = if self.progress_manager.use_colors() {
@@ -440,9 +497,7 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
                 } else {
                     format!("Failed to install '{}'", result.package_name)
                 };
-                // Keep progress bar message simple
                 summary_pb.abandon_with_message("Failed");
-                // Print detailed error separately
                 eprintln!("{}", error_message);
             }
         }
