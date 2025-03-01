@@ -103,18 +103,18 @@ impl PackageInstallation {
     ) -> Result<bool, InstallationError> {
         self.update_status(InstallationStatus::Checking);
 
-        // If there's no check command, assume not installed
+        // Clone the check command if it exists to avoid borrowing self.env_config
         let check_cmd = match &self.env_config.check {
-            Some(cmd) => cmd,
+            Some(cmd) => cmd.clone(), // Clone the string to end the borrow
             None => {
                 self.update_status(InstallationStatus::NotInstalled);
                 return Ok(false);
             }
         };
 
-        // Use the shared execution method
+        // Now execute_command can mutably borrow self
         let output =
-            self.execute_command(runner, check_cmd, InstallationStatus::Checking, |e| {
+            self.execute_command(runner, &check_cmd, InstallationStatus::Checking, |e| {
                 InstallationError::CheckFailed(e)
             })?;
 
@@ -132,11 +132,12 @@ impl PackageInstallation {
         &mut self,
         runner: &R,
     ) -> Result<CommandOutput, InstallationError> {
-        let install_cmd = &self.env_config.install;
+        // Clone the install command to avoid borrowing self.env_config
+        let install_cmd = self.env_config.install.clone();
 
-        // Use the shared execution method
+        // Now execute_command can mutably borrow self
         let output =
-            self.execute_command(runner, install_cmd, InstallationStatus::Installing, |e| {
+            self.execute_command(runner, &install_cmd, InstallationStatus::Installing, |e| {
                 InstallationError::CommandError(CommandError::ExecutionError(e))
             })?;
 
