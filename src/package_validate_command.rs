@@ -5,8 +5,8 @@ use crate::{
     cli::PackageSubcommands,
     command::CommandRunner,
     config::Config,
-    filesystem::FileSystem,
     package_validator::{format_validation_result, PackageValidator, PackageValidatorError},
+    ports::filesystem::FileSystem,
     progress_display::{ProgressManager, ProgressStyleType},
 };
 

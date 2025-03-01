@@ -19,3 +19,4 @@ url = "2.5.4"
 
 [dev-dependencies]
 dirs = "5.0.1"
+tempfile = "3.17.1"

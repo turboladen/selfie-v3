@@ -14,9 +14,9 @@ use url::Url;
 
 use crate::{
     config::Config,
-    filesystem::{FileSystem, FileSystemError},
     domain::package::{EnvironmentConfig, Package, PackageParseError},
     package_repo::{PackageRepoError, PackageRepository},
+    ports::filesystem::{FileSystem, FileSystemError},
 };
 
 /// Categories of package validation errors

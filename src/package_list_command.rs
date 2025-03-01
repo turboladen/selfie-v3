@@ -6,8 +6,8 @@ use console::style;
 use crate::{
     command::CommandRunner,
     config::Config,
-    filesystem::FileSystem,
     package_repo::{PackageRepoError, PackageRepository},
+    ports::filesystem::FileSystem,
     progress_display::{ProgressManager, ProgressStyleType},
 };
 

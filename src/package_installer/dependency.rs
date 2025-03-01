@@ -3,10 +3,10 @@ use thiserror::Error;
 
 use crate::{
     config::Config,
-    filesystem::FileSystem,
     domain::package::Package,
     graph::{DependencyGraph, DependencyGraphError},
     package_repo::{PackageRepoError, PackageRepository},
+    ports::filesystem::FileSystem,
 };
 
 #[derive(Error, Debug)]

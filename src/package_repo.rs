@@ -4,9 +4,9 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
-use crate::filesystem::FileSystem;
 use crate::{
     domain::package::{Package, PackageParseError},
+    ports::filesystem::FileSystem,
 };
 
 #[derive(Error, Debug)]
