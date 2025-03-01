@@ -9,11 +9,11 @@ use thiserror::Error;
 use crate::{
     command::{CommandError, CommandOutput, CommandRunner},
     config::Config,
-    filesystem::{FileSystem, FileSystemError},
+    domain::package::Package,
     graph::DependencyGraphError,
     installation::{InstallationError, InstallationManager, InstallationStatus},
-    package::PackageNode,
     package_repo::PackageRepoError,
+    ports::filesystem::{FileSystem, FileSystemError},
     progress_display::{ProgressManager, ProgressStyleType},
 };
 
@@ -369,7 +369,7 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
     /// Install a single package (no dependency handling) with progress reporting
     fn install_single_package(
         &self,
-        package: &PackageNode,
+        package: &Package,
         progress_id: &str,
     ) -> Result<InstallationResult, PackageInstallerError> {
         let start_time = Instant::now();

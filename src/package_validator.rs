@@ -15,7 +15,7 @@ use url::Url;
 use crate::{
     config::Config,
     filesystem::{FileSystem, FileSystemError},
-    package::{EnvironmentConfig, PackageNode, PackageParseError},
+    domain::package::{EnvironmentConfig, Package, PackageParseError},
     package_repo::{PackageRepoError, PackageRepository},
 };
 
@@ -103,7 +103,7 @@ pub struct ValidationResult {
     /// List of validation issues found
     pub issues: Vec<ValidationIssue>,
     /// The validated package (if valid)
-    pub package: Option<PackageNode>,
+    pub package: Option<Package>,
 }
 
 impl ValidationResult {
@@ -129,7 +129,7 @@ impl ValidationResult {
     }
 
     /// Set the validated package
-    pub fn with_package(mut self, package: PackageNode) -> Self {
+    pub fn with_package(mut self, package: Package) -> Self {
         self.package = Some(package);
         self
     }
@@ -247,7 +247,7 @@ impl<'a, F: FileSystem> PackageValidator<'a, F> {
             .map_err(PackageValidatorError::FileSystemError)?;
 
         // Try to parse the package, but continue even if it fails
-        let package = PackageNode::from_yaml(&file_content);
+        let package = Package::from_yaml(&file_content);
 
         // Get the package name either from the parsed package or the file name
         let package_name = match &package {
@@ -284,7 +284,7 @@ impl<'a, F: FileSystem> PackageValidator<'a, F> {
     }
 
     /// Validate package fields in detail
-    fn validate_package_fields(&self, package: &PackageNode, result: &mut ValidationResult) {
+    fn validate_package_fields(&self, package: &Package, result: &mut ValidationResult) {
         // Validate required fields
         self.validate_required_fields(package, result);
 
@@ -298,7 +298,7 @@ impl<'a, F: FileSystem> PackageValidator<'a, F> {
     }
 
     /// Validate required package fields
-    fn validate_required_fields(&self, package: &PackageNode, result: &mut ValidationResult) {
+    fn validate_required_fields(&self, package: &Package, result: &mut ValidationResult) {
         // Check name
         if package.name.is_empty() {
             result.add_issue(ValidationIssue::error(
@@ -350,7 +350,7 @@ impl<'a, F: FileSystem> PackageValidator<'a, F> {
     }
 
     /// Validate environments section
-    fn validate_environments(&self, package: &PackageNode, result: &mut ValidationResult) {
+    fn validate_environments(&self, package: &Package, result: &mut ValidationResult) {
         if package.environments.is_empty() {
             return; // Already captured in required fields check
         }

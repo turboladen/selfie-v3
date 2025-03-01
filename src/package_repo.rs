@@ -1,10 +1,13 @@
 // src/package_repo.rs - Update list_packages implementation
 
 use std::path::{Path, PathBuf};
+
 use thiserror::Error;
 
 use crate::filesystem::FileSystem;
-use crate::package::{PackageNode, PackageParseError};
+use crate::{
+    domain::package::{Package, PackageParseError},
+};
 
 #[derive(Error, Debug)]
 pub enum PackageRepoError {
@@ -35,7 +38,7 @@ impl<'a, F: FileSystem> PackageRepository<'a, F> {
     }
 
     /// Get a package by name
-    pub fn get_package(&self, name: &str) -> Result<PackageNode, PackageRepoError> {
+    pub fn get_package(&self, name: &str) -> Result<Package, PackageRepoError> {
         let package_files = self.find_package_files(name)?;
 
         if package_files.is_empty() {
@@ -47,13 +50,13 @@ impl<'a, F: FileSystem> PackageRepository<'a, F> {
         }
 
         let package_file = &package_files[0];
-        let package = PackageNode::from_file(&self.fs, package_file)?;
+        let package = Package::from_file(&self.fs, package_file)?;
 
         Ok(package)
     }
 
     /// List all available packages in the package directory
-    pub fn list_packages(&self) -> Result<Vec<PackageNode>, PackageRepoError> {
+    pub fn list_packages(&self) -> Result<Vec<Package>, PackageRepoError> {
         if !self.fs.path_exists(&self.package_dir) {
             return Err(PackageRepoError::DirectoryNotFound(
                 self.package_dir.to_string_lossy().into_owned(),
@@ -63,10 +66,10 @@ impl<'a, F: FileSystem> PackageRepository<'a, F> {
         // Get all YAML files in the directory
         let yaml_files = self.list_yaml_files(&self.package_dir)?;
 
-        // Parse each file into a PackageNode
+        // Parse each file into a Package
         let mut packages = Vec::new();
         for path in yaml_files {
-            match PackageNode::from_file(self.fs, &path) {
+            match Package::from_file(self.fs, &path) {
                 Ok(package) => packages.push(package),
                 Err(err) => {
                     // Skip invalid files but log them if we had a proper logging system

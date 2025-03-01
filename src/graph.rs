@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 
-use crate::package::PackageNode;
+use crate::domain::package::Package;
 
 #[derive(Debug, Error)]
 pub enum DependencyGraphError {
@@ -22,13 +22,13 @@ pub enum DependencyGraphError {
 
 #[derive(Debug, Default)]
 pub struct DependencyGraph {
-    nodes: HashMap<String, PackageNode>,
+    nodes: HashMap<String, Package>,
     edges: HashMap<String, HashSet<String>>,
 }
 
 impl DependencyGraph {
     /// Adds a package node to the graph
-    pub fn add_node(&mut self, node: PackageNode) -> Result<(), DependencyGraphError> {
+    pub fn add_node(&mut self, node: Package) -> Result<(), DependencyGraphError> {
         if self.nodes.contains_key(&node.name) {
             // If node already exists, we'll just update it
             self.nodes.insert(node.name.clone(), node.clone());
@@ -99,7 +99,7 @@ impl DependencyGraph {
     }
 
     /// Returns a sorted list of packages in installation order
-    pub fn installation_order(&self) -> Result<Vec<&PackageNode>, DependencyGraphError> {
+    pub fn installation_order(&self) -> Result<Vec<&Package>, DependencyGraphError> {
         // Use topological sort to get installation order
         let mut result = Vec::new();
         let mut visited = HashSet::new();
@@ -231,7 +231,7 @@ impl DependencyGraph {
         node: &str,
         visited: &mut HashSet<String>,
         temp_visited: &mut HashSet<String>,
-        result: &mut Vec<&'a PackageNode>,
+        result: &mut Vec<&'a Package>,
     ) -> Result<(), DependencyGraphError> {
         // Check for cycle using temporary visit mark
         if temp_visited.contains(node) {
@@ -281,7 +281,7 @@ mod tests {
     use super::*;
     use crate::package::PackageNodeBuilder;
 
-    fn create_test_package(name: &str) -> PackageNode {
+    fn create_test_package(name: &str) -> Package {
         PackageNodeBuilder::default()
             .name(name)
             .version("1.0.0")

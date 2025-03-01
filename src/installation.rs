@@ -6,7 +6,7 @@ use thiserror::Error;
 use crate::{
     command::{CommandError, CommandOutput, CommandRunner},
     config::Config,
-    package::{EnvironmentConfig, PackageNode},
+    domain::package::{EnvironmentConfig, Package},
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -23,7 +23,7 @@ pub enum InstallationStatus {
 
 #[derive(Debug, Clone)]
 pub struct PackageInstallation {
-    pub package: PackageNode,
+    pub package: Package,
     pub status: InstallationStatus,
     pub start_time: Option<Instant>,
     pub duration: Option<Duration>,
@@ -50,7 +50,7 @@ pub enum InstallationError {
 }
 
 impl PackageInstallation {
-    pub fn new(package: PackageNode, environment: &str, env_config: EnvironmentConfig) -> Self {
+    pub fn new(package: Package, environment: &str, env_config: EnvironmentConfig) -> Self {
         Self {
             package,
             status: InstallationStatus::NotStarted,
@@ -165,7 +165,7 @@ impl<R: CommandRunner> InstallationManager<R> {
 
     pub fn install_package(
         &self,
-        package: PackageNode,
+        package: Package,
     ) -> Result<PackageInstallation, InstallationError> {
         // Resolve environment configuration
         let env_config = self
@@ -203,11 +203,11 @@ mod tests {
     use super::*;
 
     use crate::{
-        command::mock::MockCommandRunner, config::ConfigBuilder, package::PackageNodeBuilder,
+        command::mock::MockCommandRunner, config::ConfigBuilder, domain::package::PackageBuilder,
     };
 
-    fn create_test_package() -> PackageNode {
-        PackageNodeBuilder::default()
+    fn create_test_package() -> Package {
+        PackageBuilder::default()
             .name("test-package")
             .version("1.0.0")
             .environment_with_check("test-env", "test install", "test check")
@@ -258,7 +258,7 @@ mod tests {
 
     #[test]
     fn test_execute_check_no_check_command() {
-        let package = PackageNodeBuilder::default()
+        let package = PackageBuilder::default()
             .name("test-package")
             .version("1.0.0")
             .environment("test-env", "test install")

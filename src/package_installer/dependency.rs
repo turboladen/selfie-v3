@@ -4,8 +4,8 @@ use thiserror::Error;
 use crate::{
     config::Config,
     filesystem::FileSystem,
+    domain::package::Package,
     graph::{DependencyGraph, DependencyGraphError},
-    package::PackageNode,
     package_repo::{PackageRepoError, PackageRepository},
 };
 
@@ -49,7 +49,7 @@ impl<'a, F: FileSystem> DependencyResolver<'a, F> {
     pub fn resolve_dependencies(
         &self,
         package_name: &str,
-    ) -> Result<Vec<PackageNode>, DependencyResolverError> {
+    ) -> Result<Vec<Package>, DependencyResolverError> {
         // Build the dependency graph starting with the requested package
         let mut graph = DependencyGraph::default();
         self.build_dependency_graph(&mut graph, package_name, &mut Vec::new())?;
