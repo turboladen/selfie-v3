@@ -1,11 +1,12 @@
 // tests/progress_display_test.rs
 
 use selfie::{
-    command::mock::MockCommandRunner,
-    config::ConfigBuilder,
-    filesystem::mock::MockFileSystem,
-    installation_manager::InstallationStatus,
+    domain::{config::ConfigBuilder, installation::InstallationStatus},
     package_installer::PackageInstaller,
+    ports::{
+        command::{MockCommandRunner, MockCommandRunnerExt},
+        filesystem::{MockFileSystem, MockFileSystemExt},
+    },
     progress_display::{ProgressManager, ProgressStyleType},
 };
 
@@ -15,8 +16,8 @@ use std::path::Path;
 #[test]
 fn test_package_install_with_progress_display() {
     // Create mock environment
-    let fs = MockFileSystem::default();
-    let runner = MockCommandRunner::new();
+    let mut fs = MockFileSystem::default();
+    let mut runner = MockCommandRunner::new();
 
     // Create config
     let config = ConfigBuilder::default()
@@ -74,7 +75,7 @@ fn test_package_install_with_progress_display() {
 
     // Create the enhanced installer
     let installer = PackageInstaller::new(
-        fs, runner, config, true,  // verbose output
+        &fs, &runner, &config, true,  // verbose output
         false, // no colors
         true,  // use unicode
     );

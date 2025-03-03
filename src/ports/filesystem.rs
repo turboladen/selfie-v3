@@ -22,7 +22,7 @@ pub enum FileSystemError {
 }
 
 /// Port for file system operations
-#[cfg_attr(test, mockall::automock)]
+#[mockall::automock]
 pub trait FileSystem {
     /// Read a file and return its contents as a string
     fn read_file(&self, path: &Path) -> Result<String, FileSystemError>;
@@ -64,13 +64,11 @@ impl<T: FileSystem + ?Sized> FileSystem for &T {
 }
 
 // Helper functions to configure the mock filesystem
-#[cfg(test)]
 pub trait MockFileSystemExt {
     fn add_file(&mut self, path: &Path, content: &str);
     fn add_existing_path(&mut self, path: &Path);
 }
 
-#[cfg(test)]
 impl MockFileSystemExt for MockFileSystem {
     fn add_file(&mut self, path: &Path, content: &str) {
         let path_buf = path.to_path_buf();

@@ -1,15 +1,19 @@
 // tests/install_command_test.rs
 
 use selfie::{
-    command::mock::MockCommandRunner, config::ConfigBuilder, filesystem::mock::MockFileSystem,
-    installation_manager::InstallationStatus, package_installer::PackageInstaller,
+    domain::{config::ConfigBuilder, installation::InstallationStatus},
+    package_installer::PackageInstaller,
+    ports::{
+        command::{MockCommandRunner, MockCommandRunnerExt},
+        filesystem::{MockFileSystem, MockFileSystemExt},
+    },
 };
 
 #[test]
 fn test_package_install_end_to_end() {
     // Create mock environment
-    let fs = MockFileSystem::default();
-    let runner = MockCommandRunner::new();
+    let mut fs = MockFileSystem::default();
+    let mut runner = MockCommandRunner::new();
 
     // Create config
     let config = ConfigBuilder::default()
@@ -38,7 +42,7 @@ fn test_package_install_end_to_end() {
     runner.success_response("rg install", "Installed successfully");
 
     // Create package installer
-    let installer = PackageInstaller::new(fs, runner, config, true, false, false);
+    let installer = PackageInstaller::new(&fs, &runner, &config, true, false, false);
 
     // Run the installation
     let result = installer.install_package("ripgrep");
@@ -52,8 +56,8 @@ fn test_package_install_end_to_end() {
 #[test]
 fn test_package_install_with_dependencies() {
     // Create mock environment
-    let fs = MockFileSystem::default();
-    let runner = MockCommandRunner::new();
+    let mut fs = MockFileSystem::default();
+    let mut runner = MockCommandRunner::new();
 
     // Create config
     let config = ConfigBuilder::default()
@@ -99,7 +103,7 @@ fn test_package_install_with_dependencies() {
     runner.success_response("rust install", "Installed successfully");
 
     // Create package installer
-    let installer = PackageInstaller::new(fs, runner, config, true, false, false);
+    let installer = PackageInstaller::new(&fs, &runner, &config, true, false, false);
 
     // Run the installation
     let result = installer.install_package("ripgrep");
@@ -117,8 +121,8 @@ fn test_package_install_with_dependencies() {
 #[test]
 fn test_package_install_with_complex_dependencies() {
     // Create mock environment
-    let fs = MockFileSystem::default();
-    let runner = MockCommandRunner::new();
+    let mut fs = MockFileSystem::default();
+    let mut runner = MockCommandRunner::new();
 
     // Create config
     let config = ConfigBuilder::default()
@@ -188,7 +192,7 @@ fn test_package_install_with_complex_dependencies() {
     runner.success_response("dep3-install", "Installed successfully");
 
     // Create package installer
-    let installer = PackageInstaller::new(fs, runner, config, true, false, false);
+    let installer = PackageInstaller::new(&fs, &runner, &config, true, false, false);
 
     // Run the installation
     let result = installer.install_package("main-pkg");

@@ -4,9 +4,9 @@
 use std::{process, time::Duration};
 
 use selfie::{
+    adapters::command::shell::ShellCommandRunner,
+    adapters::filesystem::RealFileSystem,
     cli::{self, Cli, Commands, PackageSubcommands},
-    command::ShellCommandRunner,
-    filesystem::RealFileSystem,
     package_installer::PackageInstaller,
     package_list_command::{ListCommand, ListCommandResult},
     package_validate_command::{ValidateCommand, ValidateCommandResult},
@@ -46,9 +46,9 @@ fn main() {
                         Ok(config) => {
                             // Use the enhanced installer with progress display
                             let installer = PackageInstaller::new(
-                                fs,
-                                runner,
-                                config,
+                                &fs,
+                                &runner,
+                                &config,
                                 cli.verbose,
                                 !cli.no_color, // CHANGED: enable colors by default
                                 true,          // use_unicode

@@ -43,7 +43,7 @@ pub enum CommandError {
 }
 
 /// Port for command execution
-#[cfg_attr(test, mockall::automock)]
+#[mockall::automock]
 pub trait CommandRunner {
     /// Execute a command and return its output
     fn execute(&self, command: &str) -> Result<CommandOutput, CommandError>;
@@ -85,7 +85,6 @@ impl CommandOutput {
 }
 
 // Helper functions to configure the mock command runner
-#[cfg(test)]
 pub trait MockCommandRunnerExt {
     fn add_response(&mut self, command: &str, response: Result<CommandOutput, CommandError>);
     fn add_command(&mut self, command: &str);
@@ -94,7 +93,6 @@ pub trait MockCommandRunnerExt {
     fn timeout_response(&mut self, command: &str, timeout: Duration);
 }
 
-#[cfg(test)]
 impl MockCommandRunnerExt for MockCommandRunner {
     fn add_response(&mut self, command: &str, response: Result<CommandOutput, CommandError>) {
         let cmd = command.to_string();
