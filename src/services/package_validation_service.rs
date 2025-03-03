@@ -1,5 +1,5 @@
-// src/package_validate_command.rs
-// Implements the 'selfie package validate' command
+// src/services/package_validation_service.rs
+// Implements the 'selfie package validate' command with enhanced command validation
 
 use crate::{
     adapters::package_repo::yaml::YamlPackageRepository,
@@ -7,8 +7,12 @@ use crate::{
     domain::config::Config,
     ports::{command::CommandRunner, filesystem::FileSystem},
     progress_display::{ProgressManager, ProgressStyleType},
-    services::package_validator::{
-        format_validation_result, PackageValidator, PackageValidatorError,
+    services::{
+        command_validator::CommandValidator,
+        package_validator::{
+            format_validation_result, PackageValidator, PackageValidatorError,
+            ValidationErrorCategory, ValidationIssue,
+        },
     },
 };
 
@@ -22,14 +26,14 @@ pub enum PackageValidationResult {
     Error(String),
 }
 
-/// Handles the 'package validate' command
+/// Handles the 'package validate' command with enhanced command validation
 pub struct PackageValidationService<'a, F: FileSystem, R: CommandRunner> {
     fs: &'a F,
-    _runner: &'a R,
+    runner: &'a R, // Changed from _runner to runner to indicate it's now used
     config: Config,
     progress_manager: &'a ProgressManager,
     verbose: bool,
-    use_colors: bool, // Added field to track color setting
+    use_colors: bool,
 }
 
 impl<'a, F: FileSystem, R: CommandRunner> PackageValidationService<'a, F, R> {
@@ -45,7 +49,7 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageValidationService<'a, F, R> {
         let use_colors = progress_manager.use_colors();
         Self {
             fs,
-            _runner: runner,
+            runner,
             config,
             progress_manager,
             verbose,
@@ -69,8 +73,12 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageValidationService<'a, F, R> {
 
                 let package_repo =
                     YamlPackageRepository::new(self.fs, self.config.expanded_package_directory());
+
                 // Create validator
                 let validator = PackageValidator::new(self.fs, &self.config, &package_repo);
+
+                // Create command validator using our runner
+                let command_validator = CommandValidator::new(self.runner);
 
                 // Validate package
                 let result = if let Some(path) = package_path {
@@ -80,7 +88,131 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageValidationService<'a, F, R> {
                 };
 
                 match result {
-                    Ok(validation_result) => {
+                    Ok(mut validation_result) => {
+                        // If we have a valid package, enhance validation with command checks
+                        if let Some(package) = &validation_result.package {
+                            // First collect all validation issues to avoid mutably borrowing
+                            // validation_result while holding an immutable reference to package
+                            let mut command_issues = Vec::new();
+                            let mut terminal_warnings = Vec::new();
+
+                            // Add command validation for each environment
+                            for (env_name, env_config) in &package.environments {
+                                let command_results = command_validator
+                                    .validate_environment_commands(env_name, env_config);
+
+                                // Process command validation results
+                                for cmd_result in command_results {
+                                    if !cmd_result.is_valid
+                                        || (cmd_result.is_warning && self.verbose)
+                                    {
+                                        // Only add issues for invalid commands and warnings in verbose mode
+                                        if let Some(ref error) = cmd_result.error {
+                                            let field_name = format!(
+                                                "environments.{}.{}",
+                                                env_name,
+                                                if cmd_result.command == env_config.install {
+                                                    "install"
+                                                } else if let Some(check) = &env_config.check {
+                                                    if &cmd_result.command == check {
+                                                        "check"
+                                                    } else {
+                                                        "command"
+                                                    }
+                                                } else {
+                                                    "command"
+                                                }
+                                            );
+
+                                            if cmd_result.is_warning {
+                                                command_issues.push(ValidationIssue::warning(
+                                                    ValidationErrorCategory::CommandSyntax,
+                                                    &field_name,
+                                                    error,
+                                                    None,
+                                                    Some("Consider updating the command for better portability and safety."),
+                                                ));
+                                            } else {
+                                                command_issues.push(ValidationIssue::error(
+                                                    ValidationErrorCategory::CommandSyntax,
+                                                    &field_name,
+                                                    error,
+                                                    None,
+                                                    Some("Fix the command syntax before using this package."),
+                                                ));
+                                            }
+                                        }
+                                    }
+
+                                    // Availability check
+                                    if !cmd_result.is_available && cmd_result.is_warning {
+                                        // This is a warning about command not being available
+                                        terminal_warnings.push(format!(
+                                            "Warning: {} for environment '{}'",
+                                            cmd_result
+                                                .error
+                                                .unwrap_or_else(|| "Command not found".to_string()),
+                                            cmd_result.environment
+                                        ));
+                                    }
+                                }
+
+                                // Special checks for potentially problematic commands
+                                if command_validator.might_require_sudo(&env_config.install) {
+                                    command_issues.push(ValidationIssue::warning(
+                                        ValidationErrorCategory::CommandSyntax,
+                                        &format!("environments.{}.install", env_name),
+                                        "Command might require sudo privileges",
+                                        None,
+                                        Some("This command may require administrative privileges to run."),
+                                    ));
+                                }
+
+                                if command_validator.uses_backticks(&env_config.install) {
+                                    command_issues.push(ValidationIssue::warning(
+                                        ValidationErrorCategory::CommandSyntax,
+                                        &format!("environments.{}.install", env_name),
+                                        "Command uses backticks for command substitution",
+                                        None,
+                                        Some("Consider using $() instead of backticks for better nesting and readability."),
+                                    ));
+                                }
+
+                                if command_validator.might_download_content(&env_config.install) {
+                                    command_issues.push(ValidationIssue::warning(
+                                        ValidationErrorCategory::CommandSyntax,
+                                        &format!("environments.{}.install", env_name),
+                                        "Command may download content from the internet",
+                                        None,
+                                        Some("This command appears to download content, which may pose security risks."),
+                                    ));
+                                }
+
+                                // Add environment-specific recommendations
+                                if let Some(recommendation) = command_validator
+                                    .is_command_recommended_for_env(env_name, &env_config.install)
+                                {
+                                    command_issues.push(ValidationIssue::warning(
+                                        ValidationErrorCategory::Environment,
+                                        &format!("environments.{}.install", env_name),
+                                        &recommendation,
+                                        None,
+                                        Some("Using environment-specific package managers may improve reliability."),
+                                    ));
+                                }
+                            }
+
+                            // Now add all collected issues to the validation result
+                            for issue in command_issues {
+                                validation_result.add_issue(issue);
+                            }
+
+                            // Print any terminal warnings
+                            for warning in terminal_warnings {
+                                progress.println(warning);
+                            }
+                        }
+
                         // Format validation result with color support and verbose flag
                         let formatted = format_validation_result(
                             &validation_result,
