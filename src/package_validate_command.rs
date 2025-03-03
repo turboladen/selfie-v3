@@ -3,7 +3,7 @@
 
 use crate::{
     cli::PackageSubcommands,
-    config::Config,
+    domain::config::Config,
     package_validator::{format_validation_result, PackageValidator, PackageValidatorError},
     ports::command::CommandRunner,
     ports::filesystem::FileSystem,

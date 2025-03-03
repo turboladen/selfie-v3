@@ -13,7 +13,7 @@ use thiserror::Error;
 use url::Url;
 
 use crate::{
-    config::Config,
+    domain::config::Config,
     domain::package::{EnvironmentConfig, Package, PackageParseError},
     package_repo::{PackageRepoError, PackageRepository},
     ports::filesystem::{FileSystem, FileSystemError},
@@ -864,7 +864,7 @@ pub fn format_validation_result(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::ConfigBuilder;
+    use crate::domain::config::ConfigBuilder;
     use crate::ports::filesystem::{MockFileSystem, MockFileSystemExt};
     use std::path::Path;
 

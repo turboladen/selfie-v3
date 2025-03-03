@@ -6,7 +6,6 @@ pub mod domain;
 pub mod ports;
 
 pub mod cli;
-pub mod config;
 pub mod filesystem;
 pub mod installation;
 pub mod package;

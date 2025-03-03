@@ -1,7 +1,7 @@
 // src/installation.rs
 
 use crate::{
-    config::Config,
+    domain::config::Config,
     domain::{
         installation::{Installation, InstallationError, InstallationStatus},
         package::Package,
@@ -56,7 +56,7 @@ mod tests {
     use super::*;
 
     use crate::{
-        config::ConfigBuilder,
+        domain::config::ConfigBuilder,
         domain::{installation::Installation, package::PackageBuilder},
         ports::command::{CommandError, MockCommandRunner, MockCommandRunnerExt},
     };

@@ -262,7 +262,7 @@ mod tests {
     use super::*;
 
     use crate::{
-        config::{Config, ConfigBuilder},
+        domain::config::{Config, ConfigBuilder},
         domain::package::PackageBuilder,
         installation::InstallationManager,
         ports::command::{MockCommandRunner, MockCommandRunnerExt},

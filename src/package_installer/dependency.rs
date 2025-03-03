@@ -2,7 +2,7 @@
 use thiserror::Error;
 
 use crate::{
-    config::Config,
+    domain::config::Config,
     domain::dependency::{DependencyGraph, DependencyGraphError},
     domain::package::Package,
     package_repo::{PackageRepoError, PackageRepository},
@@ -161,7 +161,7 @@ impl<'a, F: FileSystem> DependencyResolver<'a, F> {
 mod tests {
     use super::*;
     use crate::{
-        config::ConfigBuilder,
+        domain::config::ConfigBuilder,
         ports::filesystem::{MockFileSystem, MockFileSystemExt},
     };
     use std::path::Path;

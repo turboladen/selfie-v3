@@ -7,7 +7,7 @@ use console::style;
 use thiserror::Error;
 
 use crate::{
-    config::Config,
+    domain::config::Config,
     domain::dependency::DependencyGraphError,
     domain::{
         installation::{InstallationError, InstallationStatus},
@@ -575,7 +575,7 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
 mod tests {
     use super::*;
     use crate::{
-        config::ConfigBuilder,
+        domain::config::ConfigBuilder,
         ports::command::{MockCommandRunner, MockCommandRunnerExt},
         ports::filesystem::{MockFileSystem, MockFileSystemExt},
         progress::{ConsoleRenderer, ProgressReporter},

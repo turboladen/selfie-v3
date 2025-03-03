@@ -4,7 +4,7 @@
 use console::style;
 
 use crate::{
-    config::Config,
+    domain::config::Config,
     package_repo::{PackageRepoError, PackageRepository},
     ports::command::CommandRunner,
     ports::filesystem::FileSystem,
@@ -120,14 +120,12 @@ impl<'a, F: FileSystem, R: CommandRunner> ListCommand<'a, F, R> {
                 } else {
                     "Compatible with current environment".to_string()
                 }
+            } else if self.use_colors {
+                style("Not compatible with current environment")
+                    .red()
+                    .to_string()
             } else {
-                if self.use_colors {
-                    style("Not compatible with current environment")
-                        .red()
-                        .to_string()
-                } else {
-                    "Not compatible with current environment".to_string()
-                }
+                "Not compatible with current environment".to_string()
             };
 
             output.push_str(&format!(
@@ -190,7 +188,7 @@ impl<'a, F: FileSystem, R: CommandRunner> ListCommand<'a, F, R> {
 mod tests {
     use super::*;
     use crate::{
-        config::ConfigBuilder,
+        domain::config::ConfigBuilder,
         ports::command::MockCommandRunner,
         ports::filesystem::{MockFileSystem, MockFileSystemExt},
     };

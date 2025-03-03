@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
 use thiserror::Error;
 
-use crate::config::{Config, ConfigValidationError};
+use crate::domain::config::{Config, ConfigValidationError};
 
 #[derive(Debug, Error)]
 pub enum CliError {
