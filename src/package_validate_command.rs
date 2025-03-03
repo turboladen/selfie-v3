@@ -5,9 +5,11 @@ use crate::{
     adapters::package_repo::yaml::YamlPackageRepository,
     cli::PackageSubcommands,
     domain::config::Config,
-    package_validator::{format_validation_result, PackageValidator, PackageValidatorError},
     ports::{command::CommandRunner, filesystem::FileSystem},
     progress_display::{ProgressManager, ProgressStyleType},
+    services::package_validator::{
+        format_validation_result, PackageValidator, PackageValidatorError,
+    },
 };
 
 /// Result of running the validate command

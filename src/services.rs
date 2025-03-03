@@ -1,2 +1,3 @@
 pub mod multi_package_installation_service;
 pub mod package_installation_service;
+pub mod package_validator;

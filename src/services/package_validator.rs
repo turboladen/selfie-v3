@@ -1,4 +1,4 @@
-// src/package_validator.rs
+// src/services/package_validator.rs
 // Provides package validation functionality with detailed error reporting
 
 use std::{
