@@ -15,8 +15,8 @@ use url::Url;
 use crate::{
     domain::config::Config,
     domain::package::{EnvironmentConfig, Package, PackageParseError},
-    package_repo::{PackageRepoError, PackageRepository},
     ports::filesystem::{FileSystem, FileSystemError},
+    ports::package_repo::{PackageRepoError, PackageRepository},
 };
 
 /// Categories of package validation errors
@@ -191,16 +191,15 @@ pub enum PackageValidatorError {
 }
 
 /// Validates package files with detailed error reporting
-pub struct PackageValidator<'a, F: FileSystem> {
+pub struct PackageValidator<'a, F: FileSystem, P: PackageRepository> {
     fs: &'a F,
     config: &'a Config,
-    package_repo: PackageRepository<'a, F>,
+    package_repo: &'a P,
 }
 
-impl<'a, F: FileSystem> PackageValidator<'a, F> {
+impl<'a, F: FileSystem, P: PackageRepository> PackageValidator<'a, F, P> {
     /// Create a new package validator
-    pub fn new(fs: &'a F, config: &'a Config) -> Self {
-        let package_repo = PackageRepository::new(fs, config.expanded_package_directory());
+    pub fn new(fs: &'a F, config: &'a Config, package_repo: &'a P) -> Self {
         Self {
             fs,
             config,
@@ -208,12 +207,12 @@ impl<'a, F: FileSystem> PackageValidator<'a, F> {
         }
     }
 
-    /// Validate a package by name
+    // Update validate_package method to use package_repo instead of creating a new one
     pub fn validate_package(
         &self,
         package_name: &str,
     ) -> Result<ValidationResult, PackageValidatorError> {
-        // Find the package file
+        // Find the package file using the repository
         let package_files = self
             .package_repo
             .find_package_files(package_name)
@@ -864,6 +863,7 @@ pub fn format_validation_result(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adapters::package_repo::yaml::YamlPackageRepository;
     use crate::domain::config::ConfigBuilder;
     use crate::ports::filesystem::{MockFileSystem, MockFileSystemExt};
     use std::path::Path;
@@ -910,7 +910,8 @@ environments:
         let yaml = create_valid_package_yaml();
         fs.add_file(Path::new("/test/packages/test-package.yaml"), &yaml);
 
-        let validator = PackageValidator::new(&fs, &config);
+        let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
+        let validator = PackageValidator::new(&fs, &config, &package_repo);
         let result = validator.validate_package("test-package").unwrap();
 
         assert!(result.is_valid());
@@ -932,7 +933,8 @@ environments:
 "#;
         fs.add_file(Path::new("/test/packages/incomplete.yaml"), yaml);
 
-        let validator = PackageValidator::new(&fs, &config);
+        let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
+        let validator = PackageValidator::new(&fs, &config, &package_repo);
         let result = validator
             .validate_package_file(Path::new("/test/packages/incomplete.yaml"))
             .unwrap();
@@ -967,7 +969,8 @@ environments:
 "#;
         fs.add_file(Path::new("/test/packages/invalid-url.yaml"), yaml);
 
-        let validator = PackageValidator::new(&fs, &config);
+        let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
+        let validator = PackageValidator::new(&fs, &config, &package_repo);
         let result = validator
             .validate_package_file(Path::new("/test/packages/invalid-url.yaml"))
             .unwrap();
@@ -993,7 +996,8 @@ environments:
 "#;
         fs.add_file(Path::new("/test/packages/bad-commands.yaml"), yaml);
 
-        let validator = PackageValidator::new(&fs, &config);
+        let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
+        let validator = PackageValidator::new(&fs, &config, &package_repo);
         let result = validator
             .validate_package_file(Path::new("/test/packages/bad-commands.yaml"))
             .unwrap();
@@ -1025,7 +1029,8 @@ environments:
 "#;
         fs.add_file(Path::new("/test/packages/bad-version.yaml"), yaml);
 
-        let validator = PackageValidator::new(&fs, &config);
+        let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
+        let validator = PackageValidator::new(&fs, &config, &package_repo);
         let result = validator
             .validate_package_file(Path::new("/test/packages/bad-version.yaml"))
             .unwrap();
@@ -1051,7 +1056,8 @@ environments:
 "#;
         fs.add_file(Path::new("/test/packages/missing-env.yaml"), yaml);
 
-        let validator = PackageValidator::new(&fs, &config);
+        let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
+        let validator = PackageValidator::new(&fs, &config, &package_repo);
         let result = validator
             .validate_package_file(Path::new("/test/packages/missing-env.yaml"))
             .unwrap();
@@ -1099,7 +1105,8 @@ environments:
     fn test_package_not_found() {
         let (fs, config) = setup_test_environment();
 
-        let validator = PackageValidator::new(&fs, &config);
+        let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
+        let validator = PackageValidator::new(&fs, &config, &package_repo);
         let result = validator.validate_package("nonexistent");
 
         assert!(matches!(
@@ -1117,7 +1124,8 @@ environments:
         fs.add_file(Path::new("/test/packages/duplicate.yaml"), &yaml);
         fs.add_file(Path::new("/test/packages/duplicate.yml"), &yaml);
 
-        let validator = PackageValidator::new(&fs, &config);
+        let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
+        let validator = PackageValidator::new(&fs, &config, &package_repo);
         let result = validator.validate_package("duplicate");
 
         assert!(matches!(

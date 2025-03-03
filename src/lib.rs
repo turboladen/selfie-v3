@@ -10,7 +10,6 @@ pub mod filesystem;
 pub mod installation_manager;
 pub mod package_installer;
 pub mod package_list_command;
-pub mod package_repo;
 pub mod package_validate_command;
 pub mod package_validator;
 pub mod progress;

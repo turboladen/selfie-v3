@@ -5,8 +5,7 @@ use crate::{
     domain::config::Config,
     domain::dependency::{DependencyGraph, DependencyGraphError},
     domain::package::Package,
-    package_repo::{PackageRepoError, PackageRepository},
-    ports::filesystem::FileSystem,
+    ports::package_repo::{PackageRepoError, PackageRepository},
 };
 
 #[derive(Error, Debug)]
@@ -30,14 +29,13 @@ pub enum DependencyResolverError {
     EnvironmentNotSupported(String, String),
 }
 
-pub struct DependencyResolver<'a, F: FileSystem> {
-    package_repo: PackageRepository<'a, F>,
+pub struct DependencyResolver<'a, P: PackageRepository> {
+    package_repo: P,
     config: &'a Config,
 }
 
-impl<'a, F: FileSystem> DependencyResolver<'a, F> {
-    pub fn new(fs: &'a F, config: &'a Config) -> Self {
-        let package_repo = PackageRepository::new(fs, config.expanded_package_directory());
+impl<'a, P: PackageRepository> DependencyResolver<'a, P> {
+    pub fn new(package_repo: P, config: &'a Config) -> Self {
         Self {
             package_repo,
             config,
@@ -162,7 +160,10 @@ mod tests {
     use super::*;
     use crate::{
         domain::config::ConfigBuilder,
-        ports::filesystem::{MockFileSystem, MockFileSystemExt},
+        ports::{
+            filesystem::{MockFileSystem, MockFileSystemExt},
+            package_repo::MockPackageRepository,
+        },
     };
     use std::path::Path;
 
@@ -213,7 +214,8 @@ environments:
         fs.add_file(Path::new("/test/packages/dep-pkg.yaml"), &dep_yaml);
 
         // Create resolver and resolve dependencies
-        let resolver = DependencyResolver::new(&fs, &config);
+        let package_repo = MockPackageRepository::new();
+        let resolver = DependencyResolver::new(package_repo, &config);
         let result = resolver.resolve_dependencies("main-pkg");
 
         assert!(result.is_ok());
@@ -239,7 +241,8 @@ environments:
         fs.add_file(Path::new("/test/packages/dep3.yaml"), &dep3_yaml);
 
         // Create resolver and resolve dependencies
-        let resolver = DependencyResolver::new(&fs, &config);
+        let package_repo = MockPackageRepository::new();
+        let resolver = DependencyResolver::new(package_repo, &config);
         let result = resolver.resolve_dependencies("main-pkg");
 
         assert!(result.is_ok());
@@ -269,7 +272,8 @@ environments:
         fs.add_file(Path::new("/test/packages/common-dep.yaml"), &common_yaml);
 
         // Create resolver and resolve dependencies
-        let resolver = DependencyResolver::new(&fs, &config);
+        let package_repo = MockPackageRepository::new();
+        let resolver = DependencyResolver::new(package_repo, &config);
         let result = resolver.resolve_dependencies("main-pkg");
 
         assert!(result.is_ok());
@@ -297,7 +301,8 @@ environments:
         fs.add_file(Path::new("/test/packages/dep1.yaml"), &dep1_yaml);
 
         // Create resolver and resolve dependencies
-        let resolver = DependencyResolver::new(&fs, &config);
+        let package_repo = MockPackageRepository::new();
+        let resolver = DependencyResolver::new(package_repo, &config);
         let result = resolver.resolve_dependencies("main-pkg");
 
         assert!(result.is_err());
@@ -324,7 +329,8 @@ environments:
         fs.add_file(Path::new("/test/packages/main-pkg.yaml"), &main_yaml);
 
         // Create resolver and resolve dependencies
-        let resolver = DependencyResolver::new(&fs, &config);
+        let package_repo = MockPackageRepository::new();
+        let resolver = DependencyResolver::new(package_repo, &config);
         let result = resolver.resolve_dependencies("main-pkg");
 
         assert!(result.is_err());
@@ -356,7 +362,8 @@ environments:
         fs.add_file(Path::new("/test/packages/dep1.yaml"), dep1_yaml);
 
         // Create resolver and resolve dependencies
-        let resolver = DependencyResolver::new(&fs, &config);
+        let package_repo = MockPackageRepository::new();
+        let resolver = DependencyResolver::new(package_repo, &config);
         let result = resolver.resolve_dependencies("main-pkg");
 
         assert!(result.is_err());

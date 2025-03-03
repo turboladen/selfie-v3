@@ -7,16 +7,19 @@ use console::style;
 use thiserror::Error;
 
 use crate::{
-    domain::config::Config,
-    domain::dependency::DependencyGraphError,
+    adapters::package_repo::yaml::YamlPackageRepository,
     domain::{
+        config::Config,
+        dependency::DependencyGraphError,
         installation::{InstallationError, InstallationStatus},
         package::Package,
     },
     installation_manager::InstallationManager,
-    package_repo::PackageRepoError,
-    ports::command::{CommandError, CommandOutput, CommandRunner},
-    ports::filesystem::{FileSystem, FileSystemError},
+    ports::{
+        command::{CommandError, CommandOutput, CommandRunner},
+        filesystem::{FileSystem, FileSystemError},
+        package_repo::PackageRepoError,
+    },
     progress_display::{ProgressManager, ProgressStyleType},
 };
 
@@ -195,7 +198,9 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
         );
 
         // Create dependency resolver
-        let resolver = DependencyResolver::new(&self.fs, &self.config);
+        let package_repo =
+            YamlPackageRepository::new(self.fs, self.config.expanded_package_directory());
+        let resolver = DependencyResolver::new(package_repo, self.config);
 
         // Update progress
         main_progress.set_message("Resolving dependencies...");

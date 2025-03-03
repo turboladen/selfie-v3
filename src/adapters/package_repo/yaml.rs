@@ -1,44 +1,45 @@
-// src/package_repo.rs - Update list_packages implementation
-
+// src/adapters/package_repo/yaml.rs
 use std::path::{Path, PathBuf};
 
-use thiserror::Error;
+use crate::domain::package::Package;
+use crate::ports::filesystem::FileSystem;
+use crate::ports::package_repo::{PackageRepoError, PackageRepository};
 
-use crate::{
-    domain::package::{Package, PackageParseError},
-    ports::filesystem::FileSystem,
-};
-
-#[derive(Error, Debug)]
-pub enum PackageRepoError {
-    #[error("Package not found: {0}")]
-    PackageNotFound(String),
-
-    #[error("Multiple packages found with name: {0}")]
-    MultiplePackagesFound(String),
-
-    #[error("Parse error: {0}")]
-    ParseError(#[from] PackageParseError),
-
-    #[error("IO error: {0}")]
-    IoError(#[from] std::io::Error),
-
-    #[error("Directory does not exist: {0}")]
-    DirectoryNotFound(String),
-}
-
-pub struct PackageRepository<'a, F: FileSystem> {
+pub struct YamlPackageRepository<'a, F: FileSystem> {
     fs: &'a F,
     package_dir: PathBuf,
 }
 
-impl<'a, F: FileSystem> PackageRepository<'a, F> {
+impl<'a, F: FileSystem> YamlPackageRepository<'a, F> {
     pub fn new(fs: &'a F, package_dir: PathBuf) -> Self {
         Self { fs, package_dir }
     }
 
-    /// Get a package by name
-    pub fn get_package(&self, name: &str) -> Result<Package, PackageRepoError> {
+    /// List all YAML files in a directory
+    fn list_yaml_files(&self, dir: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
+        let entries = self
+            .fs
+            .list_directory(dir)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+
+        let yaml_files: Vec<PathBuf> = entries
+            .into_iter()
+            .filter(|path| {
+                if let Some(ext) = path.extension() {
+                    let ext_str = ext.to_string_lossy().to_lowercase();
+                    ext_str == "yaml" || ext_str == "yml"
+                } else {
+                    false
+                }
+            })
+            .collect();
+
+        Ok(yaml_files)
+    }
+}
+
+impl<F: FileSystem> PackageRepository for YamlPackageRepository<'_, F> {
+    fn get_package(&self, name: &str) -> Result<Package, PackageRepoError> {
         let package_files = self.find_package_files(name)?;
 
         if package_files.is_empty() {
@@ -55,8 +56,7 @@ impl<'a, F: FileSystem> PackageRepository<'a, F> {
         Ok(package)
     }
 
-    /// List all available packages in the package directory
-    pub fn list_packages(&self) -> Result<Vec<Package>, PackageRepoError> {
+    fn list_packages(&self) -> Result<Vec<Package>, PackageRepoError> {
         if !self.fs.path_exists(&self.package_dir) {
             return Err(PackageRepoError::DirectoryNotFound(
                 self.package_dir.to_string_lossy().into_owned(),
@@ -86,8 +86,7 @@ impl<'a, F: FileSystem> PackageRepository<'a, F> {
         Ok(packages)
     }
 
-    // Find package files that match the given name
-    pub fn find_package_files(&self, name: &str) -> Result<Vec<PathBuf>, PackageRepoError> {
+    fn find_package_files(&self, name: &str) -> Result<Vec<PathBuf>, PackageRepoError> {
         if !self.fs.path_exists(&self.package_dir) {
             return Err(PackageRepoError::DirectoryNotFound(
                 self.package_dir.to_string_lossy().into_owned(),
@@ -107,28 +106,6 @@ impl<'a, F: FileSystem> PackageRepository<'a, F> {
         }
 
         Ok(result)
-    }
-
-    // List all YAML files in a directory
-    fn list_yaml_files(&self, dir: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
-        let entries = self
-            .fs
-            .list_directory(dir)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-
-        let yaml_files: Vec<PathBuf> = entries
-            .into_iter()
-            .filter(|path| {
-                if let Some(ext) = path.extension() {
-                    let ext_str = ext.to_string_lossy().to_lowercase();
-                    ext_str == "yaml" || ext_str == "yml"
-                } else {
-                    false
-                }
-            })
-            .collect();
-
-        Ok(yaml_files)
     }
 }
 
@@ -155,7 +132,7 @@ mod tests {
         fs.add_file(&package_path, yaml);
         fs.add_existing_path(&package_dir);
 
-        let repo = PackageRepository::new(&fs, package_dir);
+        let repo = YamlPackageRepository::new(&fs, package_dir);
         let package = repo.get_package("ripgrep").unwrap();
 
         assert_eq!(package.name, "ripgrep");
@@ -170,7 +147,7 @@ mod tests {
 
         fs.add_existing_path(&package_dir);
 
-        let repo = PackageRepository::new(&fs, package_dir);
+        let repo = YamlPackageRepository::new(&fs, package_dir);
         let result = repo.get_package("nonexistent");
 
         assert!(matches!(result, Err(PackageRepoError::PackageNotFound(_))));
@@ -181,7 +158,7 @@ mod tests {
         let fs = MockFileSystem::default();
         let package_dir = PathBuf::from("/test/nonexistent");
 
-        let repo = PackageRepository::new(&fs, package_dir);
+        let repo = YamlPackageRepository::new(&fs, package_dir);
         let result = repo.get_package("ripgrep");
 
         assert!(matches!(
@@ -211,7 +188,7 @@ mod tests {
         fs.add_file(&yml_path, yaml);
         fs.add_existing_path(&package_dir);
 
-        let repo = PackageRepository::new(&fs, package_dir);
+        let repo = YamlPackageRepository::new(&fs, package_dir);
         let result = repo.get_package("ripgrep");
 
         assert!(matches!(
@@ -233,7 +210,7 @@ mod tests {
         fs.add_file(&yml_path, "dummy content");
         fs.add_existing_path(&package_dir);
 
-        let repo = PackageRepository::new(&fs, package_dir);
+        let repo = YamlPackageRepository::new(&fs, package_dir);
 
         // Should find ripgrep.yaml
         let files = repo.find_package_files("ripgrep").unwrap();
@@ -279,7 +256,7 @@ mod tests {
         // Also add an invalid package file
         fs.add_file(&package_dir.join("invalid.yaml"), "not valid yaml: :");
 
-        let repo = PackageRepository::new(&fs, package_dir);
+        let repo = YamlPackageRepository::new(&fs, package_dir);
         let packages = repo.list_packages().unwrap();
 
         // Should find both valid packages
@@ -309,7 +286,7 @@ mod tests {
         fs.add_file(&dir.join("file4.YAML"), "content"); // Test case insensitivity
         fs.add_file(&dir.join("file5.YML"), "content"); // Test case insensitivity
 
-        let repo = PackageRepository::new(&fs, PathBuf::from("/dummy")); // Path doesn't matter here
+        let repo = YamlPackageRepository::new(&fs, PathBuf::from("/dummy")); // Path doesn't matter here
         let yaml_files = repo.list_yaml_files(&dir).unwrap();
 
         // Should find all yaml/yml files regardless of case

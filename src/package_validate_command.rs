@@ -2,11 +2,11 @@
 // Implements the 'selfie package validate' command
 
 use crate::{
+    adapters::package_repo::yaml::YamlPackageRepository,
     cli::PackageSubcommands,
     domain::config::Config,
     package_validator::{format_validation_result, PackageValidator, PackageValidatorError},
-    ports::command::CommandRunner,
-    ports::filesystem::FileSystem,
+    ports::{command::CommandRunner, filesystem::FileSystem},
     progress_display::{ProgressManager, ProgressStyleType},
 };
 
@@ -65,8 +65,10 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidateCommand<'a, F, R> {
                     ProgressStyleType::Spinner,
                 );
 
+                let package_repo =
+                    YamlPackageRepository::new(self.fs, self.config.expanded_package_directory());
                 // Create validator
-                let validator = PackageValidator::new(self.fs, &self.config);
+                let validator = PackageValidator::new(self.fs, &self.config, &package_repo);
 
                 // Validate package
                 let result = if let Some(path) = package_path {
@@ -90,7 +92,7 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidateCommand<'a, F, R> {
                             progress.println("Detailed package structure:");
                             if let Some(package) = &validation_result.package {
                                 // Show more details about environments and configurations
-                                progress.println(&format!(
+                                progress.println(format!(
                                     "  Environments: {}",
                                     package
                                         .environments
@@ -114,7 +116,7 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidateCommand<'a, F, R> {
                     Err(err) => {
                         // More verbose error handling
                         if self.verbose {
-                            progress.println(&format!("Error details: {:#?}", err));
+                            progress.println(format!("Error details: {:#?}", err));
                         }
 
                         progress.abandon_with_message("Validation failed");

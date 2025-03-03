@@ -3,11 +3,10 @@
 
 use console::style;
 
+use crate::ports::package_repo::{PackageRepoError, PackageRepository};
 use crate::{
     domain::config::Config,
-    package_repo::{PackageRepoError, PackageRepository},
     ports::command::CommandRunner,
-    ports::filesystem::FileSystem,
     progress_display::{ProgressManager, ProgressStyleType},
 };
 
@@ -20,58 +19,51 @@ pub enum ListCommandResult {
 }
 
 /// Handles the 'package list' command
-pub struct ListCommand<'a, F: FileSystem, R: CommandRunner> {
-    fs: &'a F,
+pub struct ListCommand<'a, R: CommandRunner, P: PackageRepository> {
     _runner: &'a R,
-    config: Config,
+    config: &'a Config,
     progress_manager: &'a ProgressManager,
     verbose: bool,
-    use_colors: bool, // Added this field
+    use_colors: bool,
+    package_repo: &'a P,
 }
 
-impl<'a, F: FileSystem, R: CommandRunner> ListCommand<'a, F, R> {
+impl<'a, R: CommandRunner, P: PackageRepository> ListCommand<'a, R, P> {
     /// Create a new list command handler
     pub fn new(
-        fs: &'a F,
         runner: &'a R,
-        config: Config,
+        config: &'a Config,
         progress_manager: &'a ProgressManager,
         verbose: bool,
+        package_repo: &'a P,
     ) -> Self {
-        // Get the color setting from progress_manager
         let use_colors = progress_manager.use_colors();
         Self {
-            fs,
             _runner: runner,
             config,
             progress_manager,
             verbose,
             use_colors,
+            package_repo,
         }
     }
 
     /// Execute the list command
     pub fn execute(&self) -> ListCommandResult {
-        // Create progress display - use a generic message
+        // Create progress display
         let progress = self.progress_manager.create_progress_bar(
             "list",
             "Searching for packages...",
             ProgressStyleType::Spinner,
         );
 
-        // Create package repository
-        let package_repo =
-            PackageRepository::new(self.fs, self.config.expanded_package_directory());
-
         // Get list of packages
-        match self.list_packages(&package_repo) {
+        match self.list_packages() {
             Ok(output) => {
-                // Just show a simple success message in the progress bar
                 progress.finish_with_message("Done");
                 ListCommandResult::Success(output)
             }
             Err(err) => {
-                // Simplify the progress bar message
                 progress.abandon_with_message("Failed");
                 ListCommandResult::Error(format!("Error: {}", err))
             }
@@ -79,11 +71,8 @@ impl<'a, F: FileSystem, R: CommandRunner> ListCommand<'a, F, R> {
     }
 
     /// List packages with compatibility information
-    fn list_packages<FS: FileSystem>(
-        &self,
-        repo: &PackageRepository<FS>,
-    ) -> Result<String, PackageRepoError> {
-        let packages = repo.list_packages()?;
+    fn list_packages(&self) -> Result<String, PackageRepoError> {
+        let packages = self.package_repo.list_packages()?;
 
         if packages.is_empty() {
             return Ok("No packages found in package directory.".to_string());
@@ -188,9 +177,12 @@ impl<'a, F: FileSystem, R: CommandRunner> ListCommand<'a, F, R> {
 mod tests {
     use super::*;
     use crate::{
+        adapters::package_repo::yaml::YamlPackageRepository,
         domain::config::ConfigBuilder,
-        ports::command::MockCommandRunner,
-        ports::filesystem::{MockFileSystem, MockFileSystemExt},
+        ports::{
+            command::MockCommandRunner,
+            filesystem::{MockFileSystem, MockFileSystemExt},
+        },
     };
     use std::path::Path;
 
@@ -205,13 +197,13 @@ mod tests {
         fs.add_existing_path(Path::new("/test/packages"));
 
         // Create a repository with an empty directory
-        let repo = PackageRepository::new(&fs, config.expanded_package_directory());
+        let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
         let runner = MockCommandRunner::new();
         let manager = ProgressManager::new(false, false, false);
 
-        let cmd = ListCommand::new(&fs, &runner, config, &manager, false);
+        let cmd = ListCommand::new(&runner, &config, &manager, false, &repo);
 
-        let result = cmd.list_packages(&repo);
+        let result = cmd.list_packages();
         assert!(result.is_ok());
         assert!(result.unwrap().contains("No packages found"));
     }
@@ -247,14 +239,14 @@ mod tests {
         fs.add_file(Path::new("/test/packages/fzf.yaml"), package2_yaml);
 
         // Create a real repository with our mock filesystem
-        let repo = PackageRepository::new(&fs, config.expanded_package_directory());
+        let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
 
         let runner = MockCommandRunner::new();
         let manager = ProgressManager::new(false, false, false);
-        let cmd = ListCommand::new(&fs, &runner, config, &manager, false);
+        let cmd = ListCommand::new(&runner, &config, &manager, false, &repo);
 
         // Test the list_packages function with our repo
-        let result = cmd.list_packages(&repo);
+        let result = cmd.list_packages();
         assert!(result.is_ok());
         let output = result.unwrap();
 
@@ -291,16 +283,14 @@ mod tests {
         fs.add_file(Path::new("/test/packages/ripgrep.yaml"), package_yaml);
 
         // Create a repository with our mock filesystem
-        let repo = PackageRepository::new(&fs, config.expanded_package_directory());
+        let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
 
         let runner = MockCommandRunner::new();
         let manager = ProgressManager::new(false, false, false);
-        let cmd = ListCommand::new(
-            &fs, &runner, config, &manager, true, // Verbose mode
-        );
+        let cmd = ListCommand::new(&runner, &config, &manager, true, &repo);
 
         // Test the list_packages function with our repo
-        let result = cmd.list_packages(&repo);
+        let result = cmd.list_packages();
         assert!(result.is_ok());
         let output = result.unwrap();
 

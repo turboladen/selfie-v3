@@ -3,6 +3,7 @@
 
 use std::{process, time::Duration};
 
+use selfie::adapters::package_repo::yaml::YamlPackageRepository;
 use selfie::{
     adapters::command::shell::ShellCommandRunner,
     adapters::filesystem::RealFileSystem,
@@ -79,13 +80,16 @@ fn main() {
                     // For list commands, we only need a minimal config validation
                     match cli.build_minimal_config(base_config) {
                         Ok(config) => {
-                            // Use the list command
-                            let list_cmd = ListCommand::new(
+                            let package_repo = YamlPackageRepository::new(
                                 &fs,
+                                config.expanded_package_directory(),
+                            );
+                            let list_cmd = ListCommand::new(
                                 &runner,
-                                config,
+                                &config,
                                 &progress_manager,
                                 cli.verbose,
+                                &package_repo,
                             );
 
                             match list_cmd.execute() {
