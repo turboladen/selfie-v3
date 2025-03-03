@@ -9,9 +9,12 @@ use thiserror::Error;
 use crate::{
     command::{CommandError, CommandOutput, CommandRunner},
     config::Config,
-    domain::package::Package,
+    domain::{
+        installation::{InstallationError, InstallationStatus},
+        package::Package,
+    },
     graph::DependencyGraphError,
-    installation::{InstallationError, InstallationManager, InstallationStatus},
+    installation::InstallationManager,
     package_repo::PackageRepoError,
     ports::filesystem::{FileSystem, FileSystemError},
     progress_display::{ProgressManager, ProgressStyleType},

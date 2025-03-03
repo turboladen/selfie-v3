@@ -12,7 +12,7 @@ use console::style;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
 use crate::{
-    installation::InstallationStatus,
+    domain::installation::InstallationStatus,
     progress::{MessageType, ProgressReporter},
 };
 
@@ -388,7 +388,7 @@ impl ProgressDisplay {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::installation::InstallationStatus;
+    use crate::domain::installation::InstallationStatus;
     use crate::progress::MessageType;
     use std::thread;
 

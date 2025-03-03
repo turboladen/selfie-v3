@@ -1,53 +1,259 @@
-// src/installation.rs
+// src/domain/installation.rs
+// Installation domain model
 
-use crate::{
-    command::CommandRunner,
-    config::Config,
-    domain::{
-        installation::{Installation, InstallationError, InstallationStatus},
-        package::Package,
-    },
-};
+use std::time::{Duration, Instant};
+use thiserror::Error;
 
-pub struct InstallationManager<'a, R: CommandRunner> {
-    pub runner: &'a R,
-    pub config: &'a Config,
+use crate::command::{CommandError, CommandOutput, CommandRunner};
+
+use super::package::{EnvironmentConfig, Package};
+
+/// Represents the current status of a package installation
+#[derive(Debug, Clone, PartialEq)]
+pub enum InstallationStatus {
+    /// Installation has not yet started
+    NotStarted,
+
+    /// Currently checking if the package is already installed
+    Checking,
+
+    /// Package is not installed
+    NotInstalled,
+
+    /// Package is already installed
+    AlreadyInstalled,
+
+    /// Package is currently being installed
+    Installing,
+
+    /// Installation completed successfully
+    Complete,
+
+    /// Installation failed with an error message
+    Failed(String),
+
+    /// Installation was skipped for the given reason
+    Skipped(String),
 }
 
-impl<'a, R: CommandRunner> InstallationManager<'a, R> {
-    pub fn new(runner: &'a R, config: &'a Config) -> Self {
-        Self { runner, config }
+/// Represents a package installation
+#[derive(Debug, Clone)]
+pub struct Installation {
+    /// The package being installed
+    pub package: Package,
+
+    /// Current installation status
+    pub status: InstallationStatus,
+
+    /// When the installation started
+    pub start_time: Option<Instant>,
+
+    /// How long the installation took
+    pub duration: Option<Duration>,
+
+    /// The environment name for this installation
+    pub environment: String,
+
+    /// The environment configuration being used
+    pub env_config: EnvironmentConfig,
+}
+
+/// Errors that can occur during installation
+#[derive(Error, Debug)]
+pub enum InstallationError {
+    #[error("Package not compatible with environment: {0}")]
+    EnvironmentIncompatible(String),
+
+    #[error("Command execution error: {0}")]
+    CommandError(CommandError),
+
+    #[error("Installation failed: {0}")]
+    InstallationFailed(String),
+
+    #[error("Check command failed: {0}")]
+    CheckFailed(String),
+
+    #[error("Installation interrupted")]
+    Interrupted,
+}
+
+/// Represents the result of an installation operation
+#[derive(Debug)]
+pub struct InstallationResult {
+    /// Name of the installed package
+    pub package_name: String,
+
+    /// Final installation status
+    pub status: InstallationStatus,
+
+    /// How long the installation took
+    pub duration: Duration,
+
+    /// Results of dependent package installations
+    pub dependencies: Vec<InstallationResult>,
+}
+
+impl Installation {
+    /// Create a new installation
+    pub fn new(package: Package, environment: &str, env_config: EnvironmentConfig) -> Self {
+        Self {
+            package,
+            status: InstallationStatus::NotStarted,
+            start_time: None,
+            duration: None,
+            environment: environment.to_string(),
+            env_config,
+        }
     }
 
-    pub fn install_package(&self, package: Package) -> Result<Installation, InstallationError> {
-        // Resolve environment configuration
-        let env_config = self
-            .config
-            .resolve_environment(&package)
-            .map_err(|e| InstallationError::EnvironmentIncompatible(e.to_string()))?;
+    /// Update the installation status
+    pub fn update_status(&mut self, status: InstallationStatus) {
+        self.status = status;
+    }
 
-        // Create installation instance
-        let mut installation = Installation::new(
-            package.clone(),
-            &self.config.environment,
-            env_config.clone(),
-        );
+    /// Start the installation
+    pub fn start(&mut self) {
+        self.start_time = Some(Instant::now());
+        self.update_status(InstallationStatus::Checking);
+    }
 
-        // Start the installation process
-        installation.start();
+    /// Complete the installation with the given status
+    pub fn complete(&mut self, status: InstallationStatus) {
+        if let Some(start_time) = self.start_time {
+            self.duration = Some(start_time.elapsed());
+        }
+        self.update_status(status);
+    }
 
-        // Check if already installed
-        let already_installed = installation.execute_check(self.runner)?;
-        if already_installed {
-            installation.complete(InstallationStatus::AlreadyInstalled);
-            return Ok(installation);
+    // New helper method to execute commands and handle status updates
+    fn execute_command<R: CommandRunner>(
+        &mut self,
+        runner: &R,
+        command: &str,
+        initial_status: InstallationStatus,
+        error_constructor: impl FnOnce(String) -> InstallationError,
+    ) -> Result<CommandOutput, InstallationError> {
+        self.update_status(initial_status);
+
+        match runner.execute(command) {
+            Ok(output) => Ok(output),
+            Err(e) => {
+                let error_msg = e.to_string();
+                self.update_status(InstallationStatus::Failed(error_msg.clone()));
+                Err(error_constructor(error_msg))
+            }
+        }
+    }
+
+    pub fn execute_check<R: CommandRunner>(
+        &mut self,
+        runner: &R,
+    ) -> Result<bool, InstallationError> {
+        self.update_status(InstallationStatus::Checking);
+
+        // Clone the check command if it exists to avoid borrowing self.env_config
+        let check_cmd = match &self.env_config.check {
+            Some(cmd) => cmd.clone(), // Clone the string to end the borrow
+            None => {
+                self.update_status(InstallationStatus::NotInstalled);
+                return Ok(false);
+            }
+        };
+
+        // Now execute_command can mutably borrow self
+        let output =
+            self.execute_command(runner, &check_cmd, InstallationStatus::Checking, |e| {
+                InstallationError::CheckFailed(e)
+            })?;
+
+        let installed = output.success;
+        if installed {
+            self.update_status(InstallationStatus::AlreadyInstalled);
+        } else {
+            self.update_status(InstallationStatus::NotInstalled);
         }
 
-        // Execute installation
-        installation.execute_install(self.runner)?;
-        installation.complete(InstallationStatus::Complete);
+        Ok(installed)
+    }
 
-        Ok(installation)
+    pub fn execute_install<R: CommandRunner>(
+        &mut self,
+        runner: &R,
+    ) -> Result<CommandOutput, InstallationError> {
+        // Clone the install command to avoid borrowing self.env_config
+        let install_cmd = self.env_config.install.clone();
+
+        // Now execute_command can mutably borrow self
+        let output =
+            self.execute_command(runner, &install_cmd, InstallationStatus::Installing, |e| {
+                InstallationError::CommandError(CommandError::ExecutionError(e))
+            })?;
+
+        if output.success {
+            self.update_status(InstallationStatus::Complete);
+        } else {
+            let error_msg = format!("Install command failed with status {}", output.status);
+            self.update_status(InstallationStatus::Failed(error_msg.clone()));
+            return Err(InstallationError::InstallationFailed(error_msg));
+        }
+
+        Ok(output)
+    }
+}
+
+impl InstallationResult {
+    /// Create a new successful installation result
+    pub fn success(package_name: &str, duration: Duration) -> Self {
+        Self {
+            package_name: package_name.to_string(),
+            status: InstallationStatus::Complete,
+            duration,
+            dependencies: Vec::new(),
+        }
+    }
+
+    /// Create a result for an already installed package
+    pub fn already_installed(package_name: &str, duration: Duration) -> Self {
+        Self {
+            package_name: package_name.to_string(),
+            status: InstallationStatus::AlreadyInstalled,
+            duration,
+            dependencies: Vec::new(),
+        }
+    }
+
+    /// Create a result for a failed installation
+    pub fn failed(package_name: &str, status: InstallationStatus, duration: Duration) -> Self {
+        Self {
+            package_name: package_name.to_string(),
+            status,
+            duration,
+            dependencies: Vec::new(),
+        }
+    }
+
+    /// Add dependencies to the installation result
+    pub fn with_dependencies(mut self, dependencies: Vec<InstallationResult>) -> Self {
+        self.dependencies = dependencies;
+        self
+    }
+
+    /// Calculate the total duration including dependencies
+    pub fn total_duration(&self) -> Duration {
+        let mut total = self.duration;
+        for dep in &self.dependencies {
+            total += dep.duration;
+        }
+        total
+    }
+
+    /// Calculate the duration of dependency installations
+    pub fn dependency_duration(&self) -> Duration {
+        let mut total = Duration::from_secs(0);
+        for dep in &self.dependencies {
+            total += dep.total_duration();
+        }
+        total
     }
 }
 
@@ -56,9 +262,10 @@ mod tests {
     use super::*;
 
     use crate::{
-        command::{CommandError, MockCommandRunner, MockCommandRunnerExt},
-        config::ConfigBuilder,
-        domain::{installation::Installation, package::PackageBuilder},
+        command::{MockCommandRunner, MockCommandRunnerExt},
+        config::{Config, ConfigBuilder},
+        domain::package::PackageBuilder,
+        installation::InstallationManager,
     };
 
     fn create_test_package() -> Package {
@@ -292,3 +499,4 @@ mod tests {
         ));
     }
 }
+
