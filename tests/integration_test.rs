@@ -2,11 +2,11 @@
 
 use selfie::{
     domain::{config::ConfigBuilder, installation::InstallationStatus},
-    package_installer::PackageInstaller,
     ports::{
         command::{MockCommandRunner, MockCommandRunnerExt},
         filesystem::{MockFileSystem, MockFileSystemExt},
     },
+    services::multi_package_installation_service::MultiPackageInstallationService,
 };
 
 #[test]
@@ -42,7 +42,7 @@ fn test_package_install_end_to_end() {
     runner.success_response("rg install", "Installed successfully");
 
     // Create package installer
-    let installer = PackageInstaller::new(&fs, &runner, &config, true, false, false);
+    let installer = MultiPackageInstallationService::new(&fs, &runner, &config, true, false, false);
 
     // Run the installation
     let result = installer.install_package("ripgrep");
@@ -103,7 +103,7 @@ fn test_package_install_with_dependencies() {
     runner.success_response("rust install", "Installed successfully");
 
     // Create package installer
-    let installer = PackageInstaller::new(&fs, &runner, &config, true, false, false);
+    let installer = MultiPackageInstallationService::new(&fs, &runner, &config, true, false, false);
 
     // Run the installation
     let result = installer.install_package("ripgrep");
@@ -192,7 +192,7 @@ fn test_package_install_with_complex_dependencies() {
     runner.success_response("dep3-install", "Installed successfully");
 
     // Create package installer
-    let installer = PackageInstaller::new(&fs, &runner, &config, true, false, false);
+    let installer = MultiPackageInstallationService::new(&fs, &runner, &config, true, false, false);
 
     // Run the installation
     let result = installer.install_package("main-pkg");

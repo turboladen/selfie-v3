@@ -2,12 +2,12 @@
 
 use selfie::{
     domain::{config::ConfigBuilder, installation::InstallationStatus},
-    package_installer::PackageInstaller,
     ports::{
         command::{MockCommandRunner, MockCommandRunnerExt},
         filesystem::{MockFileSystem, MockFileSystemExt},
     },
     progress_display::{ProgressManager, ProgressStyleType},
+    services::multi_package_installation_service::MultiPackageInstallationService,
 };
 
 // Import the enhanced package installer
@@ -74,7 +74,7 @@ fn test_package_install_with_progress_display() {
     runner.success_response("dep2 install", "Installed successfully");
 
     // Create the enhanced installer
-    let installer = PackageInstaller::new(
+    let installer = MultiPackageInstallationService::new(
         &fs, &runner, &config, true,  // verbose output
         false, // no colors
         true,  // use unicode

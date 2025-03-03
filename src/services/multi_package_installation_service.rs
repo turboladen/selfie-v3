@@ -1,4 +1,4 @@
-// src/package_installer_enhanced.rs
+// src/services/multi_package_installation_service.rs
 mod dependency;
 
 use std::time::{Duration, Instant};
@@ -148,7 +148,7 @@ impl InstallationResult {
     }
 }
 
-pub struct PackageInstaller<'a, F: FileSystem, R: CommandRunner> {
+pub struct MultiPackageInstallationService<'a, F: FileSystem, R: CommandRunner> {
     fs: &'a F,
     runner: &'a R,
     config: &'a Config,
@@ -156,7 +156,7 @@ pub struct PackageInstaller<'a, F: FileSystem, R: CommandRunner> {
     verbose: bool,
 }
 
-impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
+impl<'a, F: FileSystem, R: CommandRunner> MultiPackageInstallationService<'a, F, R> {
     pub fn new(
         fs: &'a F,
         runner: &'a R,
@@ -626,7 +626,8 @@ mod tests {
         runner.success_response("test install", "Installed successfully");
 
         // Create the installer
-        let installer = PackageInstaller::new(&fs, &runner, &config, false, false, false);
+        let installer =
+            MultiPackageInstallationService::new(&fs, &runner, &config, false, false, false);
 
         // Run the installation
         let result = installer.install_package("ripgrep");
@@ -662,7 +663,8 @@ mod tests {
         runner.success_response("test check", "Found"); // Already installed
 
         // Create the installer
-        let installer = PackageInstaller::new(&fs, &runner, &config, false, false, false);
+        let installer =
+            MultiPackageInstallationService::new(&fs, &runner, &config, false, false, false);
 
         // Run the installation
         let result = installer.install_package("ripgrep");
@@ -717,7 +719,8 @@ mod tests {
         runner.success_response("rust install", "Installed successfully");
 
         // Create the installer
-        let installer = PackageInstaller::new(&fs, &runner, &config, false, false, false);
+        let installer =
+            MultiPackageInstallationService::new(&fs, &runner, &config, false, false, false);
 
         // Run the installation
         let result = installer.install_package("ripgrep");
@@ -776,7 +779,8 @@ mod tests {
         runner.error_response("rust install", "Installation failed", 1); // Installation fails
 
         // Create the installer
-        let installer = PackageInstaller::new(&fs, &runner, &config, false, false, false);
+        let installer =
+            MultiPackageInstallationService::new(&fs, &runner, &config, false, false, false);
 
         // Run the installation
         let result = installer.install_package("ripgrep");
@@ -842,7 +846,8 @@ mod tests {
         runner.success_response("dep2-install", "Installed successfully");
 
         // Create the installer
-        let installer = PackageInstaller::new(&fs, &runner, &config, false, false, false);
+        let installer =
+            MultiPackageInstallationService::new(&fs, &runner, &config, false, false, false);
 
         // Run the installation
         let result = installer.install_package("main-pkg");

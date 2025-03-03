@@ -8,10 +8,10 @@ use selfie::{
     adapters::command::shell::ShellCommandRunner,
     adapters::filesystem::RealFileSystem,
     cli::{self, Cli, Commands, PackageSubcommands},
-    package_installer::PackageInstaller,
     package_list_command::{ListCommand, ListCommandResult},
     package_validate_command::{ValidateCommand, ValidateCommandResult},
     progress_display::ProgressManager,
+    services::multi_package_installation_service::MultiPackageInstallationService,
 };
 
 fn main() {
@@ -46,7 +46,7 @@ fn main() {
                     match cli.validate_and_build_config(base_config) {
                         Ok(config) => {
                             // Use the enhanced installer with progress display
-                            let installer = PackageInstaller::new(
+                            let installer = MultiPackageInstallationService::new(
                                 &fs,
                                 &runner,
                                 &config,
