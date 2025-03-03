@@ -7,7 +7,6 @@ use console::style;
 use thiserror::Error;
 
 use crate::{
-    command::{CommandError, CommandOutput, CommandRunner},
     config::Config,
     domain::dependency::DependencyGraphError,
     domain::{
@@ -16,6 +15,7 @@ use crate::{
     },
     installation::InstallationManager,
     package_repo::PackageRepoError,
+    ports::command::{CommandError, CommandOutput, CommandRunner},
     ports::filesystem::{FileSystem, FileSystemError},
     progress_display::{ProgressManager, ProgressStyleType},
 };
@@ -575,8 +575,8 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
 mod tests {
     use super::*;
     use crate::{
-        command::{MockCommandRunner, MockCommandRunnerExt},
         config::ConfigBuilder,
+        ports::command::{MockCommandRunner, MockCommandRunnerExt},
         ports::filesystem::{MockFileSystem, MockFileSystemExt},
         progress::{ConsoleRenderer, ProgressReporter},
     };

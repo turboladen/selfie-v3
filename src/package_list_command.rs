@@ -4,9 +4,9 @@
 use console::style;
 
 use crate::{
-    command::CommandRunner,
     config::Config,
     package_repo::{PackageRepoError, PackageRepository},
+    ports::command::CommandRunner,
     ports::filesystem::FileSystem,
     progress_display::{ProgressManager, ProgressStyleType},
 };
@@ -190,8 +190,8 @@ impl<'a, F: FileSystem, R: CommandRunner> ListCommand<'a, F, R> {
 mod tests {
     use super::*;
     use crate::{
-        command::MockCommandRunner,
         config::ConfigBuilder,
+        ports::command::MockCommandRunner,
         ports::filesystem::{MockFileSystem, MockFileSystemExt},
     };
     use std::path::Path;

@@ -3,9 +3,9 @@
 
 use crate::{
     cli::PackageSubcommands,
-    command::CommandRunner,
     config::Config,
     package_validator::{format_validation_result, PackageValidator, PackageValidatorError},
+    ports::command::CommandRunner,
     ports::filesystem::FileSystem,
     progress_display::{ProgressManager, ProgressStyleType},
 };

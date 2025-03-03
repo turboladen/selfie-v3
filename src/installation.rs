@@ -1,12 +1,12 @@
 // src/installation.rs
 
 use crate::{
-    command::CommandRunner,
     config::Config,
     domain::{
         installation::{Installation, InstallationError, InstallationStatus},
         package::Package,
     },
+    ports::command::CommandRunner,
 };
 
 pub struct InstallationManager<'a, R: CommandRunner> {
@@ -56,9 +56,9 @@ mod tests {
     use super::*;
 
     use crate::{
-        command::{CommandError, MockCommandRunner, MockCommandRunnerExt},
         config::ConfigBuilder,
         domain::{installation::Installation, package::PackageBuilder},
+        ports::command::{CommandError, MockCommandRunner, MockCommandRunnerExt},
     };
 
     fn create_test_package() -> Package {

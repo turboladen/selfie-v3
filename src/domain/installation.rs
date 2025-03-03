@@ -4,7 +4,7 @@
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
-use crate::command::{CommandError, CommandOutput, CommandRunner};
+use crate::ports::command::{CommandError, CommandOutput, CommandRunner};
 
 use super::package::{EnvironmentConfig, Package};
 
@@ -262,10 +262,10 @@ mod tests {
     use super::*;
 
     use crate::{
-        command::{MockCommandRunner, MockCommandRunnerExt},
         config::{Config, ConfigBuilder},
         domain::package::PackageBuilder,
         installation::InstallationManager,
+        ports::command::{MockCommandRunner, MockCommandRunnerExt},
     };
 
     fn create_test_package() -> Package {
