@@ -13,7 +13,7 @@ use crate::{
         installation::{InstallationError, InstallationStatus},
         package::Package,
     },
-    installation::InstallationManager,
+    installation_manager::InstallationManager,
     package_repo::PackageRepoError,
     ports::command::{CommandError, CommandOutput, CommandRunner},
     ports::filesystem::{FileSystem, FileSystemError},

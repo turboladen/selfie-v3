@@ -4,7 +4,7 @@ use selfie::{
     command::mock::MockCommandRunner,
     config::ConfigBuilder,
     filesystem::mock::MockFileSystem,
-    installation::InstallationStatus,
+    installation_manager::InstallationStatus,
     package_installer::PackageInstaller,
     progress_display::{ProgressManager, ProgressStyleType},
 };

@@ -2,7 +2,7 @@
 
 use selfie::{
     command::mock::MockCommandRunner, config::ConfigBuilder, filesystem::mock::MockFileSystem,
-    installation::InstallationStatus, package_installer::PackageInstaller,
+    installation_manager::InstallationStatus, package_installer::PackageInstaller,
 };
 
 #[test]

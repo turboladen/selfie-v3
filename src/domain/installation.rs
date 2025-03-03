@@ -264,7 +264,7 @@ mod tests {
     use crate::{
         domain::config::{Config, ConfigBuilder},
         domain::package::PackageBuilder,
-        installation::InstallationManager,
+        installation_manager::InstallationManager,
         ports::command::{MockCommandRunner, MockCommandRunnerExt},
     };
 

@@ -7,7 +7,7 @@ pub mod ports;
 
 pub mod cli;
 pub mod filesystem;
-pub mod installation;
+pub mod installation_manager;
 pub mod package;
 pub mod package_installer;
 pub mod package_list_command;
