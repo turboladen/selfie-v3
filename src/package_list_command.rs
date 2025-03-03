@@ -190,13 +190,15 @@ impl<'a, F: FileSystem, R: CommandRunner> ListCommand<'a, F, R> {
 mod tests {
     use super::*;
     use crate::{
-        command::mock::MockCommandRunner, config::ConfigBuilder, filesystem::mock::MockFileSystem,
+        command::MockCommandRunner,
+        config::ConfigBuilder,
+        ports::filesystem::{MockFileSystem, MockFileSystemExt},
     };
     use std::path::Path;
 
     #[test]
     fn test_list_empty_directory() {
-        let fs = MockFileSystem::default();
+        let mut fs = MockFileSystem::default();
         let config = ConfigBuilder::default()
             .environment("test-env")
             .package_directory("/test/packages")
@@ -218,7 +220,7 @@ mod tests {
 
     #[test]
     fn test_list_packages() {
-        let fs = MockFileSystem::default();
+        let mut fs = MockFileSystem::default();
         let config = ConfigBuilder::default()
             .environment("test-env")
             .package_directory("/test/packages")
@@ -269,7 +271,7 @@ mod tests {
 
     #[test]
     fn test_list_packages_verbose() {
-        let fs = MockFileSystem::default();
+        let mut fs = MockFileSystem::default();
         let config = ConfigBuilder::default()
             .environment("test-env")
             .package_directory("/test/packages")

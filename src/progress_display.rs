@@ -8,12 +8,12 @@ use std::{
     time::{Duration, Instant},
 };
 
-use console::{style, Color};
+use console::style;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
 use crate::{
     installation::InstallationStatus,
-    progress::{MessageRenderer, MessageType, ProgressReporter},
+    progress::{MessageType, ProgressReporter},
 };
 
 /// Represents the style of a progress element

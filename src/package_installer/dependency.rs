@@ -160,11 +160,14 @@ impl<'a, F: FileSystem> DependencyResolver<'a, F> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{config::ConfigBuilder, filesystem::mock::MockFileSystem};
+    use crate::{
+        config::ConfigBuilder,
+        ports::filesystem::{MockFileSystem, MockFileSystemExt},
+    };
     use std::path::Path;
 
     fn setup_test_environment() -> (MockFileSystem, Config) {
-        let fs = MockFileSystem::default();
+        let mut fs = MockFileSystem::default();
         let config = ConfigBuilder::default()
             .environment("test-env")
             .package_directory("/test/packages")
@@ -200,7 +203,7 @@ environments:
 
     #[test]
     fn test_resolve_simple_dependency() {
-        let (fs, config) = setup_test_environment();
+        let (mut fs, config) = setup_test_environment();
 
         // Add package and dependency to the filesystem
         let package_yaml = create_test_yaml("main-pkg", "1.0.0", &["dep-pkg"]);
@@ -222,7 +225,7 @@ environments:
 
     #[test]
     fn test_resolve_deep_dependency_chain() {
-        let (fs, config) = setup_test_environment();
+        let (mut fs, config) = setup_test_environment();
 
         // Create a chain: main -> dep1 -> dep2 -> dep3
         let main_yaml = create_test_yaml("main-pkg", "1.0.0", &["dep1"]);
@@ -252,7 +255,7 @@ environments:
 
     #[test]
     fn test_resolve_diamond_dependency() {
-        let (fs, config) = setup_test_environment();
+        let (mut fs, config) = setup_test_environment();
 
         // Create a diamond: main -> (dep1, dep2) -> common-dep
         let main_yaml = create_test_yaml("main-pkg", "1.0.0", &["dep1", "dep2"]);
@@ -284,7 +287,7 @@ environments:
 
     #[test]
     fn test_detect_circular_dependency() {
-        let (fs, config) = setup_test_environment();
+        let (mut fs, config) = setup_test_environment();
 
         // Create a circular dependency: main -> dep1 -> main
         let main_yaml = create_test_yaml("main-pkg", "1.0.0", &["dep1"]);
@@ -314,7 +317,7 @@ environments:
 
     #[test]
     fn test_dependency_not_found() {
-        let (fs, config) = setup_test_environment();
+        let (mut fs, config) = setup_test_environment();
 
         // Create a package with a non-existent dependency
         let main_yaml = create_test_yaml("main-pkg", "1.0.0", &["missing-dep"]);
@@ -335,7 +338,7 @@ environments:
 
     #[test]
     fn test_environment_not_supported() {
-        let (fs, config) = setup_test_environment();
+        let (mut fs, config) = setup_test_environment();
 
         // Create a package with a dependency that doesn't support the current environment
         let main_yaml = create_test_yaml("main-pkg", "1.0.0", &["dep1"]);

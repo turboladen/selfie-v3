@@ -135,11 +135,11 @@ impl<'a, F: FileSystem> PackageRepository<'a, F> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::filesystem::mock::MockFileSystem;
+    use crate::ports::filesystem::{MockFileSystem, MockFileSystemExt};
 
     #[test]
     fn test_get_package_success() {
-        let fs = MockFileSystem::default();
+        let mut fs = MockFileSystem::default();
         let package_dir = PathBuf::from("/test/packages");
 
         // Create mock package file
@@ -165,7 +165,7 @@ mod tests {
 
     #[test]
     fn test_get_package_not_found() {
-        let fs = MockFileSystem::default();
+        let mut fs = MockFileSystem::default();
         let package_dir = PathBuf::from("/test/packages");
 
         fs.add_existing_path(&package_dir);
@@ -192,7 +192,7 @@ mod tests {
 
     #[test]
     fn test_get_package_multiple_found() {
-        let fs = MockFileSystem::default();
+        let mut fs = MockFileSystem::default();
         let package_dir = PathBuf::from("/test/packages");
 
         // Create multiple mock package files with the same name
@@ -222,7 +222,7 @@ mod tests {
 
     #[test]
     fn test_find_package_files() {
-        let fs = MockFileSystem::default();
+        let mut fs = MockFileSystem::default();
         let package_dir = PathBuf::from("/test/packages");
 
         // Create mock package files
@@ -252,7 +252,7 @@ mod tests {
 
     #[test]
     fn test_list_packages() {
-        let fs = MockFileSystem::default();
+        let mut fs = MockFileSystem::default();
         let package_dir = PathBuf::from("/test/packages");
         fs.add_existing_path(&package_dir);
 
@@ -298,7 +298,7 @@ mod tests {
 
     #[test]
     fn test_list_yaml_files() {
-        let fs = MockFileSystem::default();
+        let mut fs = MockFileSystem::default();
         let dir = PathBuf::from("/test/dir");
         fs.add_existing_path(&dir);
 

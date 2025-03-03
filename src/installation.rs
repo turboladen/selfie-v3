@@ -153,13 +153,13 @@ impl PackageInstallation {
     }
 }
 
-pub struct InstallationManager<R: CommandRunner> {
-    pub runner: R,
-    pub config: Config,
+pub struct InstallationManager<'a, R: CommandRunner> {
+    pub runner: &'a R,
+    pub config: &'a Config,
 }
 
-impl<R: CommandRunner> InstallationManager<R> {
-    pub fn new(runner: R, config: Config) -> Self {
+impl<'a, R: CommandRunner> InstallationManager<'a, R> {
+    pub fn new(runner: &'a R, config: &'a Config) -> Self {
         Self { runner, config }
     }
 
@@ -184,14 +184,14 @@ impl<R: CommandRunner> InstallationManager<R> {
         installation.start();
 
         // Check if already installed
-        let already_installed = installation.execute_check(&self.runner)?;
+        let already_installed = installation.execute_check(self.runner)?;
         if already_installed {
             installation.complete(InstallationStatus::AlreadyInstalled);
             return Ok(installation);
         }
 
         // Execute installation
-        installation.execute_install(&self.runner)?;
+        installation.execute_install(self.runner)?;
         installation.complete(InstallationStatus::Complete);
 
         Ok(installation)
@@ -203,7 +203,9 @@ mod tests {
     use super::*;
 
     use crate::{
-        command::mock::MockCommandRunner, config::ConfigBuilder, domain::package::PackageBuilder,
+        command::{MockCommandRunner, MockCommandRunnerExt},
+        config::ConfigBuilder,
+        domain::package::PackageBuilder,
     };
 
     fn create_test_package() -> Package {
@@ -281,7 +283,7 @@ mod tests {
         let env_config = package.environments.get("test-env").unwrap().clone();
         let mut installation = PackageInstallation::new(package, "test-env", env_config);
 
-        let runner = MockCommandRunner::new();
+        let mut runner = MockCommandRunner::new();
         runner.success_response("test check", "Package found");
 
         let result = installation.execute_check(&runner);
@@ -296,7 +298,7 @@ mod tests {
         let env_config = package.environments.get("test-env").unwrap().clone();
         let mut installation = PackageInstallation::new(package, "test-env", env_config);
 
-        let runner = MockCommandRunner::new();
+        let mut runner = MockCommandRunner::new();
         runner.error_response("test check", "Not found", 1);
 
         let result = installation.execute_check(&runner);
@@ -311,7 +313,7 @@ mod tests {
         let env_config = package.environments.get("test-env").unwrap().clone();
         let mut installation = PackageInstallation::new(package, "test-env", env_config);
 
-        let runner = MockCommandRunner::new();
+        let mut runner = MockCommandRunner::new();
         runner.add_response(
             "test check",
             Err(CommandError::ExecutionError("Command failed".to_string())),
@@ -331,7 +333,7 @@ mod tests {
         let env_config = package.environments.get("test-env").unwrap().clone();
         let mut installation = PackageInstallation::new(package, "test-env", env_config);
 
-        let runner = MockCommandRunner::new();
+        let mut runner = MockCommandRunner::new();
         runner.success_response("test install", "Installed successfully");
 
         let result = installation.execute_install(&runner);
@@ -345,7 +347,7 @@ mod tests {
         let env_config = package.environments.get("test-env").unwrap().clone();
         let mut installation = PackageInstallation::new(package, "test-env", env_config);
 
-        let runner = MockCommandRunner::new();
+        let mut runner = MockCommandRunner::new();
         runner.error_response("test install", "Installation failed", 1);
 
         let result = installation.execute_install(&runner);
@@ -359,7 +361,7 @@ mod tests {
         let env_config = package.environments.get("test-env").unwrap().clone();
         let mut installation = PackageInstallation::new(package, "test-env", env_config);
 
-        let runner = MockCommandRunner::new();
+        let mut runner = MockCommandRunner::new();
         runner.add_response(
             "test install",
             Err(CommandError::ExecutionError("Command failed".to_string())),
@@ -375,11 +377,11 @@ mod tests {
         let package = create_test_package();
         let config = create_test_config();
 
-        let runner = MockCommandRunner::new();
+        let mut runner = MockCommandRunner::new();
         runner.error_response("test check", "Not found", 1); // Not installed
         runner.success_response("test install", "Installed successfully");
 
-        let manager = InstallationManager::new(runner, config);
+        let manager = InstallationManager::new(&runner, &config);
         let result = manager.install_package(package);
 
         assert!(result.is_ok());
@@ -392,10 +394,10 @@ mod tests {
         let package = create_test_package();
         let config = create_test_config();
 
-        let runner = MockCommandRunner::new();
+        let mut runner = MockCommandRunner::new();
         runner.success_response("test check", "Found"); // Already installed
 
-        let manager = InstallationManager::new(runner, config);
+        let manager = InstallationManager::new(&runner, &config);
         let result = manager.install_package(package);
 
         assert!(result.is_ok());
@@ -408,11 +410,11 @@ mod tests {
         let package = create_test_package();
         let config = create_test_config();
 
-        let runner = MockCommandRunner::new();
+        let mut runner = MockCommandRunner::new();
         runner.error_response("test check", "Not found", 1); // Not installed
         runner.error_response("test install", "Installation failed", 1);
 
-        let manager = InstallationManager::new(runner, config);
+        let manager = InstallationManager::new(&runner, &config);
         let result = manager.install_package(package);
 
         assert!(result.is_err());
@@ -427,7 +429,7 @@ mod tests {
             .build();
 
         let runner = MockCommandRunner::new();
-        let manager = InstallationManager::new(runner, config);
+        let manager = InstallationManager::new(&runner, &config);
         let result = manager.install_package(package);
 
         assert!(result.is_err());

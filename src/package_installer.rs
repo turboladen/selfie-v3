@@ -142,19 +142,19 @@ impl InstallationResult {
     }
 }
 
-pub struct PackageInstaller<F: FileSystem, R: CommandRunner + Clone> {
-    fs: F,
-    runner: R,
-    config: Config,
+pub struct PackageInstaller<'a, F: FileSystem, R: CommandRunner> {
+    fs: &'a F,
+    runner: &'a R,
+    config: &'a Config,
     progress_manager: ProgressManager,
     verbose: bool,
 }
 
-impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
+impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
     pub fn new(
-        fs: F,
-        runner: R,
-        config: Config,
+        fs: &'a F,
+        runner: &'a R,
+        config: &'a Config,
         verbose: bool,
         use_colors: bool,
         use_unicode: bool,
@@ -402,8 +402,7 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
         progress_bar.set_message(install_message);
 
         // Create installation manager
-        let installation_manager =
-            InstallationManager::new(self.runner.clone(), self.config.clone());
+        let installation_manager = InstallationManager::new(self.runner, self.config);
 
         // Update progress status to checking
         self.progress_manager
@@ -515,15 +514,13 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
                 summary_pb.println(format!("Dependencies: {:.1?}", dep_duration));
                 summary_pb.println(format!("Package: {:.1?}", package_duration));
             }
+        } else if self.progress_manager.use_colors() {
+            summary_pb.println(format!(
+                "Total time: {}",
+                style(format!("{:.1?}", total_duration)).cyan()
+            ));
         } else {
-            if self.progress_manager.use_colors() {
-                summary_pb.println(format!(
-                    "Total time: {}",
-                    style(format!("{:.1?}", total_duration)).cyan()
-                ));
-            } else {
-                summary_pb.println(format!("Total time: {:.1?}", total_duration));
-            }
+            summary_pb.println(format!("Total time: {:.1?}", total_duration));
         }
 
         // Special handling for already installed packages
@@ -575,9 +572,9 @@ impl<F: FileSystem, R: CommandRunner + Clone> PackageInstaller<F, R> {
 mod tests {
     use super::*;
     use crate::{
-        command::mock::MockCommandRunner,
+        command::{MockCommandRunner, MockCommandRunnerExt},
         config::ConfigBuilder,
-        filesystem::mock::MockFileSystem,
+        ports::filesystem::{MockFileSystem, MockFileSystemExt},
         progress::{ConsoleRenderer, ProgressReporter},
     };
 
@@ -598,7 +595,7 @@ mod tests {
 
     #[test]
     fn test_install_package_success() {
-        let (fs, runner, _, config) = create_test_environment();
+        let (mut fs, mut runner, _, config) = create_test_environment();
 
         // Set up the package file
         let package_yaml = r#"
@@ -621,7 +618,7 @@ mod tests {
         runner.success_response("test install", "Installed successfully");
 
         // Create the installer
-        let installer = PackageInstaller::new(fs, runner, config, false, false, false);
+        let installer = PackageInstaller::new(&fs, &runner, &config, false, false, false);
 
         // Run the installation
         let result = installer.install_package("ripgrep");
@@ -635,7 +632,7 @@ mod tests {
 
     #[test]
     fn test_install_package_already_installed() {
-        let (fs, runner, _, config) = create_test_environment();
+        let (mut fs, mut runner, _, config) = create_test_environment();
 
         // Set up the package file
         let package_yaml = r#"
@@ -657,7 +654,7 @@ mod tests {
         runner.success_response("test check", "Found"); // Already installed
 
         // Create the installer
-        let installer = PackageInstaller::new(fs, runner, config, false, false, false);
+        let installer = PackageInstaller::new(&fs, &runner, &config, false, false, false);
 
         // Run the installation
         let result = installer.install_package("ripgrep");
@@ -671,7 +668,7 @@ mod tests {
 
     #[test]
     fn test_install_package_with_dependencies() {
-        let (fs, runner, _, config) = create_test_environment();
+        let (mut fs, mut runner, _, config) = create_test_environment();
 
         // Set up the main package file with dependencies
         let package_yaml = r#"
@@ -712,7 +709,7 @@ mod tests {
         runner.success_response("rust install", "Installed successfully");
 
         // Create the installer
-        let installer = PackageInstaller::new(fs, runner, config, false, false, false);
+        let installer = PackageInstaller::new(&fs, &runner, &config, false, false, false);
 
         // Run the installation
         let result = installer.install_package("ripgrep");
@@ -732,7 +729,7 @@ mod tests {
 
     #[test]
     fn test_install_package_with_failing_dependency() {
-        let (fs, runner, _, config) = create_test_environment();
+        let (mut fs, mut runner, _, config) = create_test_environment();
 
         // Set up the main package file with dependencies
         let package_yaml = r#"
@@ -771,7 +768,7 @@ mod tests {
         runner.error_response("rust install", "Installation failed", 1); // Installation fails
 
         // Create the installer
-        let installer = PackageInstaller::new(fs, runner, config, false, false, false);
+        let installer = PackageInstaller::new(&fs, &runner, &config, false, false, false);
 
         // Run the installation
         let result = installer.install_package("ripgrep");
@@ -786,7 +783,7 @@ mod tests {
 
     #[test]
     fn test_complex_dependency_chain() {
-        let (fs, runner, _, config) = create_test_environment();
+        let (mut fs, mut runner, _, config) = create_test_environment();
 
         // Set up package files with a dependency chain: main-pkg -> dep1 -> dep2
         let main_pkg_yaml = r#"
@@ -837,7 +834,7 @@ mod tests {
         runner.success_response("dep2-install", "Installed successfully");
 
         // Create the installer
-        let installer = PackageInstaller::new(fs, runner, config, false, false, false);
+        let installer = PackageInstaller::new(&fs, &runner, &config, false, false, false);
 
         // Run the installation
         let result = installer.install_package("main-pkg");

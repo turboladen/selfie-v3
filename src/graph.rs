@@ -279,10 +279,10 @@ impl DependencyGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::package::PackageNodeBuilder;
+    use crate::domain::package::PackageBuilder;
 
     fn create_test_package(name: &str) -> Package {
-        PackageNodeBuilder::default()
+        PackageBuilder::default()
             .name(name)
             .version("1.0.0")
             .environment("test-env", "test install")
@@ -313,7 +313,7 @@ mod tests {
         let package1 = create_test_package("test-package");
 
         // Create a slightly different version
-        let package2 = PackageNodeBuilder::default()
+        let package2 = PackageBuilder::default()
             .name("test-package")
             .version("1.1.0") // Different version
             .environment("test-env", "test install")

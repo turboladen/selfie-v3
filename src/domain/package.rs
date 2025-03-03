@@ -253,8 +253,6 @@ impl PackageBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::filesystem::mock::MockFileSystem;
-    use std::path::Path;
 
     #[test]
     fn test_create_package_node() {

@@ -865,12 +865,12 @@ pub fn format_validation_result(
 mod tests {
     use super::*;
     use crate::config::ConfigBuilder;
-    use crate::filesystem::mock::MockFileSystem;
+    use crate::ports::filesystem::{MockFileSystem, MockFileSystemExt};
     use std::path::Path;
 
     // Helper function to create a test environment
     fn setup_test_environment() -> (MockFileSystem, Config) {
-        let fs = MockFileSystem::default();
+        let mut fs = MockFileSystem::default();
         let config = ConfigBuilder::default()
             .environment("test-env")
             .package_directory("/test/packages")
@@ -904,7 +904,7 @@ environments:
 
     #[test]
     fn test_validate_valid_package() {
-        let (fs, config) = setup_test_environment();
+        let (mut fs, config) = setup_test_environment();
 
         // Add a valid package file
         let yaml = create_valid_package_yaml();
@@ -919,7 +919,7 @@ environments:
 
     #[test]
     fn test_validate_missing_required_fields() {
-        let (fs, config) = setup_test_environment();
+        let (mut fs, config) = setup_test_environment();
 
         // Add an invalid package file with missing fields
         // Using valid YAML with empty fields rather than missing fields
@@ -954,7 +954,7 @@ environments:
 
     #[test]
     fn test_validate_invalid_url() {
-        let (fs, config) = setup_test_environment();
+        let (mut fs, config) = setup_test_environment();
 
         // Add a package with invalid URL
         let yaml = r#"
@@ -980,7 +980,7 @@ environments:
 
     #[test]
     fn test_validate_command_syntax() {
-        let (fs, config) = setup_test_environment();
+        let (mut fs, config) = setup_test_environment();
 
         // Add a package with command syntax errors
         let yaml = r#"
@@ -1013,7 +1013,7 @@ environments:
 
     #[test]
     fn test_validate_version_format() {
-        let (fs, config) = setup_test_environment();
+        let (mut fs, config) = setup_test_environment();
 
         // Add a package with non-semver version
         let yaml = r#"
@@ -1039,7 +1039,7 @@ environments:
 
     #[test]
     fn test_validate_missing_environment() {
-        let (fs, config) = setup_test_environment();
+        let (mut fs, config) = setup_test_environment();
 
         // Add a package without the current environment
         let yaml = r#"
@@ -1110,7 +1110,7 @@ environments:
 
     #[test]
     fn test_multiple_packages_found() {
-        let (fs, config) = setup_test_environment();
+        let (mut fs, config) = setup_test_environment();
 
         // Add two files for the same package
         let yaml = create_valid_package_yaml();
