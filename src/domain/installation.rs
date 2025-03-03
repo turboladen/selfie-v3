@@ -264,8 +264,8 @@ mod tests {
     use crate::{
         domain::config::{Config, ConfigBuilder},
         domain::package::PackageBuilder,
-        installation_manager::InstallationManager,
         ports::command::{MockCommandRunner, MockCommandRunnerExt},
+        services::package_installation_service::PackageInstallationService,
     };
 
     fn create_test_package() -> Package {
@@ -441,7 +441,7 @@ mod tests {
         runner.error_response("test check", "Not found", 1); // Not installed
         runner.success_response("test install", "Installed successfully");
 
-        let manager = InstallationManager::new(&runner, &config);
+        let manager = PackageInstallationService::new(&runner, &config);
         let result = manager.install_package(package);
 
         assert!(result.is_ok());
@@ -457,7 +457,7 @@ mod tests {
         let mut runner = MockCommandRunner::new();
         runner.success_response("test check", "Found"); // Already installed
 
-        let manager = InstallationManager::new(&runner, &config);
+        let manager = PackageInstallationService::new(&runner, &config);
         let result = manager.install_package(package);
 
         assert!(result.is_ok());
@@ -474,7 +474,7 @@ mod tests {
         runner.error_response("test check", "Not found", 1); // Not installed
         runner.error_response("test install", "Installation failed", 1);
 
-        let manager = InstallationManager::new(&runner, &config);
+        let manager = PackageInstallationService::new(&runner, &config);
         let result = manager.install_package(package);
 
         assert!(result.is_err());
@@ -489,7 +489,7 @@ mod tests {
             .build();
 
         let runner = MockCommandRunner::new();
-        let manager = InstallationManager::new(&runner, &config);
+        let manager = PackageInstallationService::new(&runner, &config);
         let result = manager.install_package(package);
 
         assert!(result.is_err());

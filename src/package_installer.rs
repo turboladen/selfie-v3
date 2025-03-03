@@ -14,13 +14,13 @@ use crate::{
         installation::{InstallationError, InstallationStatus},
         package::Package,
     },
-    installation_manager::InstallationManager,
     ports::{
         command::{CommandError, CommandOutput, CommandRunner},
         filesystem::{FileSystem, FileSystemError},
         package_repo::PackageRepoError,
     },
     progress_display::{ProgressManager, ProgressStyleType},
+    services::package_installation_service::PackageInstallationService,
 };
 
 use self::dependency::{DependencyResolver, DependencyResolverError};
@@ -410,7 +410,7 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
         progress_bar.set_message(install_message);
 
         // Create installation manager
-        let installation_manager = InstallationManager::new(self.runner, self.config);
+        let installation_manager = PackageInstallationService::new(self.runner, self.config);
 
         // Update progress status to checking
         self.progress_manager

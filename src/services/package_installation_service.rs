@@ -1,4 +1,4 @@
-// src/installation.rs
+// src/sercies/package_installation_service.rs
 
 use crate::{
     domain::config::Config,
@@ -9,12 +9,12 @@ use crate::{
     ports::command::CommandRunner,
 };
 
-pub struct InstallationManager<'a, R: CommandRunner> {
+pub struct PackageInstallationService<'a, R: CommandRunner> {
     pub runner: &'a R,
     pub config: &'a Config,
 }
 
-impl<'a, R: CommandRunner> InstallationManager<'a, R> {
+impl<'a, R: CommandRunner> PackageInstallationService<'a, R> {
     pub fn new(runner: &'a R, config: &'a Config) -> Self {
         Self { runner, config }
     }
@@ -234,7 +234,7 @@ mod tests {
         runner.error_response("test check", "Not found", 1); // Not installed
         runner.success_response("test install", "Installed successfully");
 
-        let manager = InstallationManager::new(&runner, &config);
+        let manager = PackageInstallationService::new(&runner, &config);
         let result = manager.install_package(package);
 
         assert!(result.is_ok());
@@ -250,7 +250,7 @@ mod tests {
         let mut runner = MockCommandRunner::new();
         runner.success_response("test check", "Found"); // Already installed
 
-        let manager = InstallationManager::new(&runner, &config);
+        let manager = PackageInstallationService::new(&runner, &config);
         let result = manager.install_package(package);
 
         assert!(result.is_ok());
@@ -267,7 +267,7 @@ mod tests {
         runner.error_response("test check", "Not found", 1); // Not installed
         runner.error_response("test install", "Installation failed", 1);
 
-        let manager = InstallationManager::new(&runner, &config);
+        let manager = PackageInstallationService::new(&runner, &config);
         let result = manager.install_package(package);
 
         assert!(result.is_err());
@@ -282,7 +282,7 @@ mod tests {
             .build();
 
         let runner = MockCommandRunner::new();
-        let manager = InstallationManager::new(&runner, &config);
+        let manager = PackageInstallationService::new(&runner, &config);
         let result = manager.install_package(package);
 
         assert!(result.is_err());
