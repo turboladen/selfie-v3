@@ -138,7 +138,7 @@ impl<'a, R: CommandRunner> CommandValidator<'a, R> {
     }
 
     /// Extract the base command from a command string
-    fn extract_base_command(command: &str) -> Option<&str> {
+    pub(crate) fn extract_base_command(command: &str) -> Option<&str> {
         // Simple extraction of the first word before a space, pipe, etc.
         command.split_whitespace().next()
     }

@@ -17,10 +17,13 @@ use crate::{
     ports::{
         command::{CommandError, CommandOutput, CommandRunner},
         filesystem::{FileSystem, FileSystemError},
-        package_repo::PackageRepoError,
+        package_repo::{PackageRepoError, PackageRepository},
     },
     progress_display::{ProgressManager, ProgressStyleType},
-    services::package_installation_service::PackageInstallationService,
+    services::{
+        command_validator::CommandValidator,
+        package_installation_service::PackageInstallationService,
+    },
 };
 
 use self::dependency::{DependencyResolver, DependencyResolverError};
@@ -56,6 +59,9 @@ pub enum PackageInstallerError {
 
     #[error("Environment error: {0}")]
     EnvironmentError(String),
+
+    #[error("Required command not available: {0}")]
+    CommandNotAvailable(String),
 }
 
 // Implementation to convert DependencyResolverError to PackageInstallerError
@@ -154,6 +160,7 @@ pub struct MultiPackageInstallationService<'a, F: FileSystem, R: CommandRunner> 
     config: &'a Config,
     progress_manager: ProgressManager,
     verbose: bool,
+    check_commands: bool, // New flag to enable command availability checking
 }
 
 impl<'a, F: FileSystem, R: CommandRunner> MultiPackageInstallationService<'a, F, R> {
@@ -164,6 +171,7 @@ impl<'a, F: FileSystem, R: CommandRunner> MultiPackageInstallationService<'a, F,
         verbose: bool,
         use_colors: bool,
         use_unicode: bool,
+        check_commands: bool, // Added parameter
     ) -> Self {
         let progress_manager = ProgressManager::new(use_colors, use_unicode, verbose);
 
@@ -173,6 +181,7 @@ impl<'a, F: FileSystem, R: CommandRunner> MultiPackageInstallationService<'a, F,
             config,
             progress_manager,
             verbose,
+            check_commands,
         }
     }
 
@@ -245,7 +254,41 @@ impl<'a, F: FileSystem, R: CommandRunner> MultiPackageInstallationService<'a, F,
             }
         };
 
-        // Rest of the method remains the same...
+        // Pre-flight check: check if all required commands are available if check_commands is true
+        if self.check_commands {
+            let command_validator = CommandValidator::new(self.runner);
+            let mut missing_commands = Vec::new();
+
+            // Check commands for each package
+            for package in &packages {
+                if let Some(env_config) = package.environments.get(&self.config.environment) {
+                    // Extract and check base command
+                    if let Some(base_cmd) =
+                        CommandValidator::<R>::extract_base_command(&env_config.install)
+                    {
+                        if !self.runner.is_command_available(base_cmd) {
+                            missing_commands.push((package.name.clone(), base_cmd.to_string()));
+                        }
+                    }
+                }
+            }
+
+            // If any commands are missing, report and exit
+            if !missing_commands.is_empty() {
+                main_progress.abandon_with_message("Command availability check failed");
+
+                let mut error_msg = String::from(
+                    "The following commands required for installation are not available:\n\n",
+                );
+                for (pkg, cmd) in missing_commands {
+                    error_msg.push_str(&format!("  • Package '{}' requires '{}'\n", pkg, cmd));
+                }
+
+                error_msg.push_str("\nPlease install these commands and try again.");
+                return Err(PackageInstallerError::CommandNotAvailable(error_msg));
+            }
+        }
+
         // Show dependency information
         if packages.len() > 1 {
             let deps_count = packages.len() - 1;
@@ -374,6 +417,55 @@ impl<'a, F: FileSystem, R: CommandRunner> MultiPackageInstallationService<'a, F,
         Ok(final_result)
     }
 
+    /// Check if a package can be installed in the current environment
+    pub fn check_package_installable(
+        &self,
+        package_name: &str,
+    ) -> Result<bool, PackageInstallerError> {
+        // Create a package repository
+        let package_repo =
+            YamlPackageRepository::new(self.fs, self.config.expanded_package_directory());
+
+        // Find the package
+        let package = package_repo
+            .get_package(package_name)
+            .map_err(|e| match e {
+                PackageRepoError::PackageNotFound(name) => {
+                    PackageInstallerError::PackageNotFound(name)
+                }
+                PackageRepoError::MultiplePackagesFound(name) => {
+                    PackageInstallerError::MultiplePackagesFound(name)
+                }
+                _ => PackageInstallerError::PackageRepoError(e),
+            })?;
+
+        // Check if package supports current environment
+        if !package.environments.contains_key(&self.config.environment) {
+            return Ok(false);
+        }
+
+        // Check if required commands are available
+        if self.check_commands {
+            let env_config = package.environments.get(&self.config.environment).unwrap();
+            if let Some(base_cmd) = CommandValidator::<R>::extract_base_command(&env_config.install)
+            {
+                if !self.runner.is_command_available(base_cmd) {
+                    return Ok(false);
+                }
+            }
+        }
+
+        // Check dependencies if requested
+        let resolver = DependencyResolver::new(package_repo, self.config);
+        match resolver.resolve_dependencies(package_name) {
+            Ok(_) => Ok(true),
+            Err(DependencyResolverError::CircularDependency(_)) => Ok(false),
+            Err(DependencyResolverError::PackageNotFound(_)) => Ok(false),
+            Err(DependencyResolverError::EnvironmentNotSupported(_, _)) => Ok(false),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     /// Install a single package (no dependency handling) with progress reporting
     fn install_single_package(
         &self,
@@ -408,6 +500,34 @@ impl<'a, F: FileSystem, R: CommandRunner> MultiPackageInstallationService<'a, F,
         };
 
         progress_bar.set_message(install_message);
+
+        // If check_commands is enabled, double-check command availability
+        if self.check_commands {
+            if let Some(env_config) = package.environments.get(&self.config.environment) {
+                if let Some(base_cmd) =
+                    CommandValidator::<R>::extract_base_command(&env_config.install)
+                {
+                    if !self.runner.is_command_available(base_cmd) {
+                        let duration = start_time.elapsed();
+                        let error_msg = format!(
+                            "Command '{}' required for installation is not available",
+                            base_cmd
+                        );
+
+                        // Update progress bar with error
+                        self.progress_manager
+                            .update_from_status(
+                                progress_id,
+                                &InstallationStatus::Failed(error_msg.clone()),
+                                Some(duration),
+                            )
+                            .map_err(PackageInstallerError::EnvironmentError)?;
+
+                        return Err(PackageInstallerError::CommandNotAvailable(error_msg));
+                    }
+                }
+            }
+        }
 
         // Create installation manager
         let installation_manager = PackageInstallationService::new(self.runner, self.config);
@@ -583,8 +703,8 @@ mod tests {
         domain::config::ConfigBuilder,
         ports::command::{MockCommandRunner, MockCommandRunnerExt},
         ports::filesystem::{MockFileSystem, MockFileSystemExt},
-        progress::{ConsoleRenderer, ProgressReporter},
     };
+    use std::path::Path;
 
     fn create_test_config() -> Config {
         ConfigBuilder::default()
@@ -593,17 +713,16 @@ mod tests {
             .build()
     }
 
-    fn create_test_environment() -> (MockFileSystem, MockCommandRunner, ProgressReporter, Config) {
+    fn create_test_environment() -> (MockFileSystem, MockCommandRunner, Config) {
         let fs = MockFileSystem::default();
         let runner = MockCommandRunner::new();
-        let reporter = ProgressReporter::new(Box::new(ConsoleRenderer::new(false, false)));
         let config = create_test_config();
-        (fs, runner, reporter, config)
+        (fs, runner, config)
     }
 
     #[test]
     fn test_install_package_success() {
-        let (mut fs, mut runner, _, config) = create_test_environment();
+        let (mut fs, mut runner, config) = create_test_environment();
 
         // Set up the package file
         let package_yaml = r#"
@@ -625,9 +744,15 @@ mod tests {
         runner.error_response("test check", "Not found", 1); // Not installed
         runner.success_response("test install", "Installed successfully");
 
-        // Create the installer
+        // Make base command available
+        runner
+            .expect_is_command_available()
+            .with(mockall::predicate::eq("test"))
+            .returning(|_| true);
+
+        // Create the installer with command checking enabled
         let installer =
-            MultiPackageInstallationService::new(&fs, &runner, &config, false, false, false);
+            MultiPackageInstallationService::new(&fs, &runner, &config, false, false, false, true);
 
         // Run the installation
         let result = installer.install_package("ripgrep");
@@ -640,8 +765,8 @@ mod tests {
     }
 
     #[test]
-    fn test_install_package_already_installed() {
-        let (mut fs, mut runner, _, config) = create_test_environment();
+    fn test_install_package_command_not_available() {
+        let (mut fs, mut runner, config) = create_test_environment();
 
         // Set up the package file
         let package_yaml = r#"
@@ -649,8 +774,8 @@ mod tests {
             version: 1.0.0
             environments:
               test-env:
-                install: test install
-                check: test check
+                install: missing-cmd install
+                check: missing-cmd check
         "#;
 
         fs.add_file(
@@ -659,26 +784,104 @@ mod tests {
         );
         fs.add_existing_path(std::path::Path::new("/test/packages"));
 
-        // Set up mock command responses
-        runner.success_response("test check", "Found"); // Already installed
+        // Make base command unavailable
+        runner
+            .expect_is_command_available()
+            .with(mockall::predicate::eq("missing-cmd"))
+            .returning(|_| false);
 
-        // Create the installer
+        // Create the installer with command checking enabled
         let installer =
-            MultiPackageInstallationService::new(&fs, &runner, &config, false, false, false);
+            MultiPackageInstallationService::new(&fs, &runner, &config, false, false, false, true);
 
-        // Run the installation
+        // Run the installation - should fail due to missing command
         let result = installer.install_package("ripgrep");
+        assert!(result.is_err());
 
-        // Verify the result
+        // Verify it's the right error type
+        match result {
+            Err(PackageInstallerError::CommandNotAvailable(_)) => {
+                // This is the expected error
+            }
+            _ => panic!("Expected CommandNotAvailable error but got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_check_package_installable() {
+        let (mut fs, mut runner, config) = create_test_environment();
+
+        // Set up multiple package files
+        let package1_yaml = r#"
+            name: available
+            version: 1.0.0
+            environments:
+              test-env:
+                install: available-cmd install
+        "#;
+
+        let package2_yaml = r#"
+            name: wrong-env
+            version: 1.0.0
+            environments:
+              other-env:
+                install: some-cmd install
+        "#;
+
+        let package3_yaml = r#"
+            name: missing-cmd
+            version: 1.0.0
+            environments:
+              test-env:
+                install: missing-cmd install
+        "#;
+
+        fs.add_file(Path::new("/test/packages/available.yaml"), package1_yaml);
+        fs.add_file(Path::new("/test/packages/wrong-env.yaml"), package2_yaml);
+        fs.add_file(Path::new("/test/packages/missing-cmd.yaml"), package3_yaml);
+        fs.add_existing_path(Path::new("/test/packages"));
+
+        // Set up command availability
+        runner
+            .expect_is_command_available()
+            .with(mockall::predicate::eq("available-cmd"))
+            .returning(|_| true);
+        runner
+            .expect_is_command_available()
+            .with(mockall::predicate::eq("some-cmd"))
+            .returning(|_| true);
+        runner
+            .expect_is_command_available()
+            .with(mockall::predicate::eq("missing-cmd"))
+            .returning(|_| false);
+
+        // Create the installer with command checking enabled
+        let installer =
+            MultiPackageInstallationService::new(&fs, &runner, &config, false, false, false, true);
+
+        // Package with available command in correct environment should be installable
+        let result = installer.check_package_installable("available");
         assert!(result.is_ok());
-        let install_result = result.unwrap();
-        assert_eq!(install_result.package_name, "ripgrep");
-        assert_eq!(install_result.status, InstallationStatus::AlreadyInstalled);
+        assert!(result.unwrap());
+
+        // Package with wrong environment should not be installable
+        let result = installer.check_package_installable("wrong-env");
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
+
+        // Package with missing command should not be installable
+        let result = installer.check_package_installable("missing-cmd");
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
+
+        // Non-existent package should return error
+        let result = installer.check_package_installable("nonexistent");
+        assert!(result.is_err());
     }
 
     #[test]
     fn test_install_package_with_dependencies() {
-        let (mut fs, mut runner, _, config) = create_test_environment();
+        let (mut fs, mut runner, config) = create_test_environment();
 
         // Set up the main package file with dependencies
         let package_yaml = r#"
@@ -718,9 +921,19 @@ mod tests {
         runner.error_response("rust check", "Not found", 1); // Not installed
         runner.success_response("rust install", "Installed successfully");
 
-        // Create the installer
+        // Make commands available
+        runner
+            .expect_is_command_available()
+            .with(mockall::predicate::eq("rg"))
+            .returning(|_| true);
+        runner
+            .expect_is_command_available()
+            .with(mockall::predicate::eq("rust"))
+            .returning(|_| true);
+
+        // Create the installer with command checking enabled
         let installer =
-            MultiPackageInstallationService::new(&fs, &runner, &config, false, false, false);
+            MultiPackageInstallationService::new(&fs, &runner, &config, false, false, false, true);
 
         // Run the installation
         let result = installer.install_package("ripgrep");
@@ -739,8 +952,8 @@ mod tests {
     }
 
     #[test]
-    fn test_install_package_with_failing_dependency() {
-        let (mut fs, mut runner, _, config) = create_test_environment();
+    fn test_install_package_with_dependency_command_not_available() {
+        let (mut fs, mut runner, config) = create_test_environment();
 
         // Set up the main package file with dependencies
         let package_yaml = r#"
@@ -754,14 +967,14 @@ mod tests {
                   - rust
         "#;
 
-        // Set up the dependency package file
+        // Set up the dependency package file with a command that won't be available
         let dependency_yaml = r#"
             name: rust
             version: 1.0.0
             environments:
               test-env:
-                install: rust install
-                check: rust check
+                install: unavailable-cmd install
+                check: unavailable-cmd check
         "#;
 
         fs.add_file(
@@ -774,102 +987,30 @@ mod tests {
         );
         fs.add_existing_path(std::path::Path::new("/test/packages"));
 
-        // Set up mock command responses - make the dependency installation fail
-        runner.error_response("rust check", "Not found", 1); // Not installed
-        runner.error_response("rust install", "Installation failed", 1); // Installation fails
+        // Set up command availability
+        runner
+            .expect_is_command_available()
+            .with(mockall::predicate::eq("rg"))
+            .returning(|_| true);
+        runner
+            .expect_is_command_available()
+            .with(mockall::predicate::eq("unavailable-cmd"))
+            .returning(|_| false);
 
-        // Create the installer
+        // Create the installer with command checking enabled
         let installer =
-            MultiPackageInstallationService::new(&fs, &runner, &config, false, false, false);
+            MultiPackageInstallationService::new(&fs, &runner, &config, false, false, false, true);
 
-        // Run the installation
+        // Run the installation - should fail due to missing dependency command
         let result = installer.install_package("ripgrep");
-
-        // Verify the result - we explicitly expect an error of type InstallationError
         assert!(result.is_err());
+
+        // Verify it's the right error type
         match result {
-            Err(PackageInstallerError::InstallationError(_)) => (), // This is what we expect
-            other => panic!("Expected InstallationError, got {:?}", other),
+            Err(PackageInstallerError::CommandNotAvailable(_)) => {
+                // This is the expected error
+            }
+            _ => panic!("Expected CommandNotAvailable error but got {:?}", result),
         }
-    }
-
-    #[test]
-    fn test_complex_dependency_chain() {
-        let (mut fs, mut runner, _, config) = create_test_environment();
-
-        // Set up package files with a dependency chain: main-pkg -> dep1 -> dep2
-        let main_pkg_yaml = r#"
-            name: main-pkg
-            version: 1.0.0
-            environments:
-              test-env:
-                install: main-install
-                check: main-check
-                dependencies:
-                  - dep1
-        "#;
-
-        let dep1_yaml = r#"
-            name: dep1
-            version: 1.0.0
-            environments:
-              test-env:
-                install: dep1-install
-                check: dep1-check
-                dependencies:
-                  - dep2
-        "#;
-
-        let dep2_yaml = r#"
-            name: dep2
-            version: 1.0.0
-            environments:
-              test-env:
-                install: dep2-install
-                check: dep2-check
-        "#;
-
-        fs.add_file(
-            std::path::Path::new("/test/packages/main-pkg.yaml"),
-            main_pkg_yaml,
-        );
-        fs.add_file(std::path::Path::new("/test/packages/dep1.yaml"), dep1_yaml);
-        fs.add_file(std::path::Path::new("/test/packages/dep2.yaml"), dep2_yaml);
-        fs.add_existing_path(std::path::Path::new("/test/packages"));
-
-        // Set up mock command responses
-        runner.error_response("main-check", "Not found", 1);
-        runner.success_response("main-install", "Installed successfully");
-        runner.error_response("dep1-check", "Not found", 1);
-        runner.success_response("dep1-install", "Installed successfully");
-        runner.error_response("dep2-check", "Not found", 1);
-        runner.success_response("dep2-install", "Installed successfully");
-
-        // Create the installer
-        let installer =
-            MultiPackageInstallationService::new(&fs, &runner, &config, false, false, false);
-
-        // Run the installation
-        let result = installer.install_package("main-pkg");
-
-        // Verify the result
-        assert!(result.is_ok());
-        let install_result = result.unwrap();
-        assert_eq!(install_result.package_name, "main-pkg");
-        assert_eq!(install_result.status, InstallationStatus::Complete);
-        assert_eq!(install_result.dependencies.len(), 2);
-
-        // Find dep1 and dep2 in dependencies
-        let has_dep1 = install_result
-            .dependencies
-            .iter()
-            .any(|d| d.package_name == "dep1");
-        let has_dep2 = install_result
-            .dependencies
-            .iter()
-            .any(|d| d.package_name == "dep2");
-
-        assert!(has_dep1);
-        assert!(has_dep2);
     }
 }

@@ -1,13 +1,14 @@
-// src/package_list_command.rs
-// Implements the 'selfie package list' command
+// src/services/package_list_service.rs
+// Enhanced implementation of the 'selfie package list' command with command availability checking
 
 use console::style;
 
-use crate::ports::package_repo::{PackageRepoError, PackageRepository};
 use crate::{
-    domain::config::Config,
+    domain::{config::Config, package::Package},
     ports::command::CommandRunner,
+    ports::package_repo::{PackageRepoError, PackageRepository},
     progress_display::{ProgressManager, ProgressStyleType},
+    services::command_validator::CommandValidator,
 };
 
 /// Result of running the list command
@@ -18,9 +19,9 @@ pub enum PackageListResult {
     Error(String),
 }
 
-/// Handles the 'package list' command
+/// Handles the 'package list' command with enhanced command availability checking
 pub struct PackageListService<'a, R: CommandRunner, P: PackageRepository> {
-    _runner: &'a R,
+    runner: &'a R,
     config: &'a Config,
     progress_manager: &'a ProgressManager,
     verbose: bool,
@@ -39,7 +40,7 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
     ) -> Self {
         let use_colors = progress_manager.use_colors();
         Self {
-            _runner: runner,
+            runner,
             config,
             progress_manager,
             verbose,
@@ -70,13 +71,16 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
         }
     }
 
-    /// List packages with compatibility information
+    /// List packages with compatibility information and command availability
     fn list_packages(&self) -> Result<String, PackageRepoError> {
         let packages = self.package_repo.list_packages()?;
 
         if packages.is_empty() {
             return Ok("No packages found in package directory.".to_string());
         }
+
+        // Create command validator for checking command availability
+        let command_validator = CommandValidator::new(self.runner);
 
         let mut output = String::from("Available packages:\n");
 
@@ -122,6 +126,52 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
                 package_name, version, compatibility
             ));
 
+            // Check command availability for compatible packages
+            if is_compatible && self.verbose {
+                if let Some(env_config) = package.environments.get(&self.config.environment) {
+                    // Extract base command
+                    if let Some(base_cmd) =
+                        CommandValidator::<R>::extract_base_command(&env_config.install)
+                    {
+                        let cmd_available = self.runner.is_command_available(base_cmd);
+
+                        let status = if cmd_available {
+                            if self.use_colors {
+                                style("    ✓ Install command available").green().to_string()
+                            } else {
+                                "    ✓ Install command available".to_string()
+                            }
+                        } else {
+                            if self.use_colors {
+                                style(format!("    ⚠ Install command '{}' not found", base_cmd))
+                                    .yellow()
+                                    .to_string()
+                            } else {
+                                format!("    ⚠ Install command '{}' not found", base_cmd)
+                            }
+                        };
+
+                        output.push_str(&format!("{}\n", status));
+                    }
+
+                    // Check for environment-specific recommendations
+                    if let Some(recommendation) = command_validator.is_command_recommended_for_env(
+                        &self.config.environment,
+                        &env_config.install,
+                    ) {
+                        let recommendation_text = if self.use_colors {
+                            style(format!("    ℹ {}", recommendation))
+                                .blue()
+                                .to_string()
+                        } else {
+                            format!("    ℹ {}", recommendation)
+                        };
+
+                        output.push_str(&format!("{}\n", recommendation_text));
+                    }
+                }
+            }
+
             // Add more details if verbose mode is enabled
             if self.verbose {
                 if let Some(desc) = &package.description {
@@ -152,6 +202,37 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
                 output.push_str(&env_list.join(", "));
                 output.push('\n');
 
+                // Check for potential issues in commands
+                if is_compatible {
+                    if let Some(env_config) = package.environments.get(&self.config.environment) {
+                        let mut warnings = Vec::new();
+
+                        if command_validator.might_require_sudo(&env_config.install) {
+                            warnings.push("might require sudo privileges");
+                        }
+
+                        if command_validator.uses_backticks(&env_config.install) {
+                            warnings.push("uses backticks (consider $() instead)");
+                        }
+
+                        if command_validator.might_download_content(&env_config.install) {
+                            warnings.push("may download content from internet");
+                        }
+
+                        if !warnings.is_empty() {
+                            let warning_text = if self.use_colors {
+                                style(format!("    ⚠ Command notes: {}", warnings.join(", ")))
+                                    .yellow()
+                                    .to_string()
+                            } else {
+                                format!("    ⚠ Command notes: {}", warnings.join(", "))
+                            };
+
+                            output.push_str(&format!("{}\n", warning_text));
+                        }
+                    }
+                }
+
                 // Show file path if available
                 if let Some(path) = &package.path {
                     let path_text = if self.use_colors {
@@ -171,6 +252,151 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
 
         Ok(output)
     }
+
+    /// Filter packages by various criteria
+    pub fn filter_packages(&self, packages: &[Package], filter: Option<&str>) -> Vec<Package> {
+        // If no filter, return all packages
+        if filter.is_none() {
+            return packages.to_vec();
+        }
+
+        let filter = filter.unwrap().to_lowercase();
+
+        packages
+            .iter()
+            .filter(|package| {
+                // Match on package name
+                if package.name.to_lowercase().contains(&filter) {
+                    return true;
+                }
+
+                // Match on description
+                if let Some(desc) = &package.description {
+                    if desc.to_lowercase().contains(&filter) {
+                        return true;
+                    }
+                }
+
+                // Match on environment
+                for env_name in package.environments.keys() {
+                    if env_name.to_lowercase().contains(&filter) {
+                        return true;
+                    }
+                }
+
+                false
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// Group packages by environment compatibility
+    pub fn list_packages_by_environment(&self) -> Result<String, PackageRepoError> {
+        let packages = self.package_repo.list_packages()?;
+
+        if packages.is_empty() {
+            return Ok("No packages found in package directory.".to_string());
+        }
+
+        let mut output = String::from("Packages by environment compatibility:\n\n");
+
+        // Identify current environment
+        let current_env = &self.config.environment;
+
+        // Compatible with current environment
+        let compatible: Vec<_> = packages
+            .iter()
+            .filter(|pkg| pkg.environments.contains_key(current_env))
+            .collect();
+
+        // Not compatible with current environment
+        let incompatible: Vec<_> = packages
+            .iter()
+            .filter(|pkg| !pkg.environments.contains_key(current_env))
+            .collect();
+
+        // Format section for compatible packages
+        let compatible_heading = if self.use_colors {
+            style(format!(
+                "Compatible with current environment ({}):",
+                current_env
+            ))
+            .green()
+            .bold()
+            .to_string()
+        } else {
+            format!("Compatible with current environment ({}):", current_env)
+        };
+
+        output.push_str(&format!("{}\n", compatible_heading));
+
+        if compatible.is_empty() {
+            output.push_str("  No packages found\n");
+        } else {
+            for package in compatible {
+                let pkg_text = if self.use_colors {
+                    format!(
+                        "  {} ({})",
+                        style(&package.name).magenta().bold(),
+                        style(format!("v{}", &package.version)).dim()
+                    )
+                } else {
+                    format!("  {} (v{})", package.name, package.version)
+                };
+
+                output.push_str(&format!("{}\n", pkg_text));
+            }
+        }
+
+        // Format section for incompatible packages
+        output.push_str("\n");
+        let incompatible_heading = if self.use_colors {
+            style("Not compatible with current environment:")
+                .red()
+                .bold()
+                .to_string()
+        } else {
+            "Not compatible with current environment:".to_string()
+        };
+
+        output.push_str(&format!("{}\n", incompatible_heading));
+
+        if incompatible.is_empty() {
+            output.push_str("  No packages found\n");
+        } else {
+            for package in incompatible {
+                let pkg_text = if self.use_colors {
+                    format!(
+                        "  {} ({}) - Available for: {}",
+                        style(&package.name).magenta(),
+                        style(format!("v{}", &package.version)).dim(),
+                        package
+                            .environments
+                            .keys()
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                } else {
+                    format!(
+                        "  {} (v{}) - Available for: {}",
+                        package.name,
+                        package.version,
+                        package
+                            .environments
+                            .keys()
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                };
+
+                output.push_str(&format!("{}\n", pkg_text));
+            }
+        }
+
+        Ok(output)
+    }
 }
 
 #[cfg(test)]
@@ -178,7 +404,10 @@ mod tests {
     use super::*;
     use crate::{
         adapters::package_repo::yaml::YamlPackageRepository,
-        domain::config::ConfigBuilder,
+        domain::{
+            config::ConfigBuilder,
+            package::{EnvironmentConfig, PackageBuilder},
+        },
         ports::{
             command::MockCommandRunner,
             filesystem::{MockFileSystem, MockFileSystemExt},
@@ -238,10 +467,16 @@ mod tests {
         fs.add_file(Path::new("/test/packages/ripgrep.yaml"), package1_yaml);
         fs.add_file(Path::new("/test/packages/fzf.yaml"), package2_yaml);
 
-        // Create a real repository with our mock filesystem
+        // Create a repository with our mock filesystem
         let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
 
-        let runner = MockCommandRunner::new();
+        // Create mock runner that shows 'brew' as available
+        let mut runner = MockCommandRunner::new();
+        runner
+            .expect_is_command_available()
+            .with(mockall::predicate::eq("brew"))
+            .returning(|_| true);
+
         let manager = ProgressManager::new(false, false, false);
         let cmd = PackageListService::new(&runner, &config, &manager, false, &repo);
 
@@ -277,7 +512,7 @@ mod tests {
             homepage: https://github.com/BurntSushi/ripgrep
             environments:
               test-env:
-                install: brew install ripgrep
+                install: sudo apt install ripgrep
         "#;
 
         fs.add_file(Path::new("/test/packages/ripgrep.yaml"), package_yaml);
@@ -285,7 +520,17 @@ mod tests {
         // Create a repository with our mock filesystem
         let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
 
-        let runner = MockCommandRunner::new();
+        // Create mock runner with command availability
+        let mut runner = MockCommandRunner::new();
+        runner
+            .expect_is_command_available()
+            .with(mockall::predicate::eq("sudo"))
+            .returning(|_| true);
+        runner
+            .expect_is_command_available()
+            .with(mockall::predicate::eq("apt"))
+            .returning(|_| true);
+
         let manager = ProgressManager::new(false, false, false);
         let cmd = PackageListService::new(&runner, &config, &manager, true, &repo);
 
@@ -299,5 +544,135 @@ mod tests {
         assert!(output.contains("Homepage: https://github.com/BurntSushi/ripgrep"));
         assert!(output.contains("Environments: test-env"));
         assert!(output.contains("Path: /test/packages/ripgrep.yaml"));
+
+        // Check command warnings
+        assert!(output.contains("Command notes:"));
+        assert!(output.contains("sudo privileges"));
+    }
+
+    #[test]
+    fn test_filter_packages() {
+        // Create some test packages
+        let package1 = PackageBuilder::default()
+            .name("ripgrep")
+            .version("1.0.0")
+            .description("Fast search tool")
+            .environment("test-env", "install cmd")
+            .build();
+
+        let package2 = PackageBuilder::default()
+            .name("fzf")
+            .version("1.0.0")
+            .description("Fuzzy finder")
+            .environment("mac-env", "install cmd")
+            .build();
+
+        let package3 = PackageBuilder::default()
+            .name("cargo-binstall")
+            .version("1.0.0")
+            .description("Cargo binary installer")
+            .environment("linux-env", "install cmd")
+            .build();
+
+        let packages = vec![package1, package2, package3];
+
+        // Create the service
+        let fs = MockFileSystem::default();
+        let config = ConfigBuilder::default()
+            .environment("test-env")
+            .package_directory("/test/packages")
+            .build();
+        let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
+        let runner = MockCommandRunner::new();
+        let manager = ProgressManager::new(false, false, false);
+        let cmd = PackageListService::new(&runner, &config, &manager, false, &repo);
+
+        // Filter by name
+        let filtered = cmd.filter_packages(&packages, Some("rip"));
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].name, "ripgrep");
+
+        // Filter by description
+        let filtered = cmd.filter_packages(&packages, Some("fuzzy"));
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].name, "fzf");
+
+        // Filter by environment
+        let filtered = cmd.filter_packages(&packages, Some("linux"));
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].name, "cargo-binstall");
+
+        // No filter should return all
+        let filtered = cmd.filter_packages(&packages, None);
+        assert_eq!(filtered.len(), 3);
+    }
+
+    #[test]
+    fn test_list_packages_by_environment() {
+        let mut fs = MockFileSystem::default();
+        let config = ConfigBuilder::default()
+            .environment("test-env")
+            .package_directory("/test/packages")
+            .build();
+
+        fs.add_existing_path(Path::new("/test/packages"));
+
+        // Add test package files with different environments
+        let package1_yaml = r#"
+            name: ripgrep
+            version: 1.0.0
+            environments:
+              test-env:
+                install: brew install ripgrep
+        "#;
+
+        let package2_yaml = r#"
+            name: fzf
+            version: 0.1.0
+            environments:
+              other-env:
+                install: brew install fzf
+        "#;
+
+        let package3_yaml = r#"
+            name: typos-cli
+            version: 1.0.0
+            environments:
+              test-env:
+                install: cargo install typos-cli
+              other-env:
+                install: brew install typos-cli
+        "#;
+
+        fs.add_file(Path::new("/test/packages/ripgrep.yaml"), package1_yaml);
+        fs.add_file(Path::new("/test/packages/fzf.yaml"), package2_yaml);
+        fs.add_file(Path::new("/test/packages/typos-cli.yaml"), package3_yaml);
+
+        // Create a repository with our mock filesystem
+        let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
+        let runner = MockCommandRunner::new();
+        let manager = ProgressManager::new(false, false, false);
+        let cmd = PackageListService::new(&runner, &config, &manager, false, &repo);
+
+        // Test grouping by environment
+        let result = cmd.list_packages_by_environment();
+        assert!(result.is_ok());
+        let output = result.unwrap();
+
+        // Check that packages are correctly grouped
+        assert!(output.contains("Compatible with current environment"));
+        assert!(output.contains("Not compatible with current environment"));
+
+        // Compatible packages should include ripgrep and typos-cli
+        let compat_section = output.split("Not compatible").next().unwrap();
+        assert!(compat_section.contains("ripgrep"));
+        assert!(compat_section.contains("typos-cli"));
+
+        // Incompatible section should include fzf
+        let incompat_section = output.split("Not compatible").nth(1).unwrap();
+        assert!(incompat_section.contains("fzf"));
+
+        // fzf should show its available environments
+        assert!(incompat_section.contains("Available for: other-env"));
     }
 }

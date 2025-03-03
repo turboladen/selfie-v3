@@ -78,6 +78,7 @@ fn test_package_install_with_progress_display() {
         &fs, &runner, &config, true,  // verbose output
         false, // no colors
         true,  // use unicode
+        false,
     );
 
     // Run the installation
