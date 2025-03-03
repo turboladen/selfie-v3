@@ -9,11 +9,11 @@ use thiserror::Error;
 use crate::{
     command::{CommandError, CommandOutput, CommandRunner},
     config::Config,
+    domain::dependency::DependencyGraphError,
     domain::{
         installation::{InstallationError, InstallationStatus},
         package::Package,
     },
-    graph::DependencyGraphError,
     installation::InstallationManager,
     package_repo::PackageRepoError,
     ports::filesystem::{FileSystem, FileSystemError},

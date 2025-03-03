@@ -3,8 +3,8 @@ use thiserror::Error;
 
 use crate::{
     config::Config,
+    domain::dependency::{DependencyGraph, DependencyGraphError},
     domain::package::Package,
-    graph::{DependencyGraph, DependencyGraphError},
     package_repo::{PackageRepoError, PackageRepository},
     ports::filesystem::FileSystem,
 };
