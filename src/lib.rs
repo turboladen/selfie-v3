@@ -7,7 +7,5 @@ pub mod ports;
 pub mod services;
 
 pub mod cli;
-pub mod package_list_command;
-pub mod package_validate_command;
 pub mod progress;
 pub mod progress_display;

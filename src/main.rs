@@ -8,10 +8,10 @@ use selfie::{
     adapters::command::shell::ShellCommandRunner,
     adapters::filesystem::RealFileSystem,
     cli::{self, Cli, Commands, PackageSubcommands},
-    package_list_command::{ListCommand, ListCommandResult},
-    package_validate_command::{ValidateCommand, ValidateCommandResult},
     progress_display::ProgressManager,
     services::multi_package_installation_service::MultiPackageInstallationService,
+    services::package_list_service::{PackageListResult, PackageListService},
+    services::package_validation_service::{PackageValidationResult, PackageValidationService},
 };
 
 fn main() {
@@ -84,7 +84,7 @@ fn main() {
                                 &fs,
                                 config.expanded_package_directory(),
                             );
-                            let list_cmd = ListCommand::new(
+                            let list_cmd = PackageListService::new(
                                 &runner,
                                 &config,
                                 &progress_manager,
@@ -93,13 +93,13 @@ fn main() {
                             );
 
                             match list_cmd.execute() {
-                                ListCommandResult::Success(output) => {
+                                PackageListResult::Success(output) => {
                                     // The progress bar already showed "Done"
                                     // Just print the package list
                                     println!("{}", output);
                                     0
                                 }
-                                ListCommandResult::Error(error) => {
+                                PackageListResult::Error(error) => {
                                     // The progress bar already showed "Failed"
                                     // Print the detailed error
                                     eprintln!("{}", error);
@@ -143,7 +143,7 @@ fn main() {
                     match cli.build_minimal_config(base_config) {
                         Ok(config) => {
                             // Use the validate command
-                            let validate_cmd = ValidateCommand::new(
+                            let validate_cmd = PackageValidationService::new(
                                 &fs,
                                 &runner,
                                 config,
@@ -152,19 +152,19 @@ fn main() {
                             );
 
                             match validate_cmd.execute(&pkg_cmd.command) {
-                                ValidateCommandResult::Valid(output) => {
+                                PackageValidationResult::Valid(output) => {
                                     // The progress bar already showed "Validation successful"
                                     // Just print the details now
                                     println!("{}", output);
                                     0
                                 }
-                                ValidateCommandResult::Invalid(output) => {
+                                PackageValidationResult::Invalid(output) => {
                                     // The progress bar already showed "Validation failed"
                                     // Just print the details now
                                     println!("{}", output);
                                     1
                                 }
-                                ValidateCommandResult::Error(error) => {
+                                PackageValidationResult::Error(error) => {
                                     // The progress bar already showed a generic failure message
                                     // Print the detailed error to stderr
                                     eprintln!("{}", error);

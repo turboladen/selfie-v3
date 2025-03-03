@@ -13,7 +13,7 @@ use crate::{
 };
 
 /// Result of running the validate command
-pub enum ValidateCommandResult {
+pub enum PackageValidationResult {
     /// Package validation successful (may include warnings)
     Valid(String),
     /// Package validation failed with errors
@@ -23,7 +23,7 @@ pub enum ValidateCommandResult {
 }
 
 /// Handles the 'package validate' command
-pub struct ValidateCommand<'a, F: FileSystem, R: CommandRunner> {
+pub struct PackageValidationService<'a, F: FileSystem, R: CommandRunner> {
     fs: &'a F,
     _runner: &'a R,
     config: Config,
@@ -32,7 +32,7 @@ pub struct ValidateCommand<'a, F: FileSystem, R: CommandRunner> {
     use_colors: bool, // Added field to track color setting
 }
 
-impl<'a, F: FileSystem, R: CommandRunner> ValidateCommand<'a, F, R> {
+impl<'a, F: FileSystem, R: CommandRunner> PackageValidationService<'a, F, R> {
     /// Create a new validate command handler
     pub fn new(
         fs: &'a F,
@@ -54,7 +54,7 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidateCommand<'a, F, R> {
     }
 
     /// Execute the validate command
-    pub fn execute(&self, cmd: &PackageSubcommands) -> ValidateCommandResult {
+    pub fn execute(&self, cmd: &PackageSubcommands) -> PackageValidationResult {
         match cmd {
             PackageSubcommands::Validate {
                 package_name,
@@ -109,10 +109,10 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidateCommand<'a, F, R> {
 
                         if validation_result.is_valid() {
                             progress.finish_with_message("Validation successful");
-                            ValidateCommandResult::Valid(formatted)
+                            PackageValidationResult::Valid(formatted)
                         } else {
                             progress.abandon_with_message("Validation failed");
-                            ValidateCommandResult::Invalid(formatted)
+                            PackageValidationResult::Invalid(formatted)
                         }
                     }
                     Err(err) => {
@@ -125,23 +125,23 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidateCommand<'a, F, R> {
 
                         match err {
                             PackageValidatorError::PackageNotFound(name) => {
-                                ValidateCommandResult::Error(format!(
+                                PackageValidationResult::Error(format!(
                                     "Package '{}' not found\n\nVerify the package name and make sure the package file exists in the package directory.",
                                     name
                                 ))
                             }
                             PackageValidatorError::MultiplePackagesFound(name) => {
-                                ValidateCommandResult::Error(format!(
+                                PackageValidationResult::Error(format!(
                                     "Multiple package files found for '{}'\n\nUse the --package-path flag to specify which file to validate.",
                                     name
                                 ))
                             }
-                            _ => ValidateCommandResult::Error(format!("Error: {}", err)),
+                            _ => PackageValidationResult::Error(format!("Error: {}", err)),
                         }
                     }
                 }
             }
-            _ => ValidateCommandResult::Error(
+            _ => PackageValidationResult::Error(
                 "Invalid command. Expected 'validate <package-name>'".to_string(),
             ),
         }

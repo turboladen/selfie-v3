@@ -11,7 +11,7 @@ use crate::{
 };
 
 /// Result of running the list command
-pub enum ListCommandResult {
+pub enum PackageListResult {
     /// Package listing successful
     Success(String),
     /// Command failed to run
@@ -19,7 +19,7 @@ pub enum ListCommandResult {
 }
 
 /// Handles the 'package list' command
-pub struct ListCommand<'a, R: CommandRunner, P: PackageRepository> {
+pub struct PackageListService<'a, R: CommandRunner, P: PackageRepository> {
     _runner: &'a R,
     config: &'a Config,
     progress_manager: &'a ProgressManager,
@@ -28,7 +28,7 @@ pub struct ListCommand<'a, R: CommandRunner, P: PackageRepository> {
     package_repo: &'a P,
 }
 
-impl<'a, R: CommandRunner, P: PackageRepository> ListCommand<'a, R, P> {
+impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
     /// Create a new list command handler
     pub fn new(
         runner: &'a R,
@@ -49,7 +49,7 @@ impl<'a, R: CommandRunner, P: PackageRepository> ListCommand<'a, R, P> {
     }
 
     /// Execute the list command
-    pub fn execute(&self) -> ListCommandResult {
+    pub fn execute(&self) -> PackageListResult {
         // Create progress display
         let progress = self.progress_manager.create_progress_bar(
             "list",
@@ -61,11 +61,11 @@ impl<'a, R: CommandRunner, P: PackageRepository> ListCommand<'a, R, P> {
         match self.list_packages() {
             Ok(output) => {
                 progress.finish_with_message("Done");
-                ListCommandResult::Success(output)
+                PackageListResult::Success(output)
             }
             Err(err) => {
                 progress.abandon_with_message("Failed");
-                ListCommandResult::Error(format!("Error: {}", err))
+                PackageListResult::Error(format!("Error: {}", err))
             }
         }
     }
@@ -201,7 +201,7 @@ mod tests {
         let runner = MockCommandRunner::new();
         let manager = ProgressManager::new(false, false, false);
 
-        let cmd = ListCommand::new(&runner, &config, &manager, false, &repo);
+        let cmd = PackageListService::new(&runner, &config, &manager, false, &repo);
 
         let result = cmd.list_packages();
         assert!(result.is_ok());
@@ -243,7 +243,7 @@ mod tests {
 
         let runner = MockCommandRunner::new();
         let manager = ProgressManager::new(false, false, false);
-        let cmd = ListCommand::new(&runner, &config, &manager, false, &repo);
+        let cmd = PackageListService::new(&runner, &config, &manager, false, &repo);
 
         // Test the list_packages function with our repo
         let result = cmd.list_packages();
@@ -287,7 +287,7 @@ mod tests {
 
         let runner = MockCommandRunner::new();
         let manager = ProgressManager::new(false, false, false);
-        let cmd = ListCommand::new(&runner, &config, &manager, true, &repo);
+        let cmd = PackageListService::new(&runner, &config, &manager, true, &repo);
 
         // Test the list_packages function with our repo
         let result = cmd.list_packages();
