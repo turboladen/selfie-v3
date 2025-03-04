@@ -63,6 +63,41 @@ impl<T: FileSystem + ?Sized> FileSystem for &T {
     }
 }
 
+impl MockFileSystem {
+    pub fn mock_read_file<P>(&mut self, path: P, content: &str)
+    where
+        PathBuf: From<P>,
+    {
+        let path_buf = PathBuf::from(path);
+        let content_string = content.to_string();
+        self.expect_read_file()
+            .with(mockall::predicate::eq(path_buf.clone()))
+            .returning(move |_| Ok(content_string.clone()));
+    }
+
+    pub fn mock_list_directory<P>(&mut self, path: P, entries: &[P])
+    where
+        PathBuf: From<P>,
+        P: Clone + Sync,
+    {
+        let dir = PathBuf::from(path);
+        let paths: Vec<_> = entries.iter().cloned().map(|e| PathBuf::from(e)).collect();
+
+        self.expect_list_directory()
+            .with(mockall::predicate::eq(dir.clone()))
+            .returning(move |_| Ok(paths.clone()));
+    }
+
+    pub fn mock_path_exists<P>(&mut self, path: P, exists: bool)
+    where
+        PathBuf: From<P>,
+    {
+        self.expect_path_exists()
+            .with(mockall::predicate::eq(PathBuf::from(path)))
+            .returning(move |_| exists);
+    }
+}
+
 // Helper functions to configure the mock filesystem
 pub trait MockFileSystemExt {
     fn add_file(&mut self, path: &Path, content: &str);

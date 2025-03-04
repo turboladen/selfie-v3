@@ -252,7 +252,7 @@ impl<'a, R: CommandRunner> CommandValidator<'a, R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ports::command::{MockCommandRunner, MockCommandRunnerExt};
+    use crate::ports::command::MockCommandRunner;
 
     #[test]
     fn test_validate_command_syntax_valid() {

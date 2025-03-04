@@ -908,7 +908,10 @@ environments:
 
         // Add a valid package file
         let yaml = create_valid_package_yaml();
-        fs.add_file(Path::new("/test/packages/test-package.yaml"), &yaml);
+
+        fs.mock_path_exists(Path::new("/test/packages/test-package.yaml"), true);
+        fs.mock_path_exists(Path::new("/test/packages/test-package.yml"), false);
+        fs.mock_read_file(Path::new("/test/packages/test-package.yaml"), &yaml);
 
         let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
         let validator = PackageValidator::new(&fs, &config, &package_repo);
@@ -1103,7 +1106,15 @@ environments:
 
     #[test]
     fn test_package_not_found() {
-        let (fs, config) = setup_test_environment();
+        let (mut fs, config) = setup_test_environment();
+        fs.mock_path_exists(
+            config.expanded_package_directory().join("nonexistent.yaml"),
+            false,
+        );
+        fs.mock_path_exists(
+            config.expanded_package_directory().join("nonexistent.yml"),
+            false,
+        );
 
         let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
         let validator = PackageValidator::new(&fs, &config, &package_repo);

@@ -80,7 +80,11 @@ impl From<DependencyResolverError> for PackageInstallerError {
             DependencyResolverError::RepoError(e) => PackageInstallerError::PackageRepoError(e),
             DependencyResolverError::GraphError(e) => match e {
                 DependencyGraphError::CircularDependency(msg, path) => {
-                    PackageInstallerError::CircularDependency(format!("{}", msg))
+                    PackageInstallerError::CircularDependency(format!(
+                        "{} ({})",
+                        msg,
+                        path.join(", ")
+                    ))
                 }
                 DependencyGraphError::PackageNotFound(pkg) => {
                     PackageInstallerError::PackageNotFound(pkg)
@@ -702,7 +706,7 @@ mod tests {
     use crate::{
         domain::config::ConfigBuilder,
         ports::command::{MockCommandRunner, MockCommandRunnerExt},
-        ports::filesystem::{MockFileSystem, MockFileSystemExt},
+        ports::filesystem::MockFileSystem,
     };
     use std::path::Path;
 
@@ -734,11 +738,13 @@ mod tests {
                 check: test check
         "#;
 
-        fs.add_file(
-            std::path::Path::new("/test/packages/ripgrep.yaml"),
-            package_yaml,
-        );
-        fs.add_existing_path(std::path::Path::new("/test/packages"));
+        let package_dir = Path::new("/test/packages");
+        fs.mock_path_exists(&package_dir, true);
+
+        let ripgrep = package_dir.join("ripgrep.yaml");
+        fs.mock_path_exists(&ripgrep, true);
+        fs.mock_path_exists(package_dir.join("ripgrep.yml"), false);
+        fs.mock_read_file(&ripgrep, package_yaml);
 
         // Set up mock command responses
         runner.error_response("test check", "Not found", 1); // Not installed
@@ -778,11 +784,12 @@ mod tests {
                 check: missing-cmd check
         "#;
 
-        fs.add_file(
-            std::path::Path::new("/test/packages/ripgrep.yaml"),
-            package_yaml,
-        );
-        fs.add_existing_path(std::path::Path::new("/test/packages"));
+        let package_dir = Path::new("/test/packages");
+        let package = package_dir.join("ripgrep.yaml");
+        fs.mock_path_exists(&package_dir, true);
+        fs.mock_path_exists(&package, true);
+        fs.mock_path_exists(package_dir.join("ripgrep.yml"), false);
+        fs.mock_read_file(&package, package_yaml);
 
         // Make base command unavailable
         runner
@@ -836,10 +843,23 @@ mod tests {
                 install: missing-cmd install
         "#;
 
-        fs.add_file(Path::new("/test/packages/available.yaml"), package1_yaml);
-        fs.add_file(Path::new("/test/packages/wrong-env.yaml"), package2_yaml);
-        fs.add_file(Path::new("/test/packages/missing-cmd.yaml"), package3_yaml);
-        fs.add_existing_path(Path::new("/test/packages"));
+        let package_dir = Path::new("/test/packages");
+        let available = package_dir.join("available.yaml");
+        let wrong_env = package_dir.join("wrong-env.yaml");
+        let missing_cmd = package_dir.join("missing-cmd.yaml");
+        fs.mock_path_exists(&package_dir, true);
+        fs.mock_path_exists(&available, true);
+        fs.mock_path_exists(package_dir.join("available.yml"), false);
+        fs.mock_path_exists(&wrong_env, true);
+        fs.mock_path_exists(package_dir.join("wrong-env.yml"), false);
+        fs.mock_path_exists(&missing_cmd, true);
+        fs.mock_path_exists(package_dir.join("missing-cmd.yml"), false);
+        fs.mock_path_exists(package_dir.join("nonexistent.yaml"), false);
+        fs.mock_path_exists(package_dir.join("nonexistent.yml"), false);
+
+        fs.mock_read_file(&available, package1_yaml);
+        fs.mock_read_file(&wrong_env, package2_yaml);
+        fs.mock_read_file(&missing_cmd, package3_yaml);
 
         // Set up command availability
         runner
@@ -905,15 +925,17 @@ mod tests {
                 check: rust check
         "#;
 
-        fs.add_file(
-            std::path::Path::new("/test/packages/ripgrep.yaml"),
-            package_yaml,
-        );
-        fs.add_file(
-            std::path::Path::new("/test/packages/rust.yaml"),
-            dependency_yaml,
-        );
-        fs.add_existing_path(std::path::Path::new("/test/packages"));
+        let package_dir = Path::new("/test/packages");
+        let ripgrep = package_dir.join("ripgrep.yaml");
+        let rust = package_dir.join("rust.yaml");
+        fs.mock_path_exists(&package_dir, true);
+        fs.mock_path_exists(&ripgrep, true);
+        fs.mock_path_exists(package_dir.join("ripgrep.yml"), false);
+        fs.mock_path_exists(&rust, true);
+        fs.mock_path_exists(package_dir.join("rust.yml"), false);
+
+        fs.mock_read_file(&ripgrep, package_yaml);
+        fs.mock_read_file(&rust, dependency_yaml);
 
         // Set up mock command responses
         runner.error_response("rg check", "Not found", 1); // Not installed
@@ -977,15 +999,17 @@ mod tests {
                 check: unavailable-cmd check
         "#;
 
-        fs.add_file(
-            std::path::Path::new("/test/packages/ripgrep.yaml"),
-            package_yaml,
-        );
-        fs.add_file(
-            std::path::Path::new("/test/packages/rust.yaml"),
-            dependency_yaml,
-        );
-        fs.add_existing_path(std::path::Path::new("/test/packages"));
+        let package_dir = Path::new("/test/packages");
+        let ripgrep = package_dir.join("ripgrep.yaml");
+        let rust = package_dir.join("rust.yaml");
+        fs.mock_path_exists(&package_dir, true);
+        fs.mock_path_exists(&ripgrep, true);
+        fs.mock_path_exists(package_dir.join("ripgrep.yml"), false);
+        fs.mock_path_exists(&rust, true);
+        fs.mock_path_exists(package_dir.join("rust.yml"), false);
+
+        fs.mock_read_file(&ripgrep, package_yaml);
+        fs.mock_read_file(&rust, dependency_yaml);
 
         // Set up command availability
         runner

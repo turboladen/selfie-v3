@@ -141,14 +141,12 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
                             } else {
                                 "    ✓ Install command available".to_string()
                             }
+                        } else if self.use_colors {
+                            style(format!("    ⚠ Install command '{}' not found", base_cmd))
+                                .yellow()
+                                .to_string()
                         } else {
-                            if self.use_colors {
-                                style(format!("    ⚠ Install command '{}' not found", base_cmd))
-                                    .yellow()
-                                    .to_string()
-                            } else {
-                                format!("    ⚠ Install command '{}' not found", base_cmd)
-                            }
+                            format!("    ⚠ Install command '{}' not found", base_cmd)
                         };
 
                         output.push_str(&format!("{}\n", status));
@@ -349,7 +347,7 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
         }
 
         // Format section for incompatible packages
-        output.push_str("\n");
+        output.push('\n');
         let incompatible_heading = if self.use_colors {
             style("Not compatible with current environment:")
                 .red()
@@ -404,10 +402,7 @@ mod tests {
     use super::*;
     use crate::{
         adapters::package_repo::yaml::YamlPackageRepository,
-        domain::{
-            config::ConfigBuilder,
-            package::{EnvironmentConfig, PackageBuilder},
-        },
+        domain::{config::ConfigBuilder, package::PackageBuilder},
         ports::{
             command::MockCommandRunner,
             filesystem::{MockFileSystem, MockFileSystemExt},
@@ -445,7 +440,8 @@ mod tests {
             .package_directory("/test/packages")
             .build();
 
-        fs.add_existing_path(Path::new("/test/packages"));
+        let package_dir = Path::new("/test/packages");
+        fs.mock_path_exists(package_dir, true);
 
         // Add test package files to the mock filesystem
         let package1_yaml = r#"
@@ -463,9 +459,12 @@ mod tests {
               other-env:
                 install: brew install fzf
         "#;
+        let package1_path = package_dir.join("ripgrep.yaml");
+        let package2_path = package_dir.join("fzf.yaml");
 
-        fs.add_file(Path::new("/test/packages/ripgrep.yaml"), package1_yaml);
-        fs.add_file(Path::new("/test/packages/fzf.yaml"), package2_yaml);
+        fs.mock_list_directory(package_dir, &[&package1_path, &package2_path]);
+        fs.mock_read_file(package1_path, package1_yaml);
+        fs.mock_read_file(package2_path, package2_yaml);
 
         // Create a repository with our mock filesystem
         let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
@@ -484,6 +483,7 @@ mod tests {
         let result = cmd.list_packages();
         assert!(result.is_ok());
         let output = result.unwrap();
+        dbg!(&output);
 
         // Check that both packages are listed
         assert!(output.contains("ripgrep (v1.0.0)"));
@@ -502,7 +502,8 @@ mod tests {
             .package_directory("/test/packages")
             .build();
 
-        fs.add_existing_path(Path::new("/test/packages"));
+        let package_dir = Path::new("/test/packages");
+        fs.mock_path_exists(package_dir, true);
 
         // Add test package with detailed information
         let package_yaml = r#"
@@ -515,7 +516,9 @@ mod tests {
                 install: sudo apt install ripgrep
         "#;
 
-        fs.add_file(Path::new("/test/packages/ripgrep.yaml"), package_yaml);
+        let package_path = package_dir.join("ripgrep.yaml");
+        fs.mock_list_directory(package_dir, &[&package_path]);
+        fs.mock_read_file(package_path, package_yaml);
 
         // Create a repository with our mock filesystem
         let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
@@ -615,7 +618,8 @@ mod tests {
             .package_directory("/test/packages")
             .build();
 
-        fs.add_existing_path(Path::new("/test/packages"));
+        let package_dir = Path::new("/test/packages");
+        fs.mock_path_exists(package_dir, true);
 
         // Add test package files with different environments
         let package1_yaml = r#"
@@ -644,9 +648,17 @@ mod tests {
                 install: brew install typos-cli
         "#;
 
-        fs.add_file(Path::new("/test/packages/ripgrep.yaml"), package1_yaml);
-        fs.add_file(Path::new("/test/packages/fzf.yaml"), package2_yaml);
-        fs.add_file(Path::new("/test/packages/typos-cli.yaml"), package3_yaml);
+        let package1_path = package_dir.join("ripgrep.yaml");
+        let package2_path = package_dir.join("fzf.yaml");
+        let package3_path = package_dir.join("typos-cli.yaml");
+
+        fs.mock_list_directory(
+            package_dir,
+            &[&package1_path, &package2_path, &package3_path],
+        );
+        fs.mock_read_file(package1_path, package1_yaml);
+        fs.mock_read_file(package2_path, package2_yaml);
+        fs.mock_read_file(package3_path, package3_yaml);
 
         // Create a repository with our mock filesystem
         let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());

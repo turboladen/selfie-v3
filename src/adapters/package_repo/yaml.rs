@@ -119,6 +119,10 @@ mod tests {
         let mut fs = MockFileSystem::default();
         let package_dir = PathBuf::from("/test/packages");
 
+        fs.expect_path_exists()
+            .with(mockall::predicate::eq(package_dir.clone()))
+            .returning(|_| true);
+
         // Create mock package file
         let package_path = package_dir.join("ripgrep.yaml");
         let yaml = r#"
@@ -129,8 +133,13 @@ mod tests {
                 install: brew install ripgrep
         "#;
 
-        fs.add_file(&package_path, yaml);
-        fs.add_existing_path(&package_dir);
+        fs.expect_path_exists()
+            .with(mockall::predicate::eq(package_path.clone()))
+            .returning(|_| true);
+        fs.expect_path_exists()
+            .with(mockall::predicate::eq(package_dir.join("ripgrep.yml")))
+            .returning(|_| false);
+        fs.mock_read_file(package_path, yaml);
 
         let repo = YamlPackageRepository::new(&fs, package_dir);
         let package = repo.get_package("ripgrep").unwrap();
@@ -145,7 +154,15 @@ mod tests {
         let mut fs = MockFileSystem::default();
         let package_dir = PathBuf::from("/test/packages");
 
-        fs.add_existing_path(&package_dir);
+        fs.expect_path_exists()
+            .with(mockall::predicate::eq(package_dir.clone()))
+            .returning(|_| true);
+        fs.expect_path_exists()
+            .with(mockall::predicate::eq(package_dir.join("nonexistent.yaml")))
+            .returning(|_| false);
+        fs.expect_path_exists()
+            .with(mockall::predicate::eq(package_dir.join("nonexistent.yml")))
+            .returning(|_| false);
 
         let repo = YamlPackageRepository::new(&fs, package_dir);
         let result = repo.get_package("nonexistent");
@@ -155,8 +172,12 @@ mod tests {
 
     #[test]
     fn test_get_package_directory_not_found() {
-        let fs = MockFileSystem::default();
+        let mut fs = MockFileSystem::default();
         let package_dir = PathBuf::from("/test/nonexistent");
+
+        fs.expect_path_exists()
+            .with(mockall::predicate::eq(package_dir.clone()))
+            .returning(|_| false);
 
         let repo = YamlPackageRepository::new(&fs, package_dir);
         let result = repo.get_package("ripgrep");
@@ -206,9 +227,27 @@ mod tests {
         let yaml_path = package_dir.join("ripgrep.yaml");
         let yml_path = package_dir.join("other.yml");
 
-        fs.add_file(&yaml_path, "dummy content");
-        fs.add_file(&yml_path, "dummy content");
-        fs.add_existing_path(&package_dir);
+        fs.expect_path_exists()
+            .with(mockall::predicate::eq(package_dir.clone()))
+            .returning(|_| true);
+        fs.expect_path_exists()
+            .with(mockall::predicate::eq(yaml_path.clone()))
+            .returning(|_| true);
+        fs.expect_path_exists()
+            .with(mockall::predicate::eq(package_dir.join("ripgrep.yml")))
+            .returning(|_| false);
+        fs.expect_path_exists()
+            .with(mockall::predicate::eq(yml_path.clone()))
+            .returning(|_| true);
+        fs.expect_path_exists()
+            .with(mockall::predicate::eq(package_dir.join("other.yaml")))
+            .returning(|_| false);
+        fs.expect_path_exists()
+            .with(mockall::predicate::eq(package_dir.join("nonexistent.yaml")))
+            .returning(|_| false);
+        fs.expect_path_exists()
+            .with(mockall::predicate::eq(package_dir.join("nonexistent.yml")))
+            .returning(|_| false);
 
         let repo = YamlPackageRepository::new(&fs, package_dir);
 
@@ -231,7 +270,10 @@ mod tests {
     fn test_list_packages() {
         let mut fs = MockFileSystem::default();
         let package_dir = PathBuf::from("/test/packages");
-        fs.add_existing_path(&package_dir);
+
+        fs.expect_path_exists()
+            .with(mockall::predicate::eq(package_dir.clone()))
+            .returning(|_| true);
 
         // Add valid package files
         let package1 = r#"
@@ -250,13 +292,20 @@ mod tests {
                 install: brew install fzf
         "#;
 
-        fs.add_file(&package_dir.join("ripgrep.yaml"), package1);
-        fs.add_file(&package_dir.join("fzf.yml"), package2);
+        fs.mock_list_directory(
+            package_dir.clone(),
+            &[
+                package_dir.join("ripgrep.yaml"),
+                package_dir.join("fzf.yml"),
+                package_dir.join("invalid.yaml"),
+            ],
+        );
 
-        // Also add an invalid package file
-        fs.add_file(&package_dir.join("invalid.yaml"), "not valid yaml: :");
+        fs.mock_read_file(package_dir.join("ripgrep.yaml"), package1);
+        fs.mock_read_file(package_dir.join("fzf.yml"), package2);
+        fs.mock_read_file(package_dir.join("invalid.yaml"), "not valid yaml: :");
 
-        let repo = YamlPackageRepository::new(&fs, package_dir);
+        let repo = YamlPackageRepository::new(&fs, package_dir.clone());
         let packages = repo.list_packages().unwrap();
 
         // Should find both valid packages
@@ -277,14 +326,19 @@ mod tests {
     fn test_list_yaml_files() {
         let mut fs = MockFileSystem::default();
         let dir = PathBuf::from("/test/dir");
-        fs.add_existing_path(&dir);
+        let cloned = dir.clone();
 
-        // Add various file types
-        fs.add_file(&dir.join("file1.yaml"), "content");
-        fs.add_file(&dir.join("file2.yml"), "content");
-        fs.add_file(&dir.join("file3.txt"), "content");
-        fs.add_file(&dir.join("file4.YAML"), "content"); // Test case insensitivity
-        fs.add_file(&dir.join("file5.YML"), "content"); // Test case insensitivity
+        fs.expect_list_directory()
+            .with(mockall::predicate::eq(dir.clone()))
+            .returning(move |_| {
+                Ok(vec![
+                    cloned.join("file1.yaml"),
+                    cloned.join("file2.yml"),
+                    cloned.join("file3.txt"),
+                    cloned.join("file4.YAML"),
+                    cloned.join("file5.YML"),
+                ])
+            });
 
         let repo = YamlPackageRepository::new(&fs, PathBuf::from("/dummy")); // Path doesn't matter here
         let yaml_files = repo.list_yaml_files(&dir).unwrap();

@@ -34,3 +34,21 @@ pub trait PackageRepository {
     /// Find package files that match the given name
     fn find_package_files(&self, name: &str) -> Result<Vec<PathBuf>, PackageRepoError>;
 }
+
+impl MockPackageRepository {
+    pub fn mock_get_package_ok(&mut self, name: &str, result: Package) {
+        let name = name.to_string();
+
+        self.expect_get_package()
+            .with(mockall::predicate::eq(name))
+            .returning(move |_| Ok(result.clone()));
+    }
+
+    pub fn mock_get_package_err(&mut self, name: &str, result: PackageRepoError) {
+        let name = name.to_string();
+
+        self.expect_get_package()
+            .with(mockall::predicate::eq(name))
+            .return_once(move |_| Err(result));
+    }
+}

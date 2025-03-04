@@ -84,6 +84,16 @@ impl CommandOutput {
     }
 }
 
+impl MockCommandRunner {
+    pub fn mock_is_command_available(&mut self, command: &str, result: bool) {
+        let command = command.to_string();
+
+        self.expect_is_command_available()
+            .with(mockall::predicate::eq(command))
+            .returning(move |_| result);
+    }
+}
+
 // Helper functions to configure the mock command runner
 pub trait MockCommandRunnerExt {
     fn add_response(&mut self, command: &str, response: Result<CommandOutput, CommandError>);
@@ -193,7 +203,8 @@ mod tests {
     #[test]
     fn test_mock_command_availability() {
         let mut runner = MockCommandRunner::new();
-        runner.add_command("available");
+        runner.mock_is_command_available("available", true);
+        runner.mock_is_command_available("not_available", false);
 
         assert!(runner.is_command_available("available"));
         assert!(!runner.is_command_available("not_available"));
