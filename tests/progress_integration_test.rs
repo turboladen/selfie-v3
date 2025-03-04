@@ -1,12 +1,12 @@
 // tests/progress_display_test.rs
 
 use selfie::{
+    adapters::progress::{ProgressManager, ProgressStyleType},
     domain::{config::ConfigBuilder, installation::InstallationStatus},
     ports::{
         command::{MockCommandRunner, MockCommandRunnerExt},
         filesystem::MockFileSystem,
     },
-    progress_display::{ProgressManager, ProgressStyleType},
     services::multi_package_installation_service::MultiPackageInstallationService,
 };
 

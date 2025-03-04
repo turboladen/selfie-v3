@@ -1,5 +1,6 @@
 use std::fmt::Display;
 use std::time::Duration;
+
 /// Represents different types of messages that can be displayed to the user
 #[derive(Debug, Clone, PartialEq)]
 pub enum MessageType {

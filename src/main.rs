@@ -3,11 +3,12 @@
 use std::{process, time::Duration};
 
 use selfie::adapters::package_repo::yaml::YamlPackageRepository;
+use selfie::adapters::progress::ProgressStyleType;
 use selfie::{
     adapters::command::shell::ShellCommandRunner,
     adapters::filesystem::RealFileSystem,
+    adapters::progress::ProgressManager,
     cli::{self, Cli, Commands, PackageSubcommands},
-    progress_display::ProgressManager,
     services::multi_package_installation_service::MultiPackageInstallationService,
     services::package_list_service::{PackageListResult, PackageListService},
     services::package_validation_service::{PackageValidationResult, PackageValidationService},
@@ -29,11 +30,8 @@ fn main() {
 
     // Display command that will be executed
     let cmd_desc = cli::get_command_description(&cli);
-    let info_pb = progress_manager.create_progress_bar(
-        "info",
-        &cmd_desc,
-        selfie::progress_display::ProgressStyleType::Message,
-    );
+    let info_pb =
+        progress_manager.create_progress_bar("info", &cmd_desc, ProgressStyleType::Message);
     info_pb.finish();
 
     // Execute the command
@@ -62,7 +60,7 @@ fn main() {
                                     let error_pb = progress_manager.create_progress_bar(
                                         "error",
                                         &format!("Installation failed: {}", err),
-                                        selfie::progress_display::ProgressStyleType::Message,
+                                        ProgressStyleType::Message,
                                     );
                                     error_pb.abandon();
                                     1
@@ -122,7 +120,7 @@ fn main() {
                     let info_pb = progress_manager.create_progress_bar(
                         "info",
                         &format!("Package info for '{}' not implemented yet", package_name),
-                        selfie::progress_display::ProgressStyleType::Message,
+                        ProgressStyleType::Message,
                     );
                     info_pb.finish();
                     0
@@ -134,7 +132,7 @@ fn main() {
                             "Package creation for '{}' not implemented yet",
                             package_name
                         ),
-                        selfie::progress_display::ProgressStyleType::Message,
+                        ProgressStyleType::Message,
                     );
                     info_pb.finish();
                     0
@@ -189,7 +187,7 @@ fn main() {
             let info_pb = progress_manager.create_progress_bar(
                 "config",
                 "Config commands not implemented yet",
-                selfie::progress_display::ProgressStyleType::Message,
+                ProgressStyleType::Message,
             );
             info_pb.finish();
             0

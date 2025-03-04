@@ -1,4 +1,4 @@
-// src/progress_display.rs
+// src/adapters/progress.rs
 // Implements interactive progress display using indicatif with support for
 // multiple progress bars, spinners, and multi-line output.
 

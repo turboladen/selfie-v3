@@ -7,7 +7,10 @@ use console::style;
 use thiserror::Error;
 
 use crate::{
-    adapters::package_repo::yaml::YamlPackageRepository,
+    adapters::{
+        package_repo::yaml::YamlPackageRepository,
+        progress::{ProgressManager, ProgressStyleType},
+    },
     domain::{
         config::Config,
         dependency::DependencyGraphError,
@@ -19,7 +22,6 @@ use crate::{
         filesystem::{FileSystem, FileSystemError},
         package_repo::{PackageRepoError, PackageRepository},
     },
-    progress_display::{ProgressManager, ProgressStyleType},
     services::{
         command_validator::CommandValidator,
         package_installation_service::PackageInstallationService,

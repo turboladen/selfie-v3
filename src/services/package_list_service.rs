@@ -4,10 +4,10 @@
 use console::style;
 
 use crate::{
+    adapters::progress::{ProgressManager, ProgressStyleType},
     domain::{config::Config, package::Package},
     ports::command::CommandRunner,
     ports::package_repo::{PackageRepoError, PackageRepository},
-    progress_display::{ProgressManager, ProgressStyleType},
     services::command_validator::CommandValidator,
 };
 

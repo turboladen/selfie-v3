@@ -3,10 +3,10 @@
 
 use crate::{
     adapters::package_repo::yaml::YamlPackageRepository,
+    adapters::progress::{ProgressManager, ProgressStyleType},
     cli::PackageSubcommands,
     domain::config::Config,
     ports::{command::CommandRunner, filesystem::FileSystem},
-    progress_display::{ProgressManager, ProgressStyleType},
     services::{
         command_validator::CommandValidator,
         package_validator::{
