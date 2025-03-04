@@ -12,8 +12,11 @@ use console::style;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
 use crate::{
-    domain::installation::InstallationStatus,
-    progress::{MessageType, ProgressReporter},
+    domain::{
+        installation::InstallationStatus,
+        progress::{ConsoleRenderer, ProgressReporter},
+    },
+    ports::progress::MessageType,
 };
 
 /// Represents the style of a progress element
@@ -47,7 +50,7 @@ impl ProgressManager {
     /// Create a new progress manager with the specified options
     pub fn new(use_colors: bool, use_unicode: bool, verbose: bool) -> Self {
         // Create a console renderer for the progress reporter
-        let console_renderer = crate::progress::ConsoleRenderer::new(use_unicode, use_colors);
+        let console_renderer = ConsoleRenderer::new(use_unicode, use_colors);
         let progress_reporter = ProgressReporter::new(Box::new(console_renderer));
 
         Self {
@@ -389,7 +392,7 @@ impl ProgressDisplay {
 mod tests {
     use super::*;
     use crate::domain::installation::InstallationStatus;
-    use crate::progress::MessageType;
+    use crate::ports::progress::MessageType;
     use std::thread;
 
     #[test]
