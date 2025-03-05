@@ -30,12 +30,12 @@ pub enum DependencyResolverError {
 }
 
 pub struct DependencyResolver<'a, P: PackageRepository> {
-    package_repo: P,
+    package_repo: &'a P,
     config: &'a Config,
 }
 
 impl<'a, P: PackageRepository> DependencyResolver<'a, P> {
-    pub fn new(package_repo: P, config: &'a Config) -> Self {
+    pub fn new(package_repo: &'a P, config: &'a Config) -> Self {
         Self {
             package_repo,
             config,
@@ -205,7 +205,7 @@ environments:
         package_repo.mock_get_package_ok("dep-pkg", dep);
 
         // Create resolver and resolve dependencies
-        let resolver = DependencyResolver::new(package_repo, &config);
+        let resolver = DependencyResolver::new(&package_repo, &config);
         let result = resolver.resolve_dependencies("main-pkg");
 
         assert!(result.is_ok());
@@ -231,7 +231,7 @@ environments:
         package_repo.mock_get_package_ok("dep3", dep3);
 
         // Create resolver and resolve dependencies
-        let resolver = DependencyResolver::new(package_repo, &config);
+        let resolver = DependencyResolver::new(&package_repo, &config);
         let result = resolver.resolve_dependencies("main-pkg");
 
         assert!(result.is_ok());
@@ -261,7 +261,7 @@ environments:
         package_repo.mock_get_package_ok("common-dep", common);
 
         // Create resolver and resolve dependencies
-        let resolver = DependencyResolver::new(package_repo, &config);
+        let resolver = DependencyResolver::new(&package_repo, &config);
         let result = resolver.resolve_dependencies("main-pkg");
 
         assert!(result.is_ok());
@@ -289,7 +289,7 @@ environments:
         package_repo.mock_get_package_ok("dep1", dep1);
 
         // Create resolver and resolve dependencies
-        let resolver = DependencyResolver::new(package_repo, &config);
+        let resolver = DependencyResolver::new(&package_repo, &config);
         let result = resolver.resolve_dependencies("main-pkg");
 
         assert!(result.is_err());
@@ -321,7 +321,7 @@ environments:
             PackageRepoError::PackageNotFound("missing-dep".to_string()),
         );
 
-        let resolver = DependencyResolver::new(package_repo, &config);
+        let resolver = DependencyResolver::new(&package_repo, &config);
         let result = resolver.resolve_dependencies("main-pkg");
 
         assert!(result.is_err());
@@ -354,7 +354,7 @@ environments:
         package_repo.mock_get_package_ok("dep1", dep1);
 
         // Create resolver and resolve dependencies
-        let resolver = DependencyResolver::new(package_repo, &config);
+        let resolver = DependencyResolver::new(&package_repo, &config);
         let result = resolver.resolve_dependencies("main-pkg");
 
         assert!(result.is_err());

@@ -70,9 +70,10 @@ impl<T: FileSystem + ?Sized> FileSystem for &T {
 }
 
 impl MockFileSystem {
-    pub fn mock_read_file<P>(&mut self, path: P, content: &str)
+    pub fn mock_read_file<P, S>(&mut self, path: P, content: S)
     where
         PathBuf: From<P>,
+        S: ToString,
     {
         let path_buf = PathBuf::from(path);
         let content_string = content.to_string();

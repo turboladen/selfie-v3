@@ -262,10 +262,8 @@ mod tests {
     use super::*;
 
     use crate::{
-        domain::config::{Config, ConfigBuilder},
         domain::package::PackageBuilder,
         ports::command::{MockCommandRunner, MockCommandRunnerExt},
-        services::package_installation_service::PackageInstallationService,
     };
 
     fn create_test_package() -> Package {
@@ -273,13 +271,6 @@ mod tests {
             .name("test-package")
             .version("1.0.0")
             .environment_with_check("test-env", "test install", "test check")
-            .build()
-    }
-
-    fn create_test_config() -> Config {
-        ConfigBuilder::default()
-            .environment("test-env")
-            .package_directory("/test/path")
             .build()
     }
 
@@ -431,72 +422,4 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(installation.status, InstallationStatus::Failed(_)));
     }
-
-    #[test]
-    fn test_installation_manager_install_success() {
-        let package = create_test_package();
-        let config = create_test_config();
-
-        let mut runner = MockCommandRunner::new();
-        runner.error_response("test check", "Not found", 1); // Not installed
-        runner.success_response("test install", "Installed successfully");
-
-        let manager = PackageInstallationService::new(&runner, &config);
-        let result = manager.install_package(package);
-
-        assert!(result.is_ok());
-        let installation = result.unwrap();
-        assert_eq!(installation.status, InstallationStatus::Complete);
-    }
-
-    #[test]
-    fn test_installation_manager_already_installed() {
-        let package = create_test_package();
-        let config = create_test_config();
-
-        let mut runner = MockCommandRunner::new();
-        runner.success_response("test check", "Found"); // Already installed
-
-        let manager = PackageInstallationService::new(&runner, &config);
-        let result = manager.install_package(package);
-
-        assert!(result.is_ok());
-        let installation = result.unwrap();
-        assert_eq!(installation.status, InstallationStatus::AlreadyInstalled);
-    }
-
-    #[test]
-    fn test_installation_manager_install_failure() {
-        let package = create_test_package();
-        let config = create_test_config();
-
-        let mut runner = MockCommandRunner::new();
-        runner.error_response("test check", "Not found", 1); // Not installed
-        runner.error_response("test install", "Installation failed", 1);
-
-        let manager = PackageInstallationService::new(&runner, &config);
-        let result = manager.install_package(package);
-
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_installation_manager_environment_incompatible() {
-        let package = create_test_package();
-        let config = ConfigBuilder::default()
-            .environment("different-env")
-            .package_directory("/test/path")
-            .build();
-
-        let runner = MockCommandRunner::new();
-        let manager = PackageInstallationService::new(&runner, &config);
-        let result = manager.install_package(package);
-
-        assert!(result.is_err());
-        assert!(matches!(
-            result,
-            Err(InstallationError::EnvironmentIncompatible(_))
-        ));
-    }
 }
-

@@ -58,15 +58,9 @@ fn test_validation_integration() {
     fs.mock_read_file(&invalid_path, invalid_yaml);
 
     // Set up command runner
-    runner
-        .expect_is_command_available()
-        .with(mockall::predicate::eq("echo"))
-        .returning(|_| true);
+    runner.mock_is_command_available("echo", true);
 
-    runner
-        .expect_is_command_available()
-        .with(mockall::predicate::eq("which"))
-        .returning(|_| true);
+    runner.mock_is_command_available("which", true);
 
     // Set up package repository for file finding
     // let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());

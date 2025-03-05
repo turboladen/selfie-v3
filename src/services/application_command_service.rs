@@ -16,7 +16,7 @@ use crate::{
 };
 
 use super::{
-    multi_package_installation_service::MultiPackageInstallationService,
+    package_installer::PackageInstaller,
     package_list_service::{PackageListResult, PackageListService},
     validation_command::{ValidationCommand, ValidationCommandResult},
 };
@@ -100,19 +100,15 @@ impl<F: FileSystem, R: CommandRunner, C: ConfigLoader> ApplicationCommandRouter
                 match &pkg_cmd {
                     PackageCommand::Install { package_name } => {
                         // For install commands, we need a fully valid config
-                        // match cli.validate_and_build_config(base_config) {
                         match self.build_config(&args, true) {
                             Ok(config) => {
-                                // Use the enhanced installer with progress display
-                                // Now with command availability checking enabled
-                                let installer = MultiPackageInstallationService::new(
+                                // Use the consolidated package installer
+                                let installer = PackageInstaller::new(
                                     self.fs,
                                     self.runner,
                                     &config,
-                                    args.verbose,
-                                    !args.no_color, // enable colors by default
-                                    true,           // use_unicode
-                                    true,           // Enable command checking
+                                    &progress_manager,
+                                    true, // Enable command checking
                                 );
 
                                 match installer.install_package(package_name) {

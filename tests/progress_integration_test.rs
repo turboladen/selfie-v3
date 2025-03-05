@@ -7,7 +7,7 @@ use selfie::{
         command::{MockCommandRunner, MockCommandRunnerExt},
         filesystem::MockFileSystem,
     },
-    services::multi_package_installation_service::MultiPackageInstallationService,
+    services::package_installer::PackageInstaller,
 };
 
 // Import the enhanced package installer
@@ -85,14 +85,14 @@ fn test_package_install_with_progress_display() {
     runner.success_response("dep1 install", "Installed successfully");
     runner.error_response("dep2 check", "Not found", 1);
     runner.success_response("dep2 install", "Installed successfully");
+    runner.mock_is_command_available("dep1", true);
+    runner.mock_is_command_available("dep2", true);
+    runner.mock_is_command_available("main", true);
+
+    let progress_manager = ProgressManager::new(false, true, true);
 
     // Create the enhanced installer
-    let installer = MultiPackageInstallationService::new(
-        &fs, &runner, &config, true,  // verbose output
-        false, // no colors
-        true,  // use unicode
-        false,
-    );
+    let installer = PackageInstaller::new(&fs, &runner, &config, &progress_manager, true);
 
     // Run the installation
     let result = installer.install_package("main-pkg");
