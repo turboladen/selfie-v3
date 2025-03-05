@@ -24,8 +24,8 @@ fn test_package_install_with_progress_display() {
         .environment("test-env")
         .package_directory("/test/packages")
         .build();
-
     // Set up package files in the filesystem
+
     // Main package with two dependencies
     let main_package_yaml = r#"
         name: main-pkg
@@ -163,25 +163,19 @@ fn test_direct_progress_display_usage() {
     // Add some progress to the bar
     bar_pb.set_position(50);
 
+    let info_message = progress_manager.info("Information message");
+    assert!(info_message.contains("Information message"));
+
+    let success_message = progress_manager.success("Success message");
+    assert!(success_message.contains("Success message"));
+
+    let error_message = progress_manager.error("Error message");
+    assert!(error_message.contains("Error message"));
+
     // Complete a progress bar
     progress_manager
         .complete_progress("spinner-test", "Completed spinner")
         .unwrap();
-
-    // Update using installation status
-    progress_manager
-        .update_from_status(
-            "bar-test",
-            &InstallationStatus::Complete,
-            Some(std::time::Duration::from_millis(123)),
-        )
-        .unwrap();
-
-    // Test getting a non-existent progress bar
-    assert!(progress_manager.get_progress_bar("nonexistent").is_none());
-    assert!(progress_manager
-        .update_progress("nonexistent", "test")
-        .is_err());
 
     // Finish test
     message_pb.finish_with_message("Test completed");

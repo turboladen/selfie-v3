@@ -1,9 +1,13 @@
 // src/domain/validation.rs
-use std::{collections::HashMap, fmt, path::PathBuf};
+use std::{collections::HashMap, fmt, os::unix::fs::PermissionsExt, path::PathBuf};
 
 use console::style;
+use jiff::{fmt::temporal::SpanPrinter, Unit, Zoned};
 
-use crate::domain::package::Package;
+use crate::{
+    adapters::progress::{MessageType, ProgressManager},
+    domain::package::Package,
+};
 
 /// Categories of package validation errors
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -176,17 +180,17 @@ impl ValidationResult {
             .collect()
     }
 
-    pub fn format_validation_result(&self, use_colors: bool, verbose: bool) -> String {
+    pub fn format_validation_result(&self, progress_manager: &ProgressManager) -> String {
         let mut output = String::new();
 
         if self.is_valid() {
-            let status = if use_colors {
-                style("✓").green().to_string()
+            let status = if progress_manager.use_colors() {
+                progress_manager.status_line(MessageType::Success, "✓")
             } else {
                 "✓".to_string()
             };
 
-            let package_name = if use_colors {
+            let package_name = if progress_manager.use_colors() {
                 style(&self.package_name).magenta().bold().to_string()
             } else {
                 self.package_name.clone()
@@ -197,7 +201,7 @@ impl ValidationResult {
             // Add warnings if any
             let warnings = self.warnings();
             if !warnings.is_empty() {
-                let warning_header = if use_colors {
+                let warning_header = if progress_manager.use_colors() {
                     style("Warnings:").yellow().bold().to_string()
                 } else {
                     "Warnings:".to_string()
@@ -206,7 +210,7 @@ impl ValidationResult {
                 output.push_str(&format!("\n{}\n", warning_header));
 
                 for warning in warnings {
-                    let warn_prefix = if use_colors {
+                    let warn_prefix = if progress_manager.use_colors() {
                         style("  ! ").yellow().to_string()
                     } else {
                         "  ! ".to_string()
@@ -218,7 +222,7 @@ impl ValidationResult {
                     ));
 
                     if let Some(suggestion) = &warning.suggestion {
-                        let suggestion_text = if use_colors {
+                        let suggestion_text = if progress_manager.use_colors() {
                             style(format!("    Suggestion: {}", suggestion))
                                 .dim()
                                 .to_string()
@@ -232,7 +236,11 @@ impl ValidationResult {
         } else {
             // Format logic for invalid package (stub this from the original implementation)
             // Similar to the valid case but shows errors by category
-            self.format_invalid_result(&mut output, use_colors, verbose);
+            self.format_invalid_result(
+                &mut output,
+                progress_manager.use_colors(),
+                progress_manager.verbose(),
+            );
         }
 
         output
@@ -366,7 +374,46 @@ impl ValidationResult {
         if let Some(path) = &self.package_path {
             output.push_str("\nPackage file details:\n");
             output.push_str(&format!("  Path: {}\n", path.display()));
-            // Would add more details about the file
+
+            let metadata = path.metadata().expect("metadata call failed");
+
+            output.push_str(&format!(
+                "  Permissions: {:o}\n",
+                metadata.permissions().mode()
+            ));
+
+            let now = Zoned::now();
+            let printer = SpanPrinter::new();
+
+            {
+                let created = Zoned::try_from(metadata.created().unwrap()).unwrap();
+
+                let ago = now
+                    .duration_since(&created)
+                    .round(Unit::Second)
+                    .unwrap_or_default();
+
+                output.push_str(&format!(
+                    "  Created: {:?} ({} ago)\n",
+                    &created.round(Unit::Second),
+                    printer.duration_to_string(&ago)
+                ));
+            }
+
+            {
+                let modified = Zoned::try_from(metadata.modified().unwrap()).unwrap();
+
+                let ago = now
+                    .duration_since(&modified)
+                    .round(Unit::Second)
+                    .unwrap_or_default();
+
+                output.push_str(&format!(
+                    "  Modified: {:?} ({} ago)\n",
+                    &modified.round(Unit::Second),
+                    printer.duration_to_string(&ago)
+                ));
+            }
         }
 
         // Add package details (stub)
@@ -374,7 +421,35 @@ impl ValidationResult {
             output.push_str("\nPackage structure details:\n");
             output.push_str(&format!("  Name: {}\n", package.name));
             output.push_str(&format!("  Version: {}\n", package.version));
-            // Would add more details about the package
+
+            output.push_str(&format!(
+                "  Homepage: {}\n",
+                package.homepage.as_deref().unwrap_or_default()
+            ));
+
+            output.push_str(&format!(
+                "  Description: {}\n",
+                package.description.as_deref().unwrap_or_default()
+            ));
+
+            output.push_str("  Environments:\n");
+
+            for (name, env) in &package.environments {
+                output.push_str(&format!("    {}:\n", name));
+
+                output.push_str(&format!(
+                    "      Check: {}\n",
+                    &env.check.as_deref().unwrap_or_default()
+                ));
+
+                output.push_str(&format!("      Install: {}\n", &env.install));
+
+                output.push_str("      Dependencies:\n");
+
+                for dep in &env.dependencies {
+                    output.push_str(&format!("        {}\n", &dep));
+                }
+            }
         }
 
         // Add validation statistics (stub)
@@ -382,7 +457,7 @@ impl ValidationResult {
         output.push_str(&format!("  Total issues: {}\n", self.issues.len()));
         output.push_str(&format!("  Errors: {}\n", self.errors().len()));
         output.push_str(&format!("  Warnings: {}\n", self.warnings().len()));
-        // Would add more statistics
+        output.push_str(&format!("  Is valid: {}\n", self.is_valid()));
     }
 }
 
@@ -432,8 +507,10 @@ mod tests {
             Some("Update to the newer syntax."),
         ));
 
+        let progress_manager = ProgressManager::new(false, false, true);
+
         // Format the result
-        let formatted = result.format_validation_result(false, false);
+        let formatted = result.format_validation_result(&progress_manager);
 
         // Check the output contains expected content
         assert!(formatted.contains("Validation failed"));

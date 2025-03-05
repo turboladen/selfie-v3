@@ -26,7 +26,6 @@ pub struct ValidationCommand<'a, F: FileSystem, R: CommandRunner> {
     config: Config,
     progress_manager: &'a ProgressManager,
     verbose: bool,
-    use_colors: bool,
 }
 
 impl<'a, F: FileSystem, R: CommandRunner> ValidationCommand<'a, F, R> {
@@ -39,14 +38,12 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidationCommand<'a, F, R> {
         verbose: bool,
     ) -> Self {
         // Get the color setting from the progress manager
-        let use_colors = progress_manager.use_colors();
         Self {
             fs,
             runner,
             config,
             progress_manager,
             verbose,
-            use_colors,
         }
     }
 
@@ -82,8 +79,8 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidationCommand<'a, F, R> {
                 match result {
                     Ok(validation_result) => {
                         // Format the validation result
-                        let formatted = validation_result
-                            .format_validation_result(self.use_colors, self.verbose);
+                        let formatted =
+                            validation_result.format_validation_result(self.progress_manager);
 
                         if validation_result.is_valid() {
                             progress.finish_with_message("Validation successful");
@@ -101,9 +98,8 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidationCommand<'a, F, R> {
 
                         progress.abandon_with_message("Validation failed");
 
-                        match err {
-                            err => ValidationCommandResult::Error(format!("Error: {}", err)),
-                        }
+                        let e = err;
+                        ValidationCommandResult::Error(format!("Error: {}", e))
                     }
                 }
             }
