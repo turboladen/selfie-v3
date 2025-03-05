@@ -1,12 +1,18 @@
 # Selfie Package Manager Specification
 
 ## Overview
-Selfie is a meta package manager and dotfile manager that orchestrates package installations across different package managers and environments. It allows users to define their own package installation rules per environment, managing dependencies and providing clear feedback about installation progress.
+
+Selfie is a meta package manager and dotfile manager that orchestrates package installations across
+different package managers and environments. It allows users to define their own package
+installation rules per environment, managing dependencies and providing clear feedback about
+installation progress.
 
 ## Architecture
+
 Selfie follows Hexagonal Architecture with the following components:
 
 ### Core Components
+
 1. **Entities (Core Business Logic)**
    - Package definitions
    - Environment configurations
@@ -101,23 +107,25 @@ trait MessageRenderer {
 ```
 
 ## Package Definition Format
+
 ```yaml
-name: "package-name"              # Required
-version: "0.1.0"                 # Required
-schema_version: "0.1.0"          # Optional
-homepage: "https://example.com"   # Optional
+name: "package-name" # Required
+version: "0.1.0" # Required
+schema_version: "0.1.0" # Optional
+homepage: "https://example.com" # Optional
 description: "Package description" # Optional
-environments:                     # Required (at least one)
-  environment-name:              
-    shell: "/bin/bash"           # Optional
-    check: "which package-name"   # Optional
+environments: # Required (at least one)
+  environment-name:
+    shell: "/bin/bash" # Optional
+    check: "which package-name" # Optional
     install: "brew install package-name" # Required
-    dependencies:                # Optional
+    dependencies: # Optional
       - dependency1
       - dependency2
 ```
 
 ## Configuration File Format
+
 ```yaml
 environment: "work-mac"
 package_directory: "~/.config/selfie/packages"
@@ -131,9 +139,16 @@ logging:
   max_size: 10
 ```
 
+Configuration file location search order:
+
+1. XDG_CONFIG_HOME/selfie/
+2. ~/.config/selfie/
+3. ~/Library/Application Support/com.turboladen.selfie/ (macOS)
+
 ## Command Line Interface
 
 ### Core Commands
+
 ```bash
 selfie package install [OPTIONS] <package-name>
 selfie package list
@@ -145,6 +160,7 @@ selfie environments list [--by-package]
 ```
 
 ### Global Options
+
 ```
 --environment <name>       Override environment from config
 --verbose                 Show detailed output
@@ -162,6 +178,7 @@ selfie environments list [--by-package]
 ## Validation Rules
 
 ### Package Validation
+
 1. Quick validation (during installation):
    - Required fields exist and aren't empty
    - Current environment exists in environments list
@@ -177,6 +194,7 @@ selfie environments list [--by-package]
    - Similar package name suggestions
 
 ### Configuration Validation
+
 - Environment name must be specified
 - Package directory must exist and be readable
 - Command timeout must be positive
@@ -186,6 +204,7 @@ selfie environments list [--by-package]
 ## Error Handling
 
 ### Error Types
+
 1. Configuration Errors
    - Missing required fields
    - Invalid paths
@@ -210,6 +229,7 @@ selfie environments list [--by-package]
    - Signal handling errors
 
 ### Error Response Strategy
+
 1. User-facing errors:
    - Clear error messages
    - Suggested solutions
@@ -225,6 +245,7 @@ selfie environments list [--by-package]
 ## Progress Reporting
 
 ### Console Output
+
 - Use indicatif for progress bars
 - Color-coded status messages
 - Hierarchical installation progress
@@ -232,11 +253,13 @@ selfie environments list [--by-package]
 - Command output streaming
 
 ### Progress Bar Template
+
 ```rust
 "{prefix:.bold} {spinner} {wide_msg} ({elapsed})"
 ```
 
 ### Color Scheme
+
 ```rust
 error: red().bold()
 warning: yellow().bold()
@@ -251,17 +274,20 @@ package_name: magenta().bold()
 ## Logging
 
 ### Log Entry Format
+
 ```
 [timestamp] [level] [source:line] message
 ```
 
 ### Log Levels
+
 - INFO: General progress information
 - DEBUG: Detailed execution information
 - WARN: Non-fatal issues
 - ERROR: Fatal issues
 
 ### Log Rotation
+
 - New file per execution
 - Max files: 10 (configurable)
 - Max size: 10MB (configurable)
@@ -269,6 +295,7 @@ package_name: magenta().bold()
 ## Testing Strategy
 
 ### Unit Tests
+
 1. Core Logic
    - Package validation
    - Dependency resolution
@@ -281,6 +308,7 @@ package_name: magenta().bold()
    - Mock terminal output
 
 ### Integration Tests
+
 1. Docker-based testing
    - Multiple OS environments
    - Real package manager interactions
@@ -292,6 +320,7 @@ package_name: magenta().bold()
    - Window resizing
 
 ### Test Coverage Requirements
+
 - Minimum 80% code coverage
 - All error paths tested
 - All configuration combinations tested
@@ -300,36 +329,42 @@ package_name: magenta().bold()
 ## Implementation Phases
 
 ### Phase 1: Core Infrastructure
+
 1. Basic configuration management
 2. Package definition parsing
 3. Command execution framework
 4. Logging infrastructure
 
 ### Phase 2: Package Management
+
 1. Package installation
 2. Dependency resolution
 3. Environment handling
 4. Progress reporting
 
 ### Phase 3: User Interface
+
 1. Terminal UI
 2. Color support
 3. Progress indicators
 4. Error reporting
 
 ### Phase 4: Advanced Features
+
 1. Parallel installation
 2. Signal handling
 3. Terminal resizing
 4. Log rotation
 
 ## Performance Requirements
+
 1. Command execution timeout: 60s default
 2. Maximum parallel installations: 4 default
 3. Log rotation: 10 files, 10MB each
 4. Minimum terminal width: 40 characters
 
 ## Security Considerations
+
 1. Execute commands in isolated shell processes
 2. Validate all file paths
 3. Check file permissions
@@ -337,6 +372,7 @@ package_name: magenta().bold()
 5. Proper signal handling
 
 ## Dependencies
+
 1. indicatif: Progress bars and spinners
 2. console: Terminal colors and styling
 3. serde: YAML parsing

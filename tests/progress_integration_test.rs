@@ -1,12 +1,13 @@
 // tests/progress_display_test.rs
 
 use selfie::{
-    command::mock::MockCommandRunner,
-    config::ConfigBuilder,
-    filesystem::mock::MockFileSystem,
-    installation::InstallationStatus,
-    package_installer::PackageInstaller,
-    progress_display::{ProgressManager, ProgressStyleType},
+    adapters::progress::{ProgressManager, ProgressStyleType},
+    domain::{config::ConfigBuilder, installation::InstallationStatus},
+    ports::{
+        command::{MockCommandRunner, MockCommandRunnerExt},
+        filesystem::MockFileSystem,
+    },
+    services::multi_package_installation_service::MultiPackageInstallationService,
 };
 
 // Import the enhanced package installer
@@ -15,8 +16,8 @@ use std::path::Path;
 #[test]
 fn test_package_install_with_progress_display() {
     // Create mock environment
-    let fs = MockFileSystem::default();
-    let runner = MockCommandRunner::new();
+    let mut fs = MockFileSystem::default();
+    let mut runner = MockCommandRunner::new();
 
     // Create config
     let config = ConfigBuilder::default()
@@ -58,10 +59,23 @@ fn test_package_install_with_progress_display() {
             check: dep2 check
     "#;
 
-    fs.add_file(Path::new("/test/packages/main-pkg.yaml"), main_package_yaml);
-    fs.add_file(Path::new("/test/packages/dep1.yaml"), dep1_yaml);
-    fs.add_file(Path::new("/test/packages/dep2.yaml"), dep2_yaml);
-    fs.add_existing_path(Path::new("/test/packages"));
+    let package_dir = Path::new("/test/packages");
+    fs.mock_path_exists(&package_dir, true);
+
+    let main_pkg = package_dir.join("main-pkg.yaml");
+    fs.mock_path_exists(&main_pkg, true);
+    fs.mock_path_exists(package_dir.join("main-pkg.yml"), false);
+    fs.mock_read_file(&main_pkg, main_package_yaml);
+
+    let dep1 = package_dir.join("dep1.yaml");
+    fs.mock_path_exists(&dep1, true);
+    fs.mock_path_exists(package_dir.join("dep1.yml"), false);
+    fs.mock_read_file(&dep1, dep1_yaml);
+
+    let dep2 = package_dir.join("dep2.yaml");
+    fs.mock_path_exists(&dep2, true);
+    fs.mock_path_exists(package_dir.join("dep2.yml"), false);
+    fs.mock_read_file(&dep2, dep2_yaml);
 
     // Set up mock command responses
     // None of the packages are installed
@@ -73,10 +87,11 @@ fn test_package_install_with_progress_display() {
     runner.success_response("dep2 install", "Installed successfully");
 
     // Create the enhanced installer
-    let installer = PackageInstaller::new(
-        fs, runner, config, true,  // verbose output
+    let installer = MultiPackageInstallationService::new(
+        &fs, &runner, &config, true,  // verbose output
         false, // no colors
         true,  // use unicode
+        false,
     );
 
     // Run the installation

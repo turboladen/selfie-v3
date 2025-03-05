@@ -2,11 +2,10 @@
 use thiserror::Error;
 
 use crate::{
-    config::Config,
-    filesystem::FileSystem,
-    graph::{DependencyGraph, DependencyGraphError},
-    package::PackageNode,
-    package_repo::{PackageRepoError, PackageRepository},
+    domain::config::Config,
+    domain::dependency::{DependencyGraph, DependencyGraphError},
+    domain::package::Package,
+    ports::package_repo::{PackageRepoError, PackageRepository},
 };
 
 #[derive(Error, Debug)]
@@ -30,14 +29,13 @@ pub enum DependencyResolverError {
     EnvironmentNotSupported(String, String),
 }
 
-pub struct DependencyResolver<'a, F: FileSystem> {
-    package_repo: PackageRepository<'a, F>,
+pub struct DependencyResolver<'a, P: PackageRepository> {
+    package_repo: P,
     config: &'a Config,
 }
 
-impl<'a, F: FileSystem> DependencyResolver<'a, F> {
-    pub fn new(fs: &'a F, config: &'a Config) -> Self {
-        let package_repo = PackageRepository::new(fs, config.expanded_package_directory());
+impl<'a, P: PackageRepository> DependencyResolver<'a, P> {
+    pub fn new(package_repo: P, config: &'a Config) -> Self {
         Self {
             package_repo,
             config,
@@ -49,7 +47,7 @@ impl<'a, F: FileSystem> DependencyResolver<'a, F> {
     pub fn resolve_dependencies(
         &self,
         package_name: &str,
-    ) -> Result<Vec<PackageNode>, DependencyResolverError> {
+    ) -> Result<Vec<Package>, DependencyResolverError> {
         // Build the dependency graph starting with the requested package
         let mut graph = DependencyGraph::default();
         self.build_dependency_graph(&mut graph, package_name, &mut Vec::new())?;
@@ -160,23 +158,20 @@ impl<'a, F: FileSystem> DependencyResolver<'a, F> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{config::ConfigBuilder, filesystem::mock::MockFileSystem};
-    use std::path::Path;
+    use crate::{domain::config::ConfigBuilder, ports::package_repo::MockPackageRepository};
 
-    fn setup_test_environment() -> (MockFileSystem, Config) {
-        let fs = MockFileSystem::default();
+    fn setup_test_environment() -> (MockPackageRepository, Config) {
+        let package_repo = MockPackageRepository::new();
+
         let config = ConfigBuilder::default()
             .environment("test-env")
             .package_directory("/test/packages")
             .build();
 
-        // Add the package directory to the filesystem
-        fs.add_existing_path(Path::new("/test/packages"));
-
-        (fs, config)
+        (package_repo, config)
     }
 
-    fn create_test_yaml(name: &str, version: &str, dependencies: &[&str]) -> String {
+    fn create_test_package(name: &str, version: &str, dependencies: &[&str]) -> Package {
         let mut yaml = format!(
             r#"
 name: {}
@@ -195,22 +190,22 @@ environments:
             }
         }
 
-        yaml
+        Package::from_yaml(&yaml).unwrap()
     }
 
     #[test]
     fn test_resolve_simple_dependency() {
-        let (fs, config) = setup_test_environment();
+        let (mut package_repo, config) = setup_test_environment();
 
         // Add package and dependency to the filesystem
-        let package_yaml = create_test_yaml("main-pkg", "1.0.0", &["dep-pkg"]);
-        let dep_yaml = create_test_yaml("dep-pkg", "1.0.0", &[]);
+        let package = create_test_package("main-pkg", "1.0.0", &["dep-pkg"]);
+        let dep = create_test_package("dep-pkg", "1.0.0", &[]);
 
-        fs.add_file(Path::new("/test/packages/main-pkg.yaml"), &package_yaml);
-        fs.add_file(Path::new("/test/packages/dep-pkg.yaml"), &dep_yaml);
+        package_repo.mock_get_package_ok("main-pkg", package);
+        package_repo.mock_get_package_ok("dep-pkg", dep);
 
         // Create resolver and resolve dependencies
-        let resolver = DependencyResolver::new(&fs, &config);
+        let resolver = DependencyResolver::new(package_repo, &config);
         let result = resolver.resolve_dependencies("main-pkg");
 
         assert!(result.is_ok());
@@ -222,21 +217,21 @@ environments:
 
     #[test]
     fn test_resolve_deep_dependency_chain() {
-        let (fs, config) = setup_test_environment();
+        let (mut package_repo, config) = setup_test_environment();
 
         // Create a chain: main -> dep1 -> dep2 -> dep3
-        let main_yaml = create_test_yaml("main-pkg", "1.0.0", &["dep1"]);
-        let dep1_yaml = create_test_yaml("dep1", "1.0.0", &["dep2"]);
-        let dep2_yaml = create_test_yaml("dep2", "1.0.0", &["dep3"]);
-        let dep3_yaml = create_test_yaml("dep3", "1.0.0", &[]);
+        let main = create_test_package("main-pkg", "1.0.0", &["dep1"]);
+        let dep1 = create_test_package("dep1", "1.0.0", &["dep2"]);
+        let dep2 = create_test_package("dep2", "1.0.0", &["dep3"]);
+        let dep3 = create_test_package("dep3", "1.0.0", &[]);
 
-        fs.add_file(Path::new("/test/packages/main-pkg.yaml"), &main_yaml);
-        fs.add_file(Path::new("/test/packages/dep1.yaml"), &dep1_yaml);
-        fs.add_file(Path::new("/test/packages/dep2.yaml"), &dep2_yaml);
-        fs.add_file(Path::new("/test/packages/dep3.yaml"), &dep3_yaml);
+        package_repo.mock_get_package_ok("main-pkg", main);
+        package_repo.mock_get_package_ok("dep1", dep1);
+        package_repo.mock_get_package_ok("dep2", dep2);
+        package_repo.mock_get_package_ok("dep3", dep3);
 
         // Create resolver and resolve dependencies
-        let resolver = DependencyResolver::new(&fs, &config);
+        let resolver = DependencyResolver::new(package_repo, &config);
         let result = resolver.resolve_dependencies("main-pkg");
 
         assert!(result.is_ok());
@@ -252,21 +247,21 @@ environments:
 
     #[test]
     fn test_resolve_diamond_dependency() {
-        let (fs, config) = setup_test_environment();
+        let (mut package_repo, config) = setup_test_environment();
 
         // Create a diamond: main -> (dep1, dep2) -> common-dep
-        let main_yaml = create_test_yaml("main-pkg", "1.0.0", &["dep1", "dep2"]);
-        let dep1_yaml = create_test_yaml("dep1", "1.0.0", &["common-dep"]);
-        let dep2_yaml = create_test_yaml("dep2", "1.0.0", &["common-dep"]);
-        let common_yaml = create_test_yaml("common-dep", "1.0.0", &[]);
+        let main = create_test_package("main-pkg", "1.0.0", &["dep1", "dep2"]);
+        let dep1 = create_test_package("dep1", "1.0.0", &["common-dep"]);
+        let dep2 = create_test_package("dep2", "1.0.0", &["common-dep"]);
+        let common = create_test_package("common-dep", "1.0.0", &[]);
 
-        fs.add_file(Path::new("/test/packages/main-pkg.yaml"), &main_yaml);
-        fs.add_file(Path::new("/test/packages/dep1.yaml"), &dep1_yaml);
-        fs.add_file(Path::new("/test/packages/dep2.yaml"), &dep2_yaml);
-        fs.add_file(Path::new("/test/packages/common-dep.yaml"), &common_yaml);
+        package_repo.mock_get_package_ok("main-pkg", main);
+        package_repo.mock_get_package_ok("dep1", dep1);
+        package_repo.mock_get_package_ok("dep2", dep2);
+        package_repo.mock_get_package_ok("common-dep", common);
 
         // Create resolver and resolve dependencies
-        let resolver = DependencyResolver::new(&fs, &config);
+        let resolver = DependencyResolver::new(package_repo, &config);
         let result = resolver.resolve_dependencies("main-pkg");
 
         assert!(result.is_ok());
@@ -284,17 +279,17 @@ environments:
 
     #[test]
     fn test_detect_circular_dependency() {
-        let (fs, config) = setup_test_environment();
+        let (mut package_repo, config) = setup_test_environment();
 
         // Create a circular dependency: main -> dep1 -> main
-        let main_yaml = create_test_yaml("main-pkg", "1.0.0", &["dep1"]);
-        let dep1_yaml = create_test_yaml("dep1", "1.0.0", &["main-pkg"]);
+        let main = create_test_package("main-pkg", "1.0.0", &["dep1"]);
+        let dep1 = create_test_package("dep1", "1.0.0", &["main-pkg"]);
 
-        fs.add_file(Path::new("/test/packages/main-pkg.yaml"), &main_yaml);
-        fs.add_file(Path::new("/test/packages/dep1.yaml"), &dep1_yaml);
+        package_repo.mock_get_package_ok("main-pkg", main);
+        package_repo.mock_get_package_ok("dep1", dep1);
 
         // Create resolver and resolve dependencies
-        let resolver = DependencyResolver::new(&fs, &config);
+        let resolver = DependencyResolver::new(package_repo, &config);
         let result = resolver.resolve_dependencies("main-pkg");
 
         assert!(result.is_err());
@@ -314,14 +309,19 @@ environments:
 
     #[test]
     fn test_dependency_not_found() {
-        let (fs, config) = setup_test_environment();
+        let (mut package_repo, config) = setup_test_environment();
 
         // Create a package with a non-existent dependency
-        let main_yaml = create_test_yaml("main-pkg", "1.0.0", &["missing-dep"]);
-        fs.add_file(Path::new("/test/packages/main-pkg.yaml"), &main_yaml);
+        let package = create_test_package("main-pkg", "1.0.0", &["missing-dep"]);
 
         // Create resolver and resolve dependencies
-        let resolver = DependencyResolver::new(&fs, &config);
+        package_repo.mock_get_package_ok("main-pkg", package);
+        package_repo.mock_get_package_err(
+            "missing-dep",
+            PackageRepoError::PackageNotFound("missing-dep".to_string()),
+        );
+
+        let resolver = DependencyResolver::new(package_repo, &config);
         let result = resolver.resolve_dependencies("main-pkg");
 
         assert!(result.is_err());
@@ -335,10 +335,10 @@ environments:
 
     #[test]
     fn test_environment_not_supported() {
-        let (fs, config) = setup_test_environment();
+        let (mut package_repo, config) = setup_test_environment();
 
         // Create a package with a dependency that doesn't support the current environment
-        let main_yaml = create_test_yaml("main-pkg", "1.0.0", &["dep1"]);
+        let main_yaml = create_test_package("main-pkg", "1.0.0", &["dep1"]);
 
         // Create a dependency with a different environment
         let dep1_yaml = r#"
@@ -348,12 +348,13 @@ environments:
   different-env:
     install: echo "Installing dep1"
 "#;
+        let dep1 = Package::from_yaml(dep1_yaml).unwrap();
 
-        fs.add_file(Path::new("/test/packages/main-pkg.yaml"), &main_yaml);
-        fs.add_file(Path::new("/test/packages/dep1.yaml"), dep1_yaml);
+        package_repo.mock_get_package_ok("main-pkg", main_yaml);
+        package_repo.mock_get_package_ok("dep1", dep1);
 
         // Create resolver and resolve dependencies
-        let resolver = DependencyResolver::new(&fs, &config);
+        let resolver = DependencyResolver::new(package_repo, &config);
         let result = resolver.resolve_dependencies("main-pkg");
 
         assert!(result.is_err());

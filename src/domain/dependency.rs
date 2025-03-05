@@ -1,10 +1,12 @@
-// src/graph.rs
+// src/domain/dependency.rs
+// Dependency graph and related types
 
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 
-use crate::package::PackageNode;
+use super::package::Package;
 
+/// Errors that can occur during dependency operations
 #[derive(Debug, Error)]
 pub enum DependencyGraphError {
     #[error("Package not found: {0}")]
@@ -20,28 +22,39 @@ pub enum DependencyGraphError {
     InvalidDependency(String),
 }
 
+/// Represents a graph of package dependencies
 #[derive(Debug, Default)]
 pub struct DependencyGraph {
-    nodes: HashMap<String, PackageNode>,
+    /// Map of package name to package
+    nodes: HashMap<String, Package>,
+
+    /// Map of package name to its dependencies
     edges: HashMap<String, HashSet<String>>,
 }
 
 impl DependencyGraph {
-    /// Adds a package node to the graph
-    pub fn add_node(&mut self, node: PackageNode) -> Result<(), DependencyGraphError> {
-        if self.nodes.contains_key(&node.name) {
-            // If node already exists, we'll just update it
-            self.nodes.insert(node.name.clone(), node.clone());
-            return Ok(());
+    /// Create a new empty dependency graph
+    pub fn new() -> Self {
+        Self {
+            nodes: HashMap::new(),
+            edges: HashMap::new(),
         }
+    }
 
-        self.nodes.insert(node.name.clone(), node.clone());
-        self.edges.insert(node.name, HashSet::new());
+    /// Add a package node to the graph
+    pub fn add_node(&mut self, package: Package) -> Result<(), DependencyGraphError> {
+        let name = package.name.clone();
+
+        // If the node already exists, update it
+        self.nodes.insert(name.clone(), package);
+
+        // Ensure the package has an entry in the edges map
+        self.edges.entry(name).or_default();
 
         Ok(())
     }
 
-    // Fix the add_dependency method
+    /// Add a dependency relationship between packages
     pub fn add_dependency(
         &mut self,
         package: &str,
@@ -84,7 +97,7 @@ impl DependencyGraph {
         Ok(())
     }
 
-    /// Returns true if the graph contains cycles
+    /// Check if the graph contains any cycles
     pub fn has_cycle(&self) -> bool {
         let mut visited = HashSet::new();
         let mut rec_stack = HashSet::new();
@@ -98,8 +111,8 @@ impl DependencyGraph {
         false
     }
 
-    /// Returns a sorted list of packages in installation order
-    pub fn installation_order(&self) -> Result<Vec<&PackageNode>, DependencyGraphError> {
+    /// Get a list of packages in installation order (dependencies first)
+    pub fn installation_order(&self) -> Result<Vec<&Package>, DependencyGraphError> {
         // Use topological sort to get installation order
         let mut result = Vec::new();
         let mut visited = HashSet::new();
@@ -120,23 +133,24 @@ impl DependencyGraph {
         Ok(result)
     }
 
-    /// Returns the number of nodes in the graph
+    /// Get the number of packages in the graph
     pub fn len(&self) -> usize {
         self.nodes.len()
     }
 
-    /// Returns true if the graph is empty
+    /// Check if the graph is empty
     pub fn is_empty(&self) -> bool {
         self.nodes.is_empty()
     }
 
-    /// Returns a list of all package names in the graph
+    /// Get a list of all package names in the graph
     pub fn get_package_names(&self) -> Vec<String> {
         self.nodes.keys().cloned().collect()
     }
 
     // Private helper methods
 
+    /// Detect cycles using DFS
     fn has_cycle_util(
         &self,
         node: &str,
@@ -162,7 +176,7 @@ impl DependencyGraph {
         false
     }
 
-    /// Find and return descriptions of any cycles in the graph
+    /// Find all cycles in the graph
     pub fn find_cycles(&self) -> Vec<Vec<String>> {
         let mut cycles = Vec::new();
         let mut visited = HashSet::new();
@@ -179,7 +193,7 @@ impl DependencyGraph {
         cycles
     }
 
-    // Helper for find_cycles that actually performs the DFS
+    /// Helper for find_cycles that performs the DFS
     fn find_cycles_util(
         &self,
         node: &str,
@@ -225,13 +239,13 @@ impl DependencyGraph {
         path.pop();
     }
 
-    // Fix the enhanced implementation of topological_sort_util
+    /// Perform topological sort to order packages
     fn topological_sort_util<'a>(
         &'a self,
         node: &str,
         visited: &mut HashSet<String>,
         temp_visited: &mut HashSet<String>,
-        result: &mut Vec<&'a PackageNode>,
+        result: &mut Vec<&'a Package>,
     ) -> Result<(), DependencyGraphError> {
         // Check for cycle using temporary visit mark
         if temp_visited.contains(node) {
@@ -279,10 +293,10 @@ impl DependencyGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::package::PackageNodeBuilder;
+    use crate::domain::package::PackageBuilder;
 
-    fn create_test_package(name: &str) -> PackageNode {
-        PackageNodeBuilder::default()
+    fn create_test_package(name: &str) -> Package {
+        PackageBuilder::default()
             .name(name)
             .version("1.0.0")
             .environment("test-env", "test install")
@@ -313,7 +327,7 @@ mod tests {
         let package1 = create_test_package("test-package");
 
         // Create a slightly different version
-        let package2 = PackageNodeBuilder::default()
+        let package2 = PackageBuilder::default()
             .name("test-package")
             .version("1.1.0") // Different version
             .environment("test-env", "test install")

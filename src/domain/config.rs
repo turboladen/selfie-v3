@@ -2,11 +2,12 @@
 
 use std::path::{Path, PathBuf};
 
+use serde::Deserialize;
 use thiserror::Error;
 
-use crate::package::{EnvironmentConfig, PackageNode, PackageValidationError};
+use crate::domain::package::{EnvironmentConfig, Package, PackageValidationError};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Config {
     pub environment: String,
     pub package_directory: PathBuf,
@@ -94,7 +95,7 @@ impl Config {
 
     pub fn resolve_environment<'a>(
         &self,
-        package: &'a PackageNode,
+        package: &'a Package,
     ) -> Result<&'a EnvironmentConfig, ConfigValidationError> {
         if self.environment.is_empty() {
             return Err(ConfigValidationError::InvalidPackage(

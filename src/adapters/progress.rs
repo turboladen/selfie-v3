@@ -1,4 +1,4 @@
-// src/progress_display.rs
+// src/adapters/progress.rs
 // Implements interactive progress display using indicatif with support for
 // multiple progress bars, spinners, and multi-line output.
 
@@ -8,12 +8,15 @@ use std::{
     time::{Duration, Instant},
 };
 
-use console::{style, Color};
+use console::style;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
 use crate::{
-    installation::InstallationStatus,
-    progress::{MessageRenderer, MessageType, ProgressReporter},
+    domain::{
+        installation::InstallationStatus,
+        progress::{ConsoleRenderer, ProgressReporter},
+    },
+    ports::progress::MessageType,
 };
 
 /// Represents the style of a progress element
@@ -47,7 +50,7 @@ impl ProgressManager {
     /// Create a new progress manager with the specified options
     pub fn new(use_colors: bool, use_unicode: bool, verbose: bool) -> Self {
         // Create a console renderer for the progress reporter
-        let console_renderer = crate::progress::ConsoleRenderer::new(use_unicode, use_colors);
+        let console_renderer = ConsoleRenderer::new(use_unicode, use_colors);
         let progress_reporter = ProgressReporter::new(Box::new(console_renderer));
 
         Self {
@@ -388,8 +391,8 @@ impl ProgressDisplay {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::installation::InstallationStatus;
-    use crate::progress::MessageType;
+    use crate::domain::installation::InstallationStatus;
+    use crate::ports::progress::MessageType;
     use std::thread;
 
     #[test]

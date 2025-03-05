@@ -1,15 +1,21 @@
 // tests/install_command_test.rs
 
+use std::path::Path;
+
 use selfie::{
-    command::mock::MockCommandRunner, config::ConfigBuilder, filesystem::mock::MockFileSystem,
-    installation::InstallationStatus, package_installer::PackageInstaller,
+    domain::{config::ConfigBuilder, installation::InstallationStatus},
+    ports::{
+        command::{MockCommandRunner, MockCommandRunnerExt},
+        filesystem::MockFileSystem,
+    },
+    services::multi_package_installation_service::MultiPackageInstallationService,
 };
 
 #[test]
 fn test_package_install_end_to_end() {
     // Create mock environment
-    let fs = MockFileSystem::default();
-    let runner = MockCommandRunner::new();
+    let mut fs = MockFileSystem::default();
+    let mut runner = MockCommandRunner::new();
 
     // Create config
     let config = ConfigBuilder::default()
@@ -27,18 +33,21 @@ fn test_package_install_end_to_end() {
             check: rg check
     "#;
 
-    fs.add_file(
-        std::path::Path::new("/test/packages/ripgrep.yaml"),
-        package_yaml,
-    );
-    fs.add_existing_path(std::path::Path::new("/test/packages"));
+    let package_dir = Path::new("/test/packages");
+    fs.mock_path_exists(&package_dir, true);
+
+    let ripgrep = package_dir.join("ripgrep.yaml");
+    fs.mock_path_exists(&ripgrep, true);
+    fs.mock_path_exists(package_dir.join("ripgrep.yml"), false);
+    fs.mock_read_file(&ripgrep, package_yaml);
 
     // Set up mock command responses
     runner.error_response("rg check", "Not found", 1); // Not installed
     runner.success_response("rg install", "Installed successfully");
 
     // Create package installer
-    let installer = PackageInstaller::new(fs, runner, config, true, false, false);
+    let installer =
+        MultiPackageInstallationService::new(&fs, &runner, &config, true, false, false, false);
 
     // Run the installation
     let result = installer.install_package("ripgrep");
@@ -52,8 +61,8 @@ fn test_package_install_end_to_end() {
 #[test]
 fn test_package_install_with_dependencies() {
     // Create mock environment
-    let fs = MockFileSystem::default();
-    let runner = MockCommandRunner::new();
+    let mut fs = MockFileSystem::default();
+    let mut runner = MockCommandRunner::new();
 
     // Create config
     let config = ConfigBuilder::default()
@@ -82,15 +91,18 @@ fn test_package_install_with_dependencies() {
             check: rust check
     "#;
 
-    fs.add_file(
-        std::path::Path::new("/test/packages/ripgrep.yaml"),
-        package_yaml,
-    );
-    fs.add_file(
-        std::path::Path::new("/test/packages/rust.yaml"),
-        dependency_yaml,
-    );
-    fs.add_existing_path(std::path::Path::new("/test/packages"));
+    let package_dir = Path::new("/test/packages");
+    fs.mock_path_exists(&package_dir, true);
+
+    let ripgrep = package_dir.join("ripgrep.yaml");
+    fs.mock_path_exists(&ripgrep, true);
+    fs.mock_path_exists(package_dir.join("ripgrep.yml"), false);
+    fs.mock_read_file(&ripgrep, package_yaml);
+
+    let rust = package_dir.join("rust.yaml");
+    fs.mock_path_exists(&rust, true);
+    fs.mock_path_exists(package_dir.join("rust.yml"), false);
+    fs.mock_read_file(&rust, dependency_yaml);
 
     // Set up mock command responses
     runner.error_response("rg check", "Not found", 1); // Not installed
@@ -99,7 +111,8 @@ fn test_package_install_with_dependencies() {
     runner.success_response("rust install", "Installed successfully");
 
     // Create package installer
-    let installer = PackageInstaller::new(fs, runner, config, true, false, false);
+    let installer =
+        MultiPackageInstallationService::new(&fs, &runner, &config, true, false, false, false);
 
     // Run the installation
     let result = installer.install_package("ripgrep");
@@ -117,8 +130,8 @@ fn test_package_install_with_dependencies() {
 #[test]
 fn test_package_install_with_complex_dependencies() {
     // Create mock environment
-    let fs = MockFileSystem::default();
-    let runner = MockCommandRunner::new();
+    let mut fs = MockFileSystem::default();
+    let mut runner = MockCommandRunner::new();
 
     // Create config
     let config = ConfigBuilder::default()
@@ -168,14 +181,28 @@ fn test_package_install_with_complex_dependencies() {
             check: dep3-check
     "#;
 
-    fs.add_file(
-        std::path::Path::new("/test/packages/main-pkg.yaml"),
-        main_pkg_yaml,
-    );
-    fs.add_file(std::path::Path::new("/test/packages/dep1.yaml"), dep1_yaml);
-    fs.add_file(std::path::Path::new("/test/packages/dep2.yaml"), dep2_yaml);
-    fs.add_file(std::path::Path::new("/test/packages/dep3.yaml"), dep3_yaml);
-    fs.add_existing_path(std::path::Path::new("/test/packages"));
+    let package_dir = Path::new("/test/packages");
+    fs.mock_path_exists(&package_dir, true);
+
+    let main_pkg = package_dir.join("main-pkg.yaml");
+    fs.mock_path_exists(&main_pkg, true);
+    fs.mock_path_exists(package_dir.join("main-pkg.yml"), false);
+    fs.mock_read_file(&main_pkg, main_pkg_yaml);
+
+    let dep1 = package_dir.join("dep1.yaml");
+    fs.mock_path_exists(&dep1, true);
+    fs.mock_path_exists(package_dir.join("dep1.yml"), false);
+    fs.mock_read_file(&dep1, dep1_yaml);
+
+    let dep2 = package_dir.join("dep2.yaml");
+    fs.mock_path_exists(&dep2, true);
+    fs.mock_path_exists(package_dir.join("dep2.yml"), false);
+    fs.mock_read_file(&dep2, dep2_yaml);
+
+    let dep3 = package_dir.join("dep3.yaml");
+    fs.mock_path_exists(&dep3, true);
+    fs.mock_path_exists(package_dir.join("dep3.yml"), false);
+    fs.mock_read_file(&dep3, dep3_yaml);
 
     // Set up mock command responses - all need to be installed
     runner.error_response("main-check", "Not found", 1);
@@ -188,7 +215,8 @@ fn test_package_install_with_complex_dependencies() {
     runner.success_response("dep3-install", "Installed successfully");
 
     // Create package installer
-    let installer = PackageInstaller::new(fs, runner, config, true, false, false);
+    let installer =
+        MultiPackageInstallationService::new(&fs, &runner, &config, true, false, false, false);
 
     // Run the installation
     let result = installer.install_package("main-pkg");

@@ -4,7 +4,7 @@
 // in a real application. It simulates installing a package with dependencies
 // and shows how to update progress bars and display status information.
 
-use selfie::progress_display::{ProgressManager, ProgressStyleType};
+use selfie::adapters::progress::{ProgressManager, ProgressStyleType};
 use std::thread;
 use std::time::Duration;
 
