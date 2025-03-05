@@ -64,8 +64,8 @@ impl<F: FileSystem> ConfigLoader for YamlConfigLoader<'_, F> {
         let mut paths = Vec::new();
 
         if let Ok(config_dir) = self.fs.config_dir() {
-            let config_yaml = config_dir.join("selfie").join("config.yaml");
-            let config_yml = config_dir.join("selfie").join("config.yml");
+            let config_yaml = config_dir.join("config.yaml");
+            let config_yml = config_dir.join("config.yml");
 
             if self.fs.path_exists(&config_yaml) {
                 paths.push(config_yaml);
