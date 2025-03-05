@@ -264,6 +264,7 @@ impl<'a, F: FileSystem, R: CommandRunner> MultiPackageInstallationService<'a, F,
         if self.check_commands {
             let command_validator = CommandValidator::new(self.runner);
             let mut missing_commands = Vec::new();
+            let mut invalid_commands = Vec::new();
 
             // Check commands for each package
             for package in &packages {
@@ -272,10 +273,74 @@ impl<'a, F: FileSystem, R: CommandRunner> MultiPackageInstallationService<'a, F,
                     if let Some(base_cmd) =
                         CommandValidator::<R>::extract_base_command(&env_config.install)
                     {
-                        if !self.runner.is_command_available(base_cmd) {
+                        let validation_result = command_validator
+                            .check_command_availability(&self.config.environment, base_cmd);
+
+                        if !validation_result.is_available {
+                            // Command isn't available
+                            // return Ok(false);
                             missing_commands.push((package.name.clone(), base_cmd.to_string()));
                         }
+
+                        // Optionally, check for syntax issues as well
+                        let syntax_result = command_validator
+                            .validate_command_syntax(&self.config.environment, &env_config.install);
+
+                        if !syntax_result.is_valid {
+                            // Command has syntax problems
+                            invalid_commands.push((package.name.clone(), base_cmd.to_string()));
+                        }
                     }
+                }
+            }
+
+            // If any commands are missing, report and exit
+            match (missing_commands.is_empty(), invalid_commands.is_empty()) {
+                (true, true) => (),
+                (true, false) => {
+                    main_progress.abandon_with_message("Command availability check failed");
+                    let mut error_msg = String::from(
+                        "The following commands required for installation are invalid:\n\n",
+                    );
+                    for (pkg, cmd) in invalid_commands {
+                        error_msg.push_str(&format!("  • Package '{}' requires '{}'\n", pkg, cmd));
+                    }
+
+                    error_msg.push_str("\nPlease fix these commands and try again.");
+                    return Err(PackageInstallerError::CommandNotAvailable(error_msg));
+                }
+                (false, true) => {
+                    main_progress.abandon_with_message("Command availability check failed");
+
+                    let mut error_msg = String::from(
+                        "The following commands required for installation are not available:\n\n",
+                    );
+                    for (pkg, cmd) in missing_commands {
+                        error_msg.push_str(&format!("  • Package '{}' requires '{}'\n", pkg, cmd));
+                    }
+
+                    error_msg.push_str("\nPlease install these commands and try again.");
+                    return Err(PackageInstallerError::CommandNotAvailable(error_msg));
+                }
+                (false, false) => {
+                    main_progress.abandon_with_message("Command availability check failed");
+
+                    let mut error_msg = String::from(
+                        "The following commands required for installation are not available:\n\n",
+                    );
+                    for (pkg, cmd) in missing_commands {
+                        error_msg.push_str(&format!("  • Package '{}' requires '{}'\n", pkg, cmd));
+                    }
+
+                    let mut error_msg = String::from(
+                        "The following commands required for installation are invalid:\n\n",
+                    );
+                    for (pkg, cmd) in invalid_commands {
+                        error_msg.push_str(&format!("  • Package '{}' requires '{}'\n", pkg, cmd));
+                    }
+
+                    error_msg.push_str("\nPlease install and/or fix these commands and try again.");
+                    return Err(PackageInstallerError::CommandNotAvailable(error_msg));
                 }
             }
 

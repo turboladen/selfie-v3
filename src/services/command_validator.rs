@@ -86,7 +86,11 @@ impl<'a, R: CommandRunner> CommandValidator<'a, R> {
     }
 
     /// Validate command syntax without executing
-    fn validate_command_syntax(&self, env_name: &str, command: &str) -> CommandValidationResult {
+    pub(crate) fn validate_command_syntax(
+        &self,
+        env_name: &str,
+        command: &str,
+    ) -> CommandValidationResult {
         // Check for unmatched quotes
         let mut in_single_quotes = false;
         let mut in_double_quotes = false;
@@ -144,7 +148,11 @@ impl<'a, R: CommandRunner> CommandValidator<'a, R> {
     }
 
     /// Check if a command is available in the current environment
-    fn check_command_availability(&self, env_name: &str, command: &str) -> CommandValidationResult {
+    pub(crate) fn check_command_availability(
+        &self,
+        env_name: &str,
+        command: &str,
+    ) -> CommandValidationResult {
         let is_available = self.runner.is_command_available(command);
 
         // Generate more environment-aware message
