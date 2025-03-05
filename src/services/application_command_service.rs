@@ -18,7 +18,7 @@ use crate::{
 use super::{
     multi_package_installation_service::MultiPackageInstallationService,
     package_list_service::{PackageListResult, PackageListService},
-    package_validation_service::{PackageValidationResult, PackageValidationService},
+    package_validation_command::{PackageValidationCommand, PackageValidationResult},
 };
 
 pub struct ApplicationCommandService<'a, F: FileSystem, R: CommandRunner, C: ConfigLoader> {
@@ -71,9 +71,7 @@ impl<'a, F: FileSystem, R: CommandRunner, C: ConfigLoader> ApplicationCommandSer
 
         // Validate based on requirements
         if full_validation {
-            config
-                .validate()
-                .map_err(ApplicationError::ConfigError)?;
+            config.validate().map_err(ApplicationError::ConfigError)?;
         } else {
             config
                 .validate_minimal()
@@ -204,8 +202,8 @@ impl<F: FileSystem, R: CommandRunner, C: ConfigLoader> ApplicationCommandRouter
                         // For validation commands, use minimal config validation that only checks package directory
                         match self.build_config(&args, true) {
                             Ok(config) => {
-                                // Use the validate command
-                                let validate_cmd = PackageValidationService::new(
+                                // Use the consolidated validate command
+                                let validate_cmd = PackageValidationCommand::new(
                                     self.fs,
                                     self.runner,
                                     config,

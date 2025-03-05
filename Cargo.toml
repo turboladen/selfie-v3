@@ -19,4 +19,5 @@ thiserror = "2.0.11"
 url = "2.5.4"
 
 [dev-dependencies]
+pretty_assertions = "1.4.1"
 tempfile = "3.17.1"
