@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 clap = { version = "4.5.31", features = ["derive"] }
 console = "0.15.10"
-dirs = "5.0.1"
+etcetera = "0.10.0"
 indicatif = "0.17.11"
 jiff = "0.2.1"
 mockall = "0.13.1"
@@ -19,5 +19,4 @@ thiserror = "2.0.11"
 url = "2.5.4"
 
 [dev-dependencies]
-dirs = "5.0.1"
 tempfile = "3.17.1"

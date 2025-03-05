@@ -38,6 +38,8 @@ pub trait FileSystem {
 
     /// Get the canonical path
     fn canonicalize(&self, path: &Path) -> Result<PathBuf, FileSystemError>;
+
+    fn config_dir(&self) -> Result<PathBuf, FileSystemError>;
 }
 
 // Implement FileSystem for references to implement FileSystem
@@ -60,6 +62,10 @@ impl<T: FileSystem + ?Sized> FileSystem for &T {
 
     fn canonicalize(&self, path: &Path) -> Result<PathBuf, FileSystemError> {
         (*self).canonicalize(path)
+    }
+
+    fn config_dir(&self) -> Result<PathBuf, FileSystemError> {
+        (*self).config_dir()
     }
 }
 
@@ -95,6 +101,14 @@ impl MockFileSystem {
         self.expect_path_exists()
             .with(mockall::predicate::eq(PathBuf::from(path)))
             .returning(move |_| exists);
+    }
+
+    pub fn mock_config_dir<P>(&mut self, path: P)
+    where
+        PathBuf: From<P>,
+    {
+        let p = PathBuf::from(path);
+        self.expect_config_dir().return_once(|| Ok(p));
     }
 }
 

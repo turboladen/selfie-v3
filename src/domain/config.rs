@@ -2,11 +2,12 @@
 
 use std::path::{Path, PathBuf};
 
+use serde::Deserialize;
 use thiserror::Error;
 
 use crate::domain::package::{EnvironmentConfig, Package, PackageValidationError};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Config {
     pub environment: String,
     pub package_directory: PathBuf,

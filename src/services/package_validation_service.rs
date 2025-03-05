@@ -2,10 +2,11 @@
 // Implements the 'selfie package validate' command with enhanced command validation
 
 use crate::{
-    adapters::package_repo::yaml::YamlPackageRepository,
-    adapters::progress::{ProgressManager, ProgressStyleType},
-    cli::PackageSubcommands,
-    domain::config::Config,
+    adapters::{
+        package_repo::yaml::YamlPackageRepository,
+        progress::{ProgressManager, ProgressStyleType},
+    },
+    domain::{application::commands::PackageCommand, config::Config},
     ports::{command::CommandRunner, filesystem::FileSystem},
     services::{
         command_validator::CommandValidator,
@@ -58,9 +59,9 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageValidationService<'a, F, R> {
     }
 
     /// Execute the validate command
-    pub fn execute(&self, cmd: &PackageSubcommands) -> PackageValidationResult {
+    pub fn execute(&self, cmd: &PackageCommand) -> PackageValidationResult {
         match cmd {
-            PackageSubcommands::Validate {
+            PackageCommand::Validate {
                 package_name,
                 package_path,
             } => {

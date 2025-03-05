@@ -1,9 +1,12 @@
 // src/adapters/filesystem/real.rs
 // Real file system adapter implementation
 
-use std::fs;
-use std::io;
-use std::path::{Path, PathBuf};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+};
+
+use etcetera::{choose_app_strategy, AppStrategy, AppStrategyArgs};
 
 use crate::ports::filesystem::{FileSystem, FileSystemError};
 
@@ -54,7 +57,7 @@ impl FileSystem for RealFileSystem {
 
         let mut paths = Vec::new();
         for entry in entries {
-            let entry = entry.map_err(|e| FileSystemError::IoError(e))?;
+            let entry = entry.map_err(FileSystemError::IoError)?;
             paths.push(entry.path());
         }
 
@@ -71,6 +74,16 @@ impl FileSystem for RealFileSystem {
             }
             _ => FileSystemError::IoError(e),
         })
+    }
+
+    fn config_dir(&self) -> Result<PathBuf, FileSystemError> {
+        choose_app_strategy(AppStrategyArgs {
+            top_level_domain: "net".to_string(),
+            author: "turboladen".to_string(),
+            app_name: "selfie".to_string(),
+        })
+        .map(|xdg| xdg.config_dir())
+        .map_err(|_| FileSystemError::PathNotFound("Unable to find home directory".to_string()))
     }
 }
 
