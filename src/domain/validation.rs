@@ -1,6 +1,9 @@
 // src/domain/validation.rs
+use std::{collections::HashMap, fmt, path::PathBuf};
+
+use console::style;
+
 use crate::domain::package::Package;
-use std::{fmt, path::PathBuf};
 
 /// Categories of package validation errors
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -172,6 +175,215 @@ impl ValidationResult {
             .filter(|issue| issue.category == *category)
             .collect()
     }
+
+    pub fn format_validation_result(&self, use_colors: bool, verbose: bool) -> String {
+        let mut output = String::new();
+
+        if self.is_valid() {
+            let status = if use_colors {
+                style("✓").green().to_string()
+            } else {
+                "✓".to_string()
+            };
+
+            let package_name = if use_colors {
+                style(&self.package_name).magenta().bold().to_string()
+            } else {
+                self.package_name.clone()
+            };
+
+            output.push_str(&format!("{} Package '{}' is valid\n", status, package_name));
+
+            // Add warnings if any
+            let warnings = self.warnings();
+            if !warnings.is_empty() {
+                let warning_header = if use_colors {
+                    style("Warnings:").yellow().bold().to_string()
+                } else {
+                    "Warnings:".to_string()
+                };
+
+                output.push_str(&format!("\n{}\n", warning_header));
+
+                for warning in warnings {
+                    let warn_prefix = if use_colors {
+                        style("  ! ").yellow().to_string()
+                    } else {
+                        "  ! ".to_string()
+                    };
+
+                    output.push_str(&format!(
+                        "{}{}: {}\n",
+                        warn_prefix, warning.field, warning.message
+                    ));
+
+                    if let Some(suggestion) = &warning.suggestion {
+                        let suggestion_text = if use_colors {
+                            style(format!("    Suggestion: {}", suggestion))
+                                .dim()
+                                .to_string()
+                        } else {
+                            format!("    Suggestion: {}", suggestion)
+                        };
+                        output.push_str(&format!("{}\n", suggestion_text));
+                    }
+                }
+            }
+        } else {
+            // Format logic for invalid package (stub this from the original implementation)
+            // Similar to the valid case but shows errors by category
+            self.format_invalid_result(&mut output, use_colors, verbose);
+        }
+
+        output
+    }
+
+    // Helper method for formatting invalid validation results
+    fn format_invalid_result(&self, output: &mut String, use_colors: bool, verbose: bool) {
+        let status = if use_colors {
+            style("✗").red().bold().to_string()
+        } else {
+            "✗".to_string()
+        };
+
+        let package_name = if use_colors {
+            style(&self.package_name).magenta().bold().to_string()
+        } else {
+            self.package_name.clone()
+        };
+
+        output.push_str(&format!(
+            "{} Validation failed for package: {}\n",
+            status, package_name
+        ));
+
+        // Group errors by category
+        let mut errors_by_category = HashMap::new();
+        for error in self.errors() {
+            errors_by_category
+                .entry(error.category)
+                .or_insert_with(Vec::new)
+                .push(error);
+        }
+
+        // Add errors by category (stub - would include actual error formatting logic)
+        // Display required field errors first
+        if let Some(errors) = errors_by_category.get(&ValidationErrorCategory::RequiredField) {
+            self.format_category_errors(output, "Required field errors", errors, use_colors);
+        }
+
+        // Then command syntax errors
+        if let Some(errors) = errors_by_category.get(&ValidationErrorCategory::CommandSyntax) {
+            self.format_category_errors(output, "Command syntax errors", errors, use_colors);
+        }
+
+        // Then URL format errors
+        if let Some(errors) = errors_by_category.get(&ValidationErrorCategory::UrlFormat) {
+            self.format_category_errors(output, "URL format errors", errors, use_colors);
+        }
+
+        // Then other categories
+        for (category, errors) in &errors_by_category {
+            if *category != ValidationErrorCategory::RequiredField
+                && *category != ValidationErrorCategory::CommandSyntax
+                && *category != ValidationErrorCategory::UrlFormat
+            {
+                self.format_category_errors(
+                    output,
+                    &format!("{:?} errors", category),
+                    errors,
+                    use_colors,
+                );
+            }
+        }
+
+        // Show file path
+        if let Some(path) = &self.package_path {
+            let path_text = if use_colors {
+                style(format!(
+                    "\nYou can find the package file at: {}",
+                    path.display()
+                ))
+                .dim()
+                .to_string()
+            } else {
+                format!("\nYou can find the package file at: {}", path.display())
+            };
+
+            output.push_str(&format!("{}\n", path_text));
+        }
+
+        // Add verbose information if requested
+        if verbose {
+            self.add_verbose_information(output, use_colors);
+        }
+    }
+
+    // Helper to format category errors
+    fn format_category_errors(
+        &self,
+        output: &mut String,
+        header: &str,
+        errors: &[&ValidationIssue],
+        use_colors: bool,
+    ) {
+        let header_text = if use_colors {
+            style(format!("\n{}:", header)).red().bold().to_string()
+        } else {
+            format!("\n{}:", header)
+        };
+
+        output.push_str(&header_text);
+        output.push('\n');
+
+        for error in errors {
+            let field = if use_colors {
+                style(&error.field).cyan().to_string()
+            } else {
+                error.field.clone()
+            };
+
+            output.push_str(&format!("  • {}: {}\n", field, error.message));
+
+            if let Some(suggestion) = &error.suggestion {
+                let suggestion_text = if use_colors {
+                    style(format!("    Suggestion: {}", suggestion))
+                        .dim()
+                        .to_string()
+                } else {
+                    format!("    Suggestion: {}", suggestion)
+                };
+                output.push_str(&format!("{}\n", suggestion_text));
+            }
+        }
+    }
+
+    // Add verbose information to the output
+    fn add_verbose_information(&self, output: &mut String, use_colors: bool) {
+        output.push_str("\n--- Verbose Information ---\n");
+
+        // Add file details (stub)
+        if let Some(path) = &self.package_path {
+            output.push_str("\nPackage file details:\n");
+            output.push_str(&format!("  Path: {}\n", path.display()));
+            // Would add more details about the file
+        }
+
+        // Add package details (stub)
+        if let Some(package) = &self.package {
+            output.push_str("\nPackage structure details:\n");
+            output.push_str(&format!("  Name: {}\n", package.name));
+            output.push_str(&format!("  Version: {}\n", package.version));
+            // Would add more details about the package
+        }
+
+        // Add validation statistics (stub)
+        output.push_str("\nValidation statistics:\n");
+        output.push_str(&format!("  Total issues: {}\n", self.issues.len()));
+        output.push_str(&format!("  Errors: {}\n", self.errors().len()));
+        output.push_str(&format!("  Warnings: {}\n", self.warnings().len()));
+        // Would add more statistics
+    }
 }
 
 /// Errors that can occur during validation operations
@@ -191,4 +403,41 @@ pub enum ValidationError {
 
     #[error("Command execution error: {0}")]
     CommandError(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_validation_result() {
+        // Create a sample validation result with some issues
+        let mut result = ValidationResult::new("test-package");
+
+        // Add an error
+        result.add_issue(ValidationIssue::error(
+            ValidationErrorCategory::RequiredField,
+            "name",
+            "Package name is required",
+            None,
+            Some("Add 'name: your-package-name' to the package file."),
+        ));
+
+        // Add a warning
+        result.add_issue(ValidationIssue::warning(
+            ValidationErrorCategory::CommandSyntax,
+            "install",
+            "Command uses deprecated syntax",
+            None,
+            Some("Update to the newer syntax."),
+        ));
+
+        // Format the result
+        let formatted = result.format_validation_result(false, false);
+
+        // Check the output contains expected content
+        assert!(formatted.contains("Validation failed"));
+        assert!(formatted.contains("Package name is required"));
+        assert!(formatted.contains("Add 'name: your-package-name'"));
+    }
 }

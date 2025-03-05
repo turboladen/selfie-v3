@@ -1,173 +1,20 @@
 // src/services/package_validator.rs
-// Provides package validation functionality with detailed error reporting
+use std::path::Path;
 
-use std::{
-    collections::HashMap,
-    os::unix::fs::PermissionsExt,
-    path::{Path, PathBuf},
-};
-
-use console::style;
-use jiff::{fmt::friendly::SpanPrinter, Unit, Zoned};
 use thiserror::Error;
-use url::Url;
 
 use crate::{
-    domain::config::Config,
-    domain::package::{EnvironmentConfig, Package, PackageParseError},
-    ports::filesystem::{FileSystem, FileSystemError},
-    ports::package_repo::{PackageRepoError, PackageRepository},
+    domain::{
+        config::Config,
+        package::{Package, PackageParseError},
+        validation::{ValidationErrorCategory, ValidationIssue, ValidationResult},
+    },
+    ports::{
+        command::CommandRunner,
+        filesystem::{FileSystem, FileSystemError},
+        package_repo::{PackageRepoError, PackageRepository},
+    },
 };
-
-/// Categories of package validation errors
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ValidationErrorCategory {
-    /// Missing required fields
-    RequiredField,
-    /// Invalid field values
-    InvalidValue,
-    /// Environment-specific errors
-    Environment,
-    /// Shell command syntax errors
-    CommandSyntax,
-    /// URL format errors
-    UrlFormat,
-    /// File system errors
-    FileSystem,
-    /// Other errors
-    Other,
-}
-
-/// A single validation error or warning
-#[derive(Debug, Clone, PartialEq)]
-pub struct ValidationIssue {
-    /// The category of the issue
-    pub category: ValidationErrorCategory,
-    /// The field or context where the issue was found
-    pub field: String,
-    /// Detailed description of the issue
-    pub message: String,
-    /// Line number in the file (if available)
-    pub line: Option<usize>,
-    /// Is this a warning (false = error)
-    pub is_warning: bool,
-    /// Suggested fix for the issue
-    pub suggestion: Option<String>,
-}
-
-impl ValidationIssue {
-    /// Create a new validation error
-    pub fn error(
-        category: ValidationErrorCategory,
-        field: &str,
-        message: &str,
-        line: Option<usize>,
-        suggestion: Option<&str>,
-    ) -> Self {
-        Self {
-            category,
-            field: field.to_string(),
-            message: message.to_string(),
-            line,
-            is_warning: false,
-            suggestion: suggestion.map(|s| s.to_string()),
-        }
-    }
-
-    /// Create a new validation warning
-    pub fn warning(
-        category: ValidationErrorCategory,
-        field: &str,
-        message: &str,
-        line: Option<usize>,
-        suggestion: Option<&str>,
-    ) -> Self {
-        Self {
-            category,
-            field: field.to_string(),
-            message: message.to_string(),
-            line,
-            is_warning: true,
-            suggestion: suggestion.map(|s| s.to_string()),
-        }
-    }
-}
-
-/// Results of a package validation
-#[derive(Debug, Clone, Default)]
-pub struct ValidationResult {
-    /// The package that was validated
-    pub package_name: String,
-    /// The package file path
-    pub package_path: Option<PathBuf>,
-    /// List of validation issues found
-    pub issues: Vec<ValidationIssue>,
-    /// The validated package (if valid)
-    pub package: Option<Package>,
-}
-
-impl ValidationResult {
-    /// Create a new ValidationResult
-    pub fn new(package_name: &str) -> Self {
-        Self {
-            package_name: package_name.to_string(),
-            package_path: None,
-            issues: Vec::new(),
-            package: None,
-        }
-    }
-
-    /// Add an issue to the validation result
-    pub fn add_issue(&mut self, issue: ValidationIssue) {
-        self.issues.push(issue);
-    }
-
-    /// Set the package file path
-    pub fn with_path(mut self, path: PathBuf) -> Self {
-        self.package_path = Some(path);
-        self
-    }
-
-    /// Set the validated package
-    pub fn with_package(mut self, package: Package) -> Self {
-        self.package = Some(package);
-        self
-    }
-
-    /// Returns true if the validation passed (no errors)
-    pub fn is_valid(&self) -> bool {
-        !self.has_errors()
-    }
-
-    /// Returns true if the validation has errors (warnings are okay)
-    pub fn has_errors(&self) -> bool {
-        self.issues.iter().any(|issue| !issue.is_warning)
-    }
-
-    /// Get all errors (not warnings)
-    pub fn errors(&self) -> Vec<&ValidationIssue> {
-        self.issues
-            .iter()
-            .filter(|issue| !issue.is_warning)
-            .collect()
-    }
-
-    /// Get all warnings (not errors)
-    pub fn warnings(&self) -> Vec<&ValidationIssue> {
-        self.issues
-            .iter()
-            .filter(|issue| issue.is_warning)
-            .collect()
-    }
-
-    /// Get issues by category
-    pub fn issues_by_category(&self, category: &ValidationErrorCategory) -> Vec<&ValidationIssue> {
-        self.issues
-            .iter()
-            .filter(|issue| issue.category == *category)
-            .collect()
-    }
-}
 
 #[derive(Error, Debug)]
 pub enum PackageValidatorError {
@@ -188,27 +35,32 @@ pub enum PackageValidatorError {
 
     #[error("Package parse error: {0}")]
     ParseError(#[from] PackageParseError),
+
+    #[error("Command execution error: {0}")]
+    CommandError(String),
 }
 
-/// Validates package files with detailed error reporting
-pub struct PackageValidator<'a, F: FileSystem, P: PackageRepository> {
+/// Validates package files with detailed error reporting and command validation
+pub struct PackageValidator<'a, F: FileSystem, R: CommandRunner, P: PackageRepository> {
     fs: &'a F,
+    runner: &'a R,
     config: &'a Config,
     package_repo: &'a P,
 }
 
-impl<'a, F: FileSystem, P: PackageRepository> PackageValidator<'a, F, P> {
+impl<'a, F: FileSystem, R: CommandRunner, P: PackageRepository> PackageValidator<'a, F, R, P> {
     /// Create a new package validator
-    pub fn new(fs: &'a F, config: &'a Config, package_repo: &'a P) -> Self {
+    pub fn new(fs: &'a F, runner: &'a R, config: &'a Config, package_repo: &'a P) -> Self {
         Self {
             fs,
+            runner,
             config,
             package_repo,
         }
     }
 
-    // Update validate_package method to use package_repo instead of creating a new one
-    pub fn validate_package(
+    /// Validate a package by name
+    pub fn validate_package_by_name(
         &self,
         package_name: &str,
     ) -> Result<ValidationResult, PackageValidatorError> {
@@ -263,8 +115,14 @@ impl<'a, F: FileSystem, P: PackageRepository> PackageValidator<'a, F, P> {
         // If parsing failed, add the parse error and return early
         match package {
             Ok(pkg) => {
-                // Package parsed, so validate it deeply
-                self.validate_package_fields(&pkg, &mut result);
+                // Start with domain validation
+                let domain_issues = pkg.validate(&self.config.environment);
+                result.add_issues(domain_issues);
+
+                // Run the enhanced validation which now includes command validation
+                self.enhance_validation(&pkg, &mut result);
+
+                // Set the package
                 result = result.with_package(pkg);
             }
             Err(err) => {
@@ -282,149 +140,85 @@ impl<'a, F: FileSystem, P: PackageRepository> PackageValidator<'a, F, P> {
         Ok(result)
     }
 
-    /// Validate package fields in detail
-    fn validate_package_fields(&self, package: &Package, result: &mut ValidationResult) {
-        // Validate required fields
-        self.validate_required_fields(package, result);
+    /// Enhanced validation that includes command validation
+    fn enhance_validation(&self, package: &Package, result: &mut ValidationResult) {
+        // Add command availability checks
+        self.validate_command_availability(package, result);
 
-        // Validate homepage URL if present
-        if let Some(homepage) = &package.homepage {
-            self.validate_url(homepage, "homepage", result);
-        }
+        // Add command syntax validation
+        self.validate_command_syntax(package, result);
 
-        // Validate environments
-        self.validate_environments(package, result);
+        // Add environment-specific recommendations
+        self.validate_environment_recommendations(package, result);
     }
 
-    /// Validate required package fields
-    fn validate_required_fields(&self, package: &Package, result: &mut ValidationResult) {
-        // Check name
-        if package.name.is_empty() {
-            result.add_issue(ValidationIssue::error(
-                ValidationErrorCategory::RequiredField,
-                "name",
-                "Package name is required",
-                None,
-                Some("Add 'name: your-package-name' to the package file."),
-            ));
-        } else if !Self::is_valid_package_name(&package.name) {
-            result.add_issue(ValidationIssue::error(
-                ValidationErrorCategory::InvalidValue,
-                "name",
-                "Package name contains invalid characters",
-                None,
-                Some("Use only alphanumeric characters, hyphens, and underscores."),
-            ));
-        }
+    /// Validate command availability
+    fn validate_command_availability(&self, package: &Package, result: &mut ValidationResult) {
+        // We only check commands for the current environment
+        if let Some(env_config) = package.environments.get(&self.config.environment) {
+            // Extract base command from install command
+            if let Some(base_cmd) = Self::extract_base_command(&env_config.install) {
+                let is_available = self.runner.is_command_available(base_cmd);
 
-        // Check version
-        if package.version.is_empty() {
-            result.add_issue(ValidationIssue::error(
-                ValidationErrorCategory::RequiredField,
-                "version",
-                "Package version is required",
-                None,
-                Some("Add 'version: 0.1.0' to the package file."),
-            ));
-        } else if !Self::is_valid_version(&package.version) {
-            result.add_issue(ValidationIssue::warning(
-                ValidationErrorCategory::InvalidValue,
-                "version",
-                "Package version should follow semantic versioning",
-                None,
-                Some("Consider using a semantic version like '1.0.0'."),
-            ));
-        }
+                if !is_available {
+                    result.add_issue(ValidationIssue::warning(
+                        ValidationErrorCategory::Availability,
+                        &format!("environments.{}.install", self.config.environment),
+                        &format!(
+                            "Command '{}' not found in environment '{}'",
+                            base_cmd, self.config.environment
+                        ),
+                        None,
+                        Some("Install the command before using this package."),
+                    ));
+                }
+            }
 
-        // Check environments
-        if package.environments.is_empty() {
-            result.add_issue(ValidationIssue::error(
-                ValidationErrorCategory::RequiredField,
-                "environments",
-                "At least one environment must be defined",
-                None,
-                Some("Add an 'environments' section with at least one environment."),
-            ));
-        }
-    }
+            // Check command if present
+            if let Some(check_cmd) = &env_config.check {
+                if let Some(base_cmd) = Self::extract_base_command(check_cmd) {
+                    let is_available = self.runner.is_command_available(base_cmd);
 
-    /// Validate environments section
-    fn validate_environments(&self, package: &Package, result: &mut ValidationResult) {
-        if package.environments.is_empty() {
-            return; // Already captured in required fields check
-        }
-
-        // Check if current environment is configured
-        let current_env = &self.config.environment;
-        if !current_env.is_empty() && !package.environments.contains_key(current_env) {
-            result.add_issue(ValidationIssue::warning(
-                ValidationErrorCategory::Environment,
-                "environments",
-                &format!("Current environment '{}' is not configured", current_env),
-                None,
-                Some(&format!(
-                    "Add an environment section for '{}' if needed for this environment.",
-                    current_env
-                )),
-            ));
-        }
-
-        // Validate each environment
-        for (env_name, env_config) in &package.environments {
-            self.validate_environment_config(env_name, env_config, result);
-        }
-    }
-
-    /// Validate a specific environment configuration
-    fn validate_environment_config(
-        &self,
-        env_name: &str,
-        env_config: &EnvironmentConfig,
-        result: &mut ValidationResult,
-    ) {
-        // Check install command
-        if env_config.install.is_empty() {
-            result.add_issue(ValidationIssue::error(
-                ValidationErrorCategory::RequiredField,
-                &format!("environments.{}.install", env_name),
-                "Install command is required",
-                None,
-                Some("Add an install command like 'brew install package-name'."),
-            ));
-        } else {
-            // Validate install command syntax
-            self.validate_command_syntax(
-                &env_config.install,
-                &format!("environments.{}.install", env_name),
-                result,
-            );
-        }
-
-        // Check check command syntax if present
-        if let Some(check_cmd) = &env_config.check {
-            self.validate_command_syntax(
-                check_cmd,
-                &format!("environments.{}.check", env_name),
-                result,
-            );
-        }
-
-        // Validate dependencies (just simple checks for now)
-        for (i, dep) in env_config.dependencies.iter().enumerate() {
-            if dep.is_empty() {
-                result.add_issue(ValidationIssue::error(
-                    ValidationErrorCategory::InvalidValue,
-                    &format!("environments.{}.dependencies[{}]", env_name, i),
-                    "Dependency name cannot be empty",
-                    None,
-                    Some("Remove the empty dependency or provide a valid name."),
-                ));
+                    if !is_available {
+                        result.add_issue(ValidationIssue::warning(
+                            ValidationErrorCategory::Availability,
+                            &format!("environments.{}.check", self.config.environment),
+                            &format!(
+                                "Check command '{}' not found in environment '{}'",
+                                base_cmd, self.config.environment
+                            ),
+                            None,
+                            Some("Install the command before using this package."),
+                        ));
+                    }
+                }
             }
         }
     }
 
-    /// Validate command syntax for basic shell errors
-    fn validate_command_syntax(
+    /// Validate command syntax
+    fn validate_command_syntax(&self, package: &Package, result: &mut ValidationResult) {
+        for (env_name, env_config) in &package.environments {
+            // Validate install command
+            self.validate_single_command(
+                &env_config.install,
+                &format!("environments.{}.install", env_name),
+                result,
+            );
+
+            // Validate check command if present
+            if let Some(check_cmd) = &env_config.check {
+                self.validate_single_command(
+                    check_cmd,
+                    &format!("environments.{}.check", env_name),
+                    result,
+                );
+            }
+        }
+    }
+
+    /// Validate a single command syntax
+    fn validate_single_command(
         &self,
         command: &str,
         field_name: &str,
@@ -501,363 +295,132 @@ impl<'a, F: FileSystem, P: PackageRepository> PackageValidator<'a, F, P> {
         }
     }
 
-    /// Validate URL format
-    fn validate_url(&self, url_str: &str, field_name: &str, result: &mut ValidationResult) {
-        match Url::parse(url_str) {
-            Ok(url) => {
-                // Check scheme
-                if url.scheme() != "http" && url.scheme() != "https" {
-                    result.add_issue(ValidationIssue::warning(
-                        ValidationErrorCategory::UrlFormat,
-                        field_name,
-                        &format!(
-                            "URL should use http or https scheme, found: {}",
-                            url.scheme()
-                        ),
-                        None,
-                        Some("Use https:// prefix for the URL."),
-                    ));
-                }
-            }
-            Err(err) => {
-                result.add_issue(ValidationIssue::error(
-                    ValidationErrorCategory::UrlFormat,
-                    field_name,
-                    &format!("Invalid URL format: {}", err),
+    /// Add environment-specific recommendations
+    fn validate_environment_recommendations(
+        &self,
+        package: &Package,
+        result: &mut ValidationResult,
+    ) {
+        // We only check for the current environment
+        if let Some(env_config) = package.environments.get(&self.config.environment) {
+            if let Some(recommendation) =
+                self.is_command_recommended_for_env(&self.config.environment, &env_config.install)
+            {
+                result.add_issue(ValidationIssue::warning(
+                    ValidationErrorCategory::Environment,
+                    &format!("environments.{}.install", self.config.environment),
+                    &recommendation,
                     None,
-                    Some("Provide a valid URL with http:// or https:// prefix."),
+                    Some("Using environment-specific package managers may improve reliability."),
+                ));
+            }
+
+            // Check for potential issues
+            if self.might_require_sudo(&env_config.install) {
+                result.add_issue(ValidationIssue::warning(
+                    ValidationErrorCategory::CommandSyntax,
+                    &format!("environments.{}.install", self.config.environment),
+                    "Command might require sudo privileges",
+                    None,
+                    Some("This command may require administrative privileges to run."),
+                ));
+            }
+
+            if self.might_download_content(&env_config.install) {
+                result.add_issue(ValidationIssue::warning(
+                    ValidationErrorCategory::CommandSyntax,
+                    &format!("environments.{}.install", self.config.environment),
+                    "Command may download content from the internet",
+                    None,
+                    Some(
+                        "This command appears to download content, which may pose security risks.",
+                    ),
                 ));
             }
         }
     }
 
-    /// Check if a string is a valid package name
-    fn is_valid_package_name(name: &str) -> bool {
-        // Package names should only contain alphanumeric chars, hyphens, and underscores
-        !name.is_empty()
-            && name
-                .chars()
-                .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    /// Extract the base command from a command string
+    pub fn extract_base_command(command: &str) -> Option<&str> {
+        // Simple extraction of the first word before a space, pipe, etc.
+        command.split_whitespace().next()
     }
 
-    /// Check if a string is a valid version (basic semantic versioning check)
-    fn is_valid_version(version: &str) -> bool {
-        // Simple check for semver format: major.minor.patch
-        let semver_regex = regex::Regex::new(r"^\d+\.\d+\.\d+").unwrap();
-        semver_regex.is_match(version)
+    /// Check if the command might require sudo
+    fn might_require_sudo(&self, command: &str) -> bool {
+        let sudo_indicators = [
+            "sudo ",
+            "apt ",
+            "apt-get ",
+            "dnf ",
+            "yum ",
+            "pacman ",
+            "zypper ",
+            "systemctl ",
+        ];
+
+        sudo_indicators
+            .iter()
+            .any(|&indicator| command.contains(indicator))
     }
-}
 
-/// Formats validation results for display, with optional color
-pub fn format_validation_result(
-    result: &ValidationResult,
-    use_colors: bool,
-    verbose: bool,
-) -> String {
-    let mut output = String::new();
+    /// Check if the command might download content from the internet
+    fn might_download_content(&self, command: &str) -> bool {
+        let download_indicators = [
+            "curl ",
+            "wget ",
+            "fetch ",
+            "git clone",
+            "git pull",
+            "npm install",
+            "pip install",
+        ];
 
-    if result.is_valid() {
-        let status = if use_colors {
-            style("✓").green().to_string()
-        } else {
-            "✓".to_string()
-        };
+        download_indicators
+            .iter()
+            .any(|&indicator| command.contains(indicator))
+    }
 
-        let package_name = if use_colors {
-            style(&result.package_name).magenta().bold().to_string()
-        } else {
-            result.package_name.clone()
-        };
+    /// Enhanced check for commands specific to particular environments
+    fn is_command_recommended_for_env(&self, env_name: &str, command: &str) -> Option<String> {
+        // Map of environment prefixes to recommended package managers
+        let env_recommendations = [
+            // macOS environments
+            ("mac", vec!["brew", "port", "mas"]),
+            ("darwin", vec!["brew", "port", "mas"]),
+            // Linux environments
+            ("ubuntu", vec!["apt", "apt-get", "dpkg"]),
+            ("debian", vec!["apt", "apt-get", "dpkg"]),
+            ("fedora", vec!["dnf", "yum", "rpm"]),
+            ("rhel", vec!["dnf", "yum", "rpm"]),
+            ("centos", vec!["dnf", "yum", "rpm"]),
+            ("arch", vec!["pacman", "yay", "paru"]),
+            ("opensuse", vec!["zypper", "rpm"]),
+            // Windows environments
+            ("windows", vec!["choco", "scoop", "winget"]),
+        ];
 
-        output.push_str(&format!("{} Package '{}' is valid\n", status, package_name));
+        // Check if environment matches and command doesn't use recommended package manager
+        let env_name_lower = env_name.to_lowercase();
 
-        // Add warnings if any
-        let warnings = result.warnings();
-        if !warnings.is_empty() {
-            let warning_header = if use_colors {
-                style("Warnings:").yellow().bold().to_string()
-            } else {
-                "Warnings:".to_string()
-            };
-
-            output.push_str(&format!("\n{}\n", warning_header));
-
-            for warning in warnings {
-                let warn_prefix = if use_colors {
-                    style("  ! ").yellow().to_string()
-                } else {
-                    "  ! ".to_string()
-                };
-
-                output.push_str(&format!("{}{}\n", warn_prefix, warning.message));
-
-                if let Some(suggestion) = &warning.suggestion {
-                    let suggestion_text = if use_colors {
-                        style(format!("    Suggestion: {}", suggestion))
-                            .dim()
-                            .to_string()
-                    } else {
-                        format!("    Suggestion: {}", suggestion)
-                    };
-                    output.push_str(&format!("{}\n", suggestion_text));
-                }
-            }
-        }
-    } else {
-        let status = if use_colors {
-            style("✗").red().bold().to_string()
-        } else {
-            "✗".to_string()
-        };
-
-        let package_name = if use_colors {
-            style(&result.package_name).magenta().bold().to_string()
-        } else {
-            result.package_name.clone()
-        };
-
-        output.push_str(&format!(
-            "{} Validation failed for package: {}\n",
-            status, package_name
-        ));
-
-        // Group errors by category
-        let mut errors_by_category = HashMap::new();
-        for error in result.errors() {
-            errors_by_category
-                .entry(error.category)
-                .or_insert_with(Vec::new)
-                .push(error);
-        }
-
-        // Print required field errors first
-        if let Some(errors) = errors_by_category.get(&ValidationErrorCategory::RequiredField) {
-            let header = if use_colors {
-                style("\nRequired field errors:").red().bold().to_string()
-            } else {
-                "\nRequired field errors:".to_string()
-            };
-
-            output.push_str(&header);
-            output.push('\n');
-
-            for error in errors {
-                let field = if use_colors {
-                    style(&error.field).cyan().to_string()
-                } else {
-                    error.field.clone()
-                };
-
-                output.push_str(&format!("  • {}: {}\n", field, error.message));
-
-                if let Some(suggestion) = &error.suggestion {
-                    let suggestion_text = if use_colors {
-                        style(format!("    Suggestion: {}", suggestion))
-                            .dim()
-                            .to_string()
-                    } else {
-                        format!("    Suggestion: {}", suggestion)
-                    };
-                    output.push_str(&format!("{}\n", suggestion_text));
-                }
-            }
-        }
-
-        // Then command syntax errors
-        if let Some(errors) = errors_by_category.get(&ValidationErrorCategory::CommandSyntax) {
-            let header = if use_colors {
-                style("\nCommand syntax errors:").red().bold().to_string()
-            } else {
-                "\nCommand syntax errors:".to_string()
-            };
-
-            output.push_str(&header);
-            output.push('\n');
-
-            for error in errors {
-                let field = if use_colors {
-                    style(&error.field).cyan().to_string()
-                } else {
-                    error.field.clone()
-                };
-
-                output.push_str(&format!("  • {}: {}\n", field, error.message));
-
-                if let Some(suggestion) = &error.suggestion {
-                    let suggestion_text = if use_colors {
-                        style(format!("    Suggestion: {}", suggestion))
-                            .dim()
-                            .to_string()
-                    } else {
-                        format!("    Suggestion: {}", suggestion)
-                    };
-                    output.push_str(&format!("{}\n", suggestion_text));
-                }
-            }
-        }
-
-        // Then URL format errors
-        if let Some(errors) = errors_by_category.get(&ValidationErrorCategory::UrlFormat) {
-            let header = if use_colors {
-                style("\nURL format errors:").red().bold().to_string()
-            } else {
-                "\nURL format errors:".to_string()
-            };
-
-            output.push_str(&header);
-            output.push('\n');
-
-            for error in errors {
-                let field = if use_colors {
-                    style(&error.field).cyan().to_string()
-                } else {
-                    error.field.clone()
-                };
-
-                output.push_str(&format!("  • {}: {}\n", field, error.message));
-
-                if let Some(suggestion) = &error.suggestion {
-                    let suggestion_text = if use_colors {
-                        style(format!("    Suggestion: {}", suggestion))
-                            .dim()
-                            .to_string()
-                    } else {
-                        format!("    Suggestion: {}", suggestion)
-                    };
-                    output.push_str(&format!("{}\n", suggestion_text));
-                }
-            }
-        }
-
-        // Then other validation errors
-        for (category, errors) in &errors_by_category {
-            if *category != ValidationErrorCategory::RequiredField
-                && *category != ValidationErrorCategory::CommandSyntax
-                && *category != ValidationErrorCategory::UrlFormat
-            {
-                let header = if use_colors {
-                    style(format!("\n{:?} errors:", category))
-                        .red()
-                        .bold()
-                        .to_string()
-                } else {
-                    format!("\n{:?} errors:", category)
-                };
-
-                output.push_str(&header);
-                output.push('\n');
-
-                for error in errors {
-                    let field = if use_colors {
-                        style(&error.field).cyan().to_string()
-                    } else {
-                        error.field.clone()
-                    };
-
-                    output.push_str(&format!("  • {}: {}\n", field, error.message));
-
-                    if let Some(suggestion) = &error.suggestion {
-                        let suggestion_text = if use_colors {
-                            style(format!("    Suggestion: {}", suggestion))
-                                .dim()
-                                .to_string()
-                        } else {
-                            format!("    Suggestion: {}", suggestion)
-                        };
-                        output.push_str(&format!("{}\n", suggestion_text));
+        for (env_pattern, recommended_managers) in &env_recommendations {
+            // Check if environment name contains the pattern
+            if env_name_lower.contains(env_pattern) {
+                // Extract the base command and check if it's in the recommended list
+                if let Some(base_cmd) = Self::extract_base_command(command) {
+                    if !recommended_managers.iter().any(|&mgr| base_cmd == mgr) {
+                        return Some(format!(
+                            "Command may not be optimal for '{}' environment. Consider using: {}",
+                            env_name,
+                            recommended_managers.join(", ")
+                        ));
                     }
                 }
             }
         }
 
-        // Show file path
-        if let Some(path) = &result.package_path {
-            let path_text = if use_colors {
-                style(format!(
-                    "\nYou can find the package file at: {}",
-                    path.display()
-                ))
-                .dim()
-                .to_string()
-            } else {
-                format!("\nYou can find the package file at: {}", path.display())
-            };
-
-            output.push_str(&format!("{}\n", path_text));
-        }
+        None
     }
-
-    if verbose {
-        // Add additional details like file structure, YAML parsing details, etc.
-        if let Some(path) = &result.package_path {
-            output.push_str("\nPackage file details:\n");
-            output.push_str(&format!("  Path: {}\n", path.display()));
-
-            let metadata = path.metadata().expect("metadata call failed");
-            output.push_str(&format!(
-                "  Permissions: {:o}\n",
-                metadata.permissions().mode()
-            ));
-
-            let now = Zoned::now();
-            let printer = SpanPrinter::new();
-            {
-                let created = Zoned::try_from(metadata.created().unwrap()).unwrap();
-                let ago = now
-                    .duration_since(&created)
-                    .round(Unit::Second)
-                    .unwrap_or_default();
-                output.push_str(&format!(
-                    "  Created: {:?} ({} ago)\n",
-                    &created.round(Unit::Second),
-                    printer.duration_to_string(&ago)
-                ));
-            }
-            {
-                let modified = Zoned::try_from(metadata.modified().unwrap()).unwrap();
-                let ago = now
-                    .duration_since(&modified)
-                    .round(Unit::Second)
-                    .unwrap_or_default();
-                output.push_str(&format!(
-                    "  Modified: {:?} ({} ago)\n",
-                    &modified.round(Unit::Second),
-                    printer.duration_to_string(&ago)
-                ));
-            }
-        }
-
-        if let Some(package) = &result.package {
-            output.push_str("\nPackage structure details:\n");
-            output.push_str(&format!("  Version: {}\n", &package.version));
-            output.push_str(&format!(
-                "  Homepage: {}\n",
-                package.homepage.as_deref().unwrap_or_default()
-            ));
-            output.push_str(&format!(
-                "  Description: {}\n",
-                package.description.as_deref().unwrap_or_default()
-            ));
-
-            output.push_str("  Environments:\n");
-
-            for (name, env) in &package.environments {
-                output.push_str(&format!("    {}:\n", name));
-                output.push_str(&format!(
-                    "      Check: {}\n",
-                    &env.check.as_deref().unwrap_or_default()
-                ));
-                output.push_str(&format!("      Install: {}\n", &env.install));
-                output.push_str("      Dependencies:\n");
-
-                for dep in &env.dependencies {
-                    output.push_str(&format!("        {}\n", &dep));
-                }
-            }
-        }
-    }
-
-    output
 }
 
 #[cfg(test)]
@@ -865,11 +428,12 @@ mod tests {
     use super::*;
     use crate::adapters::package_repo::yaml::YamlPackageRepository;
     use crate::domain::config::ConfigBuilder;
+    use crate::ports::command::MockCommandRunner;
     use crate::ports::filesystem::{MockFileSystem, MockFileSystemExt};
     use std::path::Path;
 
     // Helper function to create a test environment
-    fn setup_test_environment() -> (MockFileSystem, Config) {
+    fn setup_test_environment() -> (MockFileSystem, MockCommandRunner, Config) {
         let mut fs = MockFileSystem::default();
         let config = ConfigBuilder::default()
             .environment("test-env")
@@ -879,7 +443,9 @@ mod tests {
         // Add the package directory to the filesystem
         fs.add_existing_path(Path::new("/test/packages"));
 
-        (fs, config)
+        let runner = MockCommandRunner::new();
+
+        (fs, runner, config)
     }
 
     // Helper to create a valid package YAML
@@ -904,7 +470,7 @@ environments:
 
     #[test]
     fn test_validate_valid_package() {
-        let (mut fs, config) = setup_test_environment();
+        let (mut fs, mut runner, config) = setup_test_environment();
 
         // Add a valid package file
         let yaml = create_valid_package_yaml();
@@ -913,9 +479,12 @@ environments:
         fs.mock_path_exists(Path::new("/test/packages/test-package.yml"), false);
         fs.mock_read_file(Path::new("/test/packages/test-package.yaml"), &yaml);
 
+        runner.mock_is_command_available("brew", true);
+        runner.mock_is_command_available("which", true);
+
         let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
-        let validator = PackageValidator::new(&fs, &config, &package_repo);
-        let result = validator.validate_package("test-package").unwrap();
+        let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
+        let result = validator.validate_package_by_name("test-package").unwrap();
 
         assert!(result.is_valid());
         assert_eq!(result.issues.len(), 0);
@@ -923,7 +492,7 @@ environments:
 
     #[test]
     fn test_validate_missing_required_fields() {
-        let (mut fs, config) = setup_test_environment();
+        let (mut fs, mut runner, config) = setup_test_environment();
 
         // Add an invalid package file with missing fields
         // Using valid YAML with empty fields rather than missing fields
@@ -936,8 +505,10 @@ environments:
 "#;
         fs.add_file(Path::new("/test/packages/incomplete.yaml"), yaml);
 
+        runner.mock_is_command_available("brew", true);
+
         let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
-        let validator = PackageValidator::new(&fs, &config, &package_repo);
+        let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
         let result = validator
             .validate_package_file(Path::new("/test/packages/incomplete.yaml"))
             .unwrap();
@@ -959,7 +530,7 @@ environments:
 
     #[test]
     fn test_validate_invalid_url() {
-        let (mut fs, config) = setup_test_environment();
+        let (mut fs, mut runner, config) = setup_test_environment();
 
         // Add a package with invalid URL
         let yaml = r#"
@@ -972,8 +543,10 @@ environments:
 "#;
         fs.add_file(Path::new("/test/packages/invalid-url.yaml"), yaml);
 
+        runner.mock_is_command_available("brew", true);
+
         let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
-        let validator = PackageValidator::new(&fs, &config, &package_repo);
+        let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
         let result = validator
             .validate_package_file(Path::new("/test/packages/invalid-url.yaml"))
             .unwrap();
@@ -986,7 +559,7 @@ environments:
 
     #[test]
     fn test_validate_command_syntax() {
-        let (mut fs, config) = setup_test_environment();
+        let (mut fs, mut runner, config) = setup_test_environment();
 
         // Add a package with command syntax errors
         let yaml = r#"
@@ -999,8 +572,11 @@ environments:
 "#;
         fs.add_file(Path::new("/test/packages/bad-commands.yaml"), yaml);
 
+        runner.mock_is_command_available("brew", true);
+        runner.mock_is_command_available("echo", true);
+
         let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
-        let validator = PackageValidator::new(&fs, &config, &package_repo);
+        let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
         let result = validator
             .validate_package_file(Path::new("/test/packages/bad-commands.yaml"))
             .unwrap();
@@ -1020,7 +596,7 @@ environments:
 
     #[test]
     fn test_validate_version_format() {
-        let (mut fs, config) = setup_test_environment();
+        let (mut fs, mut runner, config) = setup_test_environment();
 
         // Add a package with non-semver version
         let yaml = r#"
@@ -1032,8 +608,10 @@ environments:
 "#;
         fs.add_file(Path::new("/test/packages/bad-version.yaml"), yaml);
 
+        runner.mock_is_command_available("brew", true);
+
         let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
-        let validator = PackageValidator::new(&fs, &config, &package_repo);
+        let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
         let result = validator
             .validate_package_file(Path::new("/test/packages/bad-version.yaml"))
             .unwrap();
@@ -1047,7 +625,7 @@ environments:
 
     #[test]
     fn test_validate_missing_environment() {
-        let (mut fs, config) = setup_test_environment();
+        let (mut fs, runner, config) = setup_test_environment();
 
         // Add a package without the current environment
         let yaml = r#"
@@ -1060,7 +638,7 @@ environments:
         fs.add_file(Path::new("/test/packages/missing-env.yaml"), yaml);
 
         let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
-        let validator = PackageValidator::new(&fs, &config, &package_repo);
+        let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
         let result = validator
             .validate_package_file(Path::new("/test/packages/missing-env.yaml"))
             .unwrap();
@@ -1073,40 +651,8 @@ environments:
     }
 
     #[test]
-    fn test_format_validation_result() {
-        // Create a sample validation result with some issues
-        let mut result = ValidationResult::new("test-package");
-
-        // Add an error
-        result.add_issue(ValidationIssue::error(
-            ValidationErrorCategory::RequiredField,
-            "name",
-            "Package name is required",
-            None,
-            Some("Add 'name: your-package-name' to the package file."),
-        ));
-
-        // Add a warning
-        result.add_issue(ValidationIssue::warning(
-            ValidationErrorCategory::CommandSyntax,
-            "install",
-            "Command uses deprecated syntax",
-            None,
-            Some("Update to the newer syntax."),
-        ));
-
-        // Format the result
-        let formatted = format_validation_result(&result, false, false);
-
-        // Check the output contains expected content
-        assert!(formatted.contains("Validation failed"));
-        assert!(formatted.contains("Package name is required"));
-        assert!(formatted.contains("Add 'name: your-package-name'"));
-    }
-
-    #[test]
     fn test_package_not_found() {
-        let (mut fs, config) = setup_test_environment();
+        let (mut fs, runner, config) = setup_test_environment();
         fs.mock_path_exists(
             config.expanded_package_directory().join("nonexistent.yaml"),
             false,
@@ -1117,8 +663,8 @@ environments:
         );
 
         let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
-        let validator = PackageValidator::new(&fs, &config, &package_repo);
-        let result = validator.validate_package("nonexistent");
+        let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
+        let result = validator.validate_package_by_name("nonexistent");
 
         assert!(matches!(
             result,
@@ -1128,7 +674,7 @@ environments:
 
     #[test]
     fn test_multiple_packages_found() {
-        let (mut fs, config) = setup_test_environment();
+        let (mut fs, runner, config) = setup_test_environment();
 
         // Add two files for the same package
         let yaml = create_valid_package_yaml();
@@ -1136,8 +682,8 @@ environments:
         fs.add_file(Path::new("/test/packages/duplicate.yml"), &yaml);
 
         let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
-        let validator = PackageValidator::new(&fs, &config, &package_repo);
-        let result = validator.validate_package("duplicate");
+        let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
+        let result = validator.validate_package_by_name("duplicate");
 
         assert!(matches!(
             result,

@@ -18,7 +18,7 @@ use crate::{
 use super::{
     multi_package_installation_service::MultiPackageInstallationService,
     package_list_service::{PackageListResult, PackageListService},
-    package_validation_command::{PackageValidationCommand, PackageValidationResult},
+    validation_command::{ValidationCommand, ValidationCommandResult},
 };
 
 pub struct ApplicationCommandService<'a, F: FileSystem, R: CommandRunner, C: ConfigLoader> {
@@ -203,7 +203,7 @@ impl<F: FileSystem, R: CommandRunner, C: ConfigLoader> ApplicationCommandRouter
                         match self.build_config(&args, true) {
                             Ok(config) => {
                                 // Use the consolidated validate command
-                                let validate_cmd = PackageValidationCommand::new(
+                                let validate_cmd = ValidationCommand::new(
                                     self.fs,
                                     self.runner,
                                     config,
@@ -212,19 +212,19 @@ impl<F: FileSystem, R: CommandRunner, C: ConfigLoader> ApplicationCommandRouter
                                 );
 
                                 match validate_cmd.execute(pkg_cmd) {
-                                    PackageValidationResult::Valid(output) => {
+                                    ValidationCommandResult::Valid(output) => {
                                         // The progress bar already showed "Validation successful"
                                         // Just print the details now
                                         println!("{}", output);
                                         0
                                     }
-                                    PackageValidationResult::Invalid(output) => {
+                                    ValidationCommandResult::Invalid(output) => {
                                         // The progress bar already showed "Validation failed"
                                         // Just print the details now
                                         println!("{}", output);
                                         1
                                     }
-                                    PackageValidationResult::Error(error) => {
+                                    ValidationCommandResult::Error(error) => {
                                         // The progress bar already showed a generic failure message
                                         // Print the detailed error to stderr
                                         eprintln!("{}", error);

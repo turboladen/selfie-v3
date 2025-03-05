@@ -1,16 +1,16 @@
-// src/services/package_validation_command.rs
+// src/services/validation_command.rs
 use crate::{
     adapters::{
         package_repo::yaml::YamlPackageRepository,
         progress::{ProgressManager, ProgressStyleType},
     },
-    domain::{application::commands::PackageCommand, config::Config, validation::ValidationError},
+    domain::{application::commands::PackageCommand, config::Config},
     ports::{command::CommandRunner, filesystem::FileSystem},
-    services::validation_service::ValidationService,
+    services::package_validator::PackageValidator,
 };
 
 /// Result of running the validate command
-pub enum PackageValidationResult {
+pub enum ValidationCommandResult {
     /// Package validation successful (may include warnings)
     Valid(String),
     /// Package validation failed with errors
@@ -20,7 +20,7 @@ pub enum PackageValidationResult {
 }
 
 /// Handles the 'package validate' command
-pub struct PackageValidationCommand<'a, F: FileSystem, R: CommandRunner> {
+pub struct ValidationCommand<'a, F: FileSystem, R: CommandRunner> {
     fs: &'a F,
     runner: &'a R,
     config: Config,
@@ -29,7 +29,7 @@ pub struct PackageValidationCommand<'a, F: FileSystem, R: CommandRunner> {
     use_colors: bool,
 }
 
-impl<'a, F: FileSystem, R: CommandRunner> PackageValidationCommand<'a, F, R> {
+impl<'a, F: FileSystem, R: CommandRunner> ValidationCommand<'a, F, R> {
     /// Create a new validate command handler
     pub fn new(
         fs: &'a F,
@@ -51,7 +51,7 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageValidationCommand<'a, F, R> {
     }
 
     /// Execute the validate command
-    pub fn execute(&self, cmd: &PackageCommand) -> PackageValidationResult {
+    pub fn execute(&self, cmd: &PackageCommand) -> ValidationCommandResult {
         match cmd {
             PackageCommand::Validate {
                 package_name,
@@ -68,32 +68,29 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageValidationCommand<'a, F, R> {
                 let package_repo =
                     YamlPackageRepository::new(self.fs, self.config.expanded_package_directory());
 
-                // Create validation service
-                let validation_service =
-                    ValidationService::new(self.fs, self.runner, &self.config, &package_repo);
+                // Create the enhanced validator
+                let validator =
+                    PackageValidator::new(self.fs, self.runner, &self.config, &package_repo);
 
                 // Validate package
                 let result = if let Some(path) = package_path {
-                    validation_service.validate_package_file(path)
+                    validator.validate_package_file(path)
                 } else {
-                    validation_service.validate_package_by_name(package_name)
+                    validator.validate_package_by_name(package_name)
                 };
 
                 match result {
                     Ok(validation_result) => {
                         // Format the validation result
-                        let formatted = validation_service.format_validation_result(
-                            &validation_result,
-                            self.use_colors,
-                            self.verbose,
-                        );
+                        let formatted = validation_result
+                            .format_validation_result(self.use_colors, self.verbose);
 
                         if validation_result.is_valid() {
                             progress.finish_with_message("Validation successful");
-                            PackageValidationResult::Valid(formatted)
+                            ValidationCommandResult::Valid(formatted)
                         } else {
                             progress.abandon_with_message("Validation failed");
-                            PackageValidationResult::Invalid(formatted)
+                            ValidationCommandResult::Invalid(formatted)
                         }
                     }
                     Err(err) => {
@@ -105,24 +102,12 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageValidationCommand<'a, F, R> {
                         progress.abandon_with_message("Validation failed");
 
                         match err {
-                            ValidationError::PackageNotFound(name) => {
-                                PackageValidationResult::Error(format!(
-                                    "Package '{}' not found\n\nVerify the package name and make sure the package file exists in the package directory.",
-                                    name
-                                ))
-                            }
-                            ValidationError::MultiplePackagesFound(name) => {
-                                PackageValidationResult::Error(format!(
-                                    "Multiple package files found for '{}'\n\nUse the --package-path flag to specify which file to validate.",
-                                    name
-                                ))
-                            }
-                            _ => PackageValidationResult::Error(format!("Error: {}", err)),
+                            err => ValidationCommandResult::Error(format!("Error: {}", err)),
                         }
                     }
                 }
             }
-            _ => PackageValidationResult::Error(
+            _ => ValidationCommandResult::Error(
                 "Invalid command. Expected 'validate <package-name>'".to_string(),
             ),
         }
