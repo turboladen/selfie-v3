@@ -287,5 +287,3 @@ impl<F: FileSystem, R: CommandRunner, C: ConfigLoader> ApplicationCommandRouter
         }
     }
 }
-
-// Additional implementation methods for different command types...

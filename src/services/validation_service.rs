@@ -616,8 +616,6 @@ impl<'a, F: FileSystem, R: CommandRunner, P: PackageRepository> ValidationServic
     }
 }
 
-// Tests for src/services/validation_service.rs
-
 #[cfg(test)]
 mod tests {
     use super::*;

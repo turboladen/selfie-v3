@@ -84,7 +84,7 @@ impl CommandRunner for ShellCommandRunner {
         }
 
         // Execute the command
-        // Note: this is a simplified implementation and doesn't truly enforce timeouts
+        // TODO: this is a simplified implementation and doesn't truly enforce timeouts
         // A more robust implementation would involve async processing or threading
         let output = cmd
             .output()
