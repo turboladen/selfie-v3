@@ -1,6 +1,6 @@
 // src/ports/config_loader.rs
 use crate::domain::config::Config;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -27,7 +27,7 @@ pub trait ConfigLoader {
     fn load_config(&self) -> Result<Config, ConfigLoadError>;
 
     /// Load configuration from a specific path
-    fn load_config_from_path(&self, path: &PathBuf) -> Result<Config, ConfigLoadError>;
+    fn load_config_from_path(&self, path: &Path) -> Result<Config, ConfigLoadError>;
 
     /// Find possible configuration file paths
     fn find_config_paths(&self) -> Vec<PathBuf>;

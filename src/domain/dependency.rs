@@ -49,9 +49,7 @@ impl DependencyGraph {
         self.nodes.insert(name.clone(), package);
 
         // Ensure the package has an entry in the edges map
-        if !self.edges.contains_key(&name) {
-            self.edges.insert(name, HashSet::new());
-        }
+        self.edges.entry(name).or_default();
 
         Ok(())
     }

@@ -1,5 +1,5 @@
 // src/adapters/config/yaml_config_loader.rs
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde_yaml;
 
@@ -19,23 +19,6 @@ impl<'a, F: FileSystem> YamlConfigLoader<'a, F> {
     pub fn new(fs: &'a F) -> Self {
         Self { fs }
     }
-    //
-    // /// Get the XDG config directory
-    // fn get_xdg_config_dir(&self) -> Option<PathBuf> {
-    //     env::var("XDG_CONFIG_HOME")
-    //         .map(|path| PathBuf::from(path))
-    //         .ok()
-    // }
-    //
-    // /// Get the user's home directory
-    // fn get_home_dir(&self) -> Option<PathBuf> {
-    //     dirs::home_dir()
-    // }
-    //
-    // /// Check if a path exists and is readable
-    // fn is_readable_file(&self, path: &Path) -> bool {
-    //     self.fs.path_exists(path)
-    // }
 }
 
 impl<F: FileSystem> ConfigLoader for YamlConfigLoader<'_, F> {
@@ -51,7 +34,7 @@ impl<F: FileSystem> ConfigLoader for YamlConfigLoader<'_, F> {
         self.load_config_from_path(&config_paths[0])
     }
 
-    fn load_config_from_path(&self, path: &PathBuf) -> Result<Config, ConfigLoadError> {
+    fn load_config_from_path(&self, path: &Path) -> Result<Config, ConfigLoadError> {
         if !self.fs.path_exists(path) {
             return Err(ConfigLoadError::ReadError(format!(
                 "Can't read config file: {}",

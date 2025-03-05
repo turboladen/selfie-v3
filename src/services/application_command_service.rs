@@ -73,19 +73,19 @@ impl<'a, F: FileSystem, R: CommandRunner, C: ConfigLoader> ApplicationCommandSer
         if full_validation {
             config
                 .validate()
-                .map_err(|e| ApplicationError::ConfigError(e))?;
+                .map_err(ApplicationError::ConfigError)?;
         } else {
             config
                 .validate_minimal()
-                .map_err(|e| ApplicationError::ConfigError(e))?;
+                .map_err(ApplicationError::ConfigError)?;
         }
 
         Ok(config)
     }
 }
 
-impl<'a, F: FileSystem, R: CommandRunner, C: ConfigLoader> ApplicationCommandRouter
-    for ApplicationCommandService<'a, F, R, C>
+impl<F: FileSystem, R: CommandRunner, C: ConfigLoader> ApplicationCommandRouter
+    for ApplicationCommandService<'_, F, R, C>
 {
     fn process_command(&self, args: ApplicationArguments) -> Result<i32, ApplicationError> {
         // Create a progress manager using the arguments
@@ -213,7 +213,7 @@ impl<'a, F: FileSystem, R: CommandRunner, C: ConfigLoader> ApplicationCommandRou
                                     args.verbose,
                                 );
 
-                                match validate_cmd.execute(&pkg_cmd) {
+                                match validate_cmd.execute(pkg_cmd) {
                                     PackageValidationResult::Valid(output) => {
                                         // The progress bar already showed "Validation successful"
                                         // Just print the details now
