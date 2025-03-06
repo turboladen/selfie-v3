@@ -237,19 +237,38 @@ mod tests {
         },
     };
 
-    #[test]
-    fn test_build_app_config() {
+    fn setup_service_with_config(
+        file_config: Option<FileConfig>,
+        default_config: Option<FileConfig>,
+    ) -> (MockFileSystem, MockCommandRunner, MockConfigLoader) {
         let fs = MockFileSystem::default();
         let runner = MockCommandRunner::new();
         let mut config_loader = MockConfigLoader::new();
 
+        if let Some(config) = file_config {
+            config_loader
+                .expect_load_config()
+                .returning(move || Ok(config.clone()));
+        } else {
+            config_loader
+                .expect_load_config()
+                .returning(|| Err(ConfigLoadError::NotFound));
+        }
+
+        if let Some(config) = default_config {
+            config_loader
+                .expect_default_config()
+                .returning(move || config.clone());
+        }
+
+        (fs, runner, config_loader)
+    }
+
+    #[test]
+    fn test_build_app_config() {
         // Setup mock config loader to return a test config
         let file_config = FileConfig::new("file-env".to_string(), PathBuf::from("/file/path"));
-
-        config_loader
-            .expect_load_config()
-            .returning(move || Ok(file_config.clone()));
-
+        let (fs, runner, config_loader) = setup_service_with_config(Some(file_config), None);
         let service = ApplicationCommandService::new(&fs, &runner, &config_loader);
 
         // Create arguments with CLI overrides
@@ -276,22 +295,10 @@ mod tests {
 
     #[test]
     fn test_build_app_config_no_file() {
-        let fs = MockFileSystem::default();
-        let runner = MockCommandRunner::new();
-        let mut config_loader = MockConfigLoader::new();
-
-        // Setup mock config loader to return NotFound error
-        config_loader
-            .expect_load_config()
-            .returning(|| Err(ConfigLoadError::NotFound));
-
         // Setup default config
         let default_config =
             FileConfig::new("default-env".to_string(), PathBuf::from("/default/path"));
-
-        config_loader
-            .expect_default_config()
-            .returning(move || default_config.clone());
+        let (fs, runner, config_loader) = setup_service_with_config(Some(default_config), None);
 
         let service = ApplicationCommandService::new(&fs, &runner, &config_loader);
 

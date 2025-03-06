@@ -322,10 +322,6 @@ impl ProgressManager {
         }
     }
 
-    //
-    // Methods moved from ProgressReporter and ConsoleRenderer
-    //
-
     /// Create and render an info message
     pub fn info(&self, message: &str) -> String {
         self.format_message(MessageType::Info, message, None, None, 0)

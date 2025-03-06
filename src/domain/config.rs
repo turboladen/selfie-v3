@@ -1,6 +1,7 @@
 // src/domain/config.rs
 
 use std::{
+    ffi::OsStr,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -31,7 +32,7 @@ pub struct FileConfig {
     pub stop_on_error: Option<bool>,
 
     #[serde(default)]
-    pub max_parallel_installations: Option<u32>,
+    pub max_parallel_installations: Option<usize>,
 
     #[serde(default)]
     pub logging: Option<LogConfig>,
@@ -125,64 +126,24 @@ impl FileConfig {
 
     /// Full validation for commands that require a complete configuration
     pub fn validate(&self) -> Result<(), ConfigValidationError> {
-        if self.environment.is_empty() {
-            return Err(ConfigValidationError::EmptyField("environment".to_string()));
-        }
-
-        if self.package_directory.as_os_str().is_empty() {
-            return Err(ConfigValidationError::EmptyField(
-                "package_directory".to_string(),
-            ));
-        }
-
-        // Expand the package directory path
-        let package_dir = self.package_directory.to_string_lossy();
-        let expanded_path = shellexpand::tilde(&package_dir);
-        let expanded_path = Path::new(expanded_path.as_ref());
-
-        if !expanded_path.is_absolute() {
-            return Err(ConfigValidationError::InvalidPackageDirectory(
-                "Package directory must be an absolute path".to_string(),
-            ));
-        }
+        Self::validate_environment(&self.environment)?;
+        Self::validate_package_directory(&self.package_directory)?;
 
         // Validate optional parameters
         if let Some(timeout) = self.command_timeout {
-            if timeout == 0 {
-                return Err(ConfigValidationError::InvalidCommandTimeout(
-                    "Command timeout must be greater than 0".to_string(),
-                ));
-            }
+            Self::validate_command_timeout(timeout)?;
         }
 
         if let Some(max_parallel) = self.max_parallel_installations {
-            if max_parallel == 0 {
-                return Err(ConfigValidationError::InvalidMaxParallel(
-                    "Max parallel installations must be greater than 0".to_string(),
-                ));
-            }
+            Self::validate_max_parallel_installations(max_parallel)?;
         }
 
         // Validate logging config if present
         if let Some(log_config) = &self.logging {
             if log_config.enabled {
-                if log_config.directory.as_os_str().is_empty() {
-                    return Err(ConfigValidationError::InvalidLogConfig(
-                        "Log directory must be specified when logging is enabled".to_string(),
-                    ));
-                }
-
-                if log_config.max_files == 0 {
-                    return Err(ConfigValidationError::InvalidLogConfig(
-                        "Max log files must be greater than 0".to_string(),
-                    ));
-                }
-
-                if log_config.max_size == 0 {
-                    return Err(ConfigValidationError::InvalidLogConfig(
-                        "Max log size must be greater than 0".to_string(),
-                    ));
-                }
+                Self::validate_log_directory(log_config.directory.as_os_str())?;
+                Self::validate_log_max_files(log_config.max_files)?;
+                Self::validate_log_max_size(log_config.max_size)?;
             }
         }
 
@@ -360,62 +321,22 @@ impl AppConfig {
 
     /// Full validation for the AppConfig
     pub fn validate(&self) -> Result<(), ConfigValidationError> {
-        // Validate core settings
-        if self.environment.is_empty() {
-            return Err(ConfigValidationError::EmptyField("environment".to_string()));
-        }
-
-        if self.package_directory.as_os_str().is_empty() {
-            return Err(ConfigValidationError::EmptyField(
-                "package_directory".to_string(),
-            ));
-        }
-
-        // Validate the package directory path
-        let package_dir = self.package_directory.to_string_lossy();
-        let expanded_path = shellexpand::tilde(&package_dir);
-        let expanded_path = Path::new(expanded_path.as_ref());
-
-        if !expanded_path.is_absolute() {
-            return Err(ConfigValidationError::InvalidPackageDirectory(
-                "Package directory must be an absolute path".to_string(),
-            ));
-        }
-
-        // Validate execution settings
-        if self.command_timeout.as_secs() == 0 {
-            return Err(ConfigValidationError::InvalidCommandTimeout(
-                "Command timeout must be greater than 0".to_string(),
-            ));
-        }
-
-        if self.max_parallel == 0 {
-            return Err(ConfigValidationError::InvalidMaxParallel(
-                "Max parallel installations must be greater than 0".to_string(),
-            ));
-        }
+        Self::validate_environment(&self.environment)?;
+        Self::validate_package_directory(&self.package_directory)?;
+        Self::validate_command_timeout(self.command_timeout.as_secs())?;
+        Self::validate_max_parallel_installations(self.max_parallel)?;
 
         // Validate logging settings if enabled
         if self.logging_enabled {
-            if self.log_directory.is_none()
-                || self.log_directory.as_ref().unwrap().as_os_str().is_empty()
-            {
-                return Err(ConfigValidationError::InvalidLogConfig(
-                    "Log directory must be specified when logging is enabled".to_string(),
-                ));
-            }
+            Self::validate_log_directory(
+                self.log_directory
+                    .as_ref()
+                    .map(|ld| ld.as_os_str())
+                    .unwrap_or_default(),
+            )?;
 
-            if self.log_max_files == 0 {
-                return Err(ConfigValidationError::InvalidLogConfig(
-                    "Max log files must be greater than 0".to_string(),
-                ));
-            }
-
-            if self.log_max_size == 0 {
-                return Err(ConfigValidationError::InvalidLogConfig(
-                    "Max log size must be greater than 0".to_string(),
-                ));
-            }
+            Self::validate_log_max_files(self.log_max_files)?;
+            Self::validate_log_max_size(self.log_max_size)?;
         }
 
         Ok(())
@@ -477,6 +398,92 @@ impl AppConfig {
     }
 }
 
+trait ValidateConfig {
+    fn validate_environment(environment: &str) -> Result<(), ConfigValidationError> {
+        if environment.is_empty() {
+            Err(ConfigValidationError::EmptyField("environment".to_string()))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn validate_package_directory(package_directory: &Path) -> Result<(), ConfigValidationError> {
+        if package_directory.as_os_str().is_empty() {
+            return Err(ConfigValidationError::EmptyField(
+                "package_directory".to_string(),
+            ));
+        }
+
+        // Validate the package directory path
+        let package_dir = package_directory.to_string_lossy();
+        let expanded_path = shellexpand::tilde(&package_dir);
+        let expanded_path = Path::new(expanded_path.as_ref());
+
+        if !expanded_path.is_absolute() {
+            return Err(ConfigValidationError::InvalidPackageDirectory(
+                "Package directory must be an absolute path".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn validate_command_timeout(command_timeout_secs: u64) -> Result<(), ConfigValidationError> {
+        if command_timeout_secs == 0 {
+            Err(ConfigValidationError::InvalidCommandTimeout(
+                "Command timeout must be greater than 0".to_string(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn validate_max_parallel_installations(
+        max_parallel: usize,
+    ) -> Result<(), ConfigValidationError> {
+        if max_parallel == 0 {
+            Err(ConfigValidationError::InvalidMaxParallel(
+                "Max parallel installations must be greater than 0".to_string(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn validate_log_directory(log_directory: &OsStr) -> Result<(), ConfigValidationError> {
+        if log_directory.is_empty() {
+            Err(ConfigValidationError::InvalidLogConfig(
+                "Log directory must be specified when logging is enabled".to_string(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn validate_log_max_files(max_files: usize) -> Result<(), ConfigValidationError> {
+        if max_files == 0 {
+            Err(ConfigValidationError::InvalidLogConfig(
+                "Max log files must be greater than 0".to_string(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn validate_log_max_size(max_size: usize) -> Result<(), ConfigValidationError> {
+        if max_size == 0 {
+            Err(ConfigValidationError::InvalidLogConfig(
+                "Max log size must be greater than 0".to_string(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl ValidateConfig for FileConfig {}
+impl ValidateConfig for AppConfig {}
+
 /// Builder pattern for testing
 #[derive(Default)]
 pub struct ConfigBuilder {
@@ -484,7 +491,7 @@ pub struct ConfigBuilder {
     package_directory: PathBuf,
     command_timeout: Option<u64>,
     stop_on_error: Option<bool>,
-    max_parallel_installations: Option<u32>,
+    max_parallel_installations: Option<usize>,
     logging: Option<LogConfig>,
 }
 
@@ -509,7 +516,7 @@ impl ConfigBuilder {
         self
     }
 
-    pub fn max_parallel(mut self, max: u32) -> Self {
+    pub fn max_parallel(mut self, max: usize) -> Self {
         self.max_parallel_installations = Some(max);
         self
     }
