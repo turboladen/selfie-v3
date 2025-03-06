@@ -3,12 +3,13 @@
 use std::path::Path;
 
 use selfie::{
-    domain::{config::ConfigBuilder, installation::InstallationStatus},
+    adapters::progress::ProgressManager,
+    domain::{config::AppConfigBuilder, installation::InstallationStatus},
     ports::{
         command::{MockCommandRunner, MockCommandRunnerExt},
         filesystem::MockFileSystem,
     },
-    services::multi_package_installation_service::MultiPackageInstallationService,
+    services::package_installer::PackageInstaller,
 };
 
 #[test]
@@ -18,7 +19,7 @@ fn test_package_install_end_to_end() {
     let mut runner = MockCommandRunner::new();
 
     // Create config
-    let config = ConfigBuilder::default()
+    let config = AppConfigBuilder::default()
         .environment("test-env")
         .package_directory("/test/packages")
         .build();
@@ -45,9 +46,10 @@ fn test_package_install_end_to_end() {
     runner.error_response("rg check", "Not found", 1); // Not installed
     runner.success_response("rg install", "Installed successfully");
 
-    // Create package installer
-    let installer =
-        MultiPackageInstallationService::new(&fs, &runner, &config, true, false, false, false);
+    let progress_manager = ProgressManager::new(false, true, true);
+
+    // Create package installer (using the new consolidated version)
+    let installer = PackageInstaller::new(&fs, &runner, &config, &progress_manager, false);
 
     // Run the installation
     let result = installer.install_package("ripgrep");
@@ -65,7 +67,7 @@ fn test_package_install_with_dependencies() {
     let mut runner = MockCommandRunner::new();
 
     // Create config
-    let config = ConfigBuilder::default()
+    let config = AppConfigBuilder::default()
         .environment("test-env")
         .package_directory("/test/packages")
         .build();
@@ -110,9 +112,10 @@ fn test_package_install_with_dependencies() {
     runner.error_response("rust check", "Not found", 1); // Not installed
     runner.success_response("rust install", "Installed successfully");
 
+    let progress_manager = ProgressManager::new(false, true, true);
+
     // Create package installer
-    let installer =
-        MultiPackageInstallationService::new(&fs, &runner, &config, true, false, false, false);
+    let installer = PackageInstaller::new(&fs, &runner, &config, &progress_manager, false);
 
     // Run the installation
     let result = installer.install_package("ripgrep");
@@ -134,7 +137,7 @@ fn test_package_install_with_complex_dependencies() {
     let mut runner = MockCommandRunner::new();
 
     // Create config
-    let config = ConfigBuilder::default()
+    let config = AppConfigBuilder::default()
         .environment("test-env")
         .package_directory("/test/packages")
         .build();
@@ -214,9 +217,10 @@ fn test_package_install_with_complex_dependencies() {
     runner.error_response("dep3-check", "Not found", 1);
     runner.success_response("dep3-install", "Installed successfully");
 
+    let progress_manager = ProgressManager::new(false, true, true);
+
     // Create package installer
-    let installer =
-        MultiPackageInstallationService::new(&fs, &runner, &config, true, false, false, false);
+    let installer = PackageInstaller::new(&fs, &runner, &config, &progress_manager, false);
 
     // Run the installation
     let result = installer.install_package("main-pkg");

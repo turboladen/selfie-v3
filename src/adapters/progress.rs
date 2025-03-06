@@ -1,9 +1,9 @@
 // src/adapters/progress.rs
-// Implements interactive progress display using indicatif with support for
-// multiple progress bars, spinners, and multi-line output.
+// Consolidated Progress Manager that handles all progress reporting functionality
 
 use std::{
     collections::HashMap,
+    fmt::Display,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -11,13 +11,32 @@ use std::{
 use console::style;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
-use crate::{
-    domain::{
-        installation::InstallationStatus,
-        progress::{ConsoleRenderer, ProgressReporter},
-    },
-    ports::progress::MessageType,
-};
+use crate::domain::{config::AppConfig, installation::InstallationStatus};
+
+/// Standard emojis for different message types
+static INFO_EMOJI: (&str, &str) = ("ℹ️ ", "[i] ");
+static SUCCESS_EMOJI: (&str, &str) = ("✅ ", "[√] ");
+static ERROR_EMOJI: (&str, &str) = ("❌ ", "[x] ");
+static WARNING_EMOJI: (&str, &str) = ("⚠️ ", "[!] ");
+static LOADING_EMOJI: (&str, &str) = ("⌛ ", "[*] ");
+static BULLET_EMOJI: (&str, &str) = ("• ", "[*] ");
+
+/// Represents different types of messages that can be displayed to the user
+#[derive(Debug, Clone, PartialEq)]
+pub enum MessageType {
+    /// Informational message
+    Info,
+    /// Success message
+    Success,
+    /// Error message
+    Error,
+    /// Warning message
+    Warning,
+    /// Loading/in-progress message
+    Loading,
+    /// Generic status message
+    Status,
+}
 
 /// Represents the style of a progress element
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -30,14 +49,12 @@ pub enum ProgressStyleType {
     Message,
 }
 
-/// Responsible for managing and rendering interactive progress displays
+/// Consolidated Progress Manager that handles all progress reporting
 pub struct ProgressManager {
     /// Multi-progress instance for managing multiple progress bars
     multi_progress: Arc<MultiProgress>,
     /// Map of progress bars by their IDs
     progress_bars: Arc<Mutex<HashMap<String, ProgressBar>>>,
-    /// Progress reporter for message formatting
-    progress_reporter: ProgressReporter,
     /// Whether to use colors
     use_colors: bool,
     /// Whether terminal supports Unicode
@@ -49,14 +66,9 @@ pub struct ProgressManager {
 impl ProgressManager {
     /// Create a new progress manager with the specified options
     pub fn new(use_colors: bool, use_unicode: bool, verbose: bool) -> Self {
-        // Create a console renderer for the progress reporter
-        let console_renderer = ConsoleRenderer::new(use_unicode, use_colors);
-        let progress_reporter = ProgressReporter::new(Box::new(console_renderer));
-
         Self {
             multi_progress: Arc::new(MultiProgress::new()),
             progress_bars: Arc::new(Mutex::new(HashMap::new())),
-            progress_reporter,
             use_colors,
             use_unicode,
             verbose,
@@ -310,21 +322,178 @@ impl ProgressManager {
         }
     }
 
-    /// Create a status message line with appropriate styling using ProgressReporter
+    /// Create and render an info message
+    pub fn info(&self, message: &str) -> String {
+        self.format_message(MessageType::Info, message, None, None, 0)
+    }
+
+    /// Create and render a success message
+    pub fn success(&self, message: &str) -> String {
+        self.format_message(MessageType::Success, message, None, None, 0)
+    }
+
+    /// Create and render an error message
+    pub fn error(&self, message: &str) -> String {
+        self.format_message(MessageType::Error, message, None, None, 0)
+    }
+
+    /// Create and render a warning message
+    pub fn warning(&self, message: &str) -> String {
+        self.format_message(MessageType::Warning, message, None, None, 0)
+    }
+
+    /// Create and render a loading/in-progress message
+    pub fn loading(&self, message: &str) -> String {
+        self.format_message(MessageType::Loading, message, None, None, 0)
+    }
+
+    /// Create and render a status message with optional context and duration
+    pub fn status(
+        &self,
+        message: &str,
+        context: Option<&str>,
+        duration: Option<Duration>,
+        indent_level: usize,
+    ) -> String {
+        self.format_message(
+            MessageType::Status,
+            message,
+            context.map(|s| s.to_string()),
+            duration,
+            indent_level,
+        )
+    }
+
+    /// Render an error object directly
+    pub fn render_error(&self, error: &dyn Display) -> String {
+        self.format_message(
+            MessageType::Error,
+            &format!("Error: {}", error),
+            None,
+            None,
+            0,
+        )
+    }
+
+    /// Format a duration as a human-readable string
+    pub fn format_duration(&self, duration: Duration) -> String {
+        let total_seconds = duration.as_secs_f64();
+
+        if total_seconds < 0.1 {
+            format!("{:.1}ms", duration.as_millis())
+        } else if total_seconds < 1.0 {
+            format!("{:.2}s", total_seconds)
+        } else if total_seconds < 60.0 {
+            format!("{:.1}s", total_seconds)
+        } else {
+            let minutes = (total_seconds / 60.0).floor();
+            let seconds = total_seconds % 60.0;
+            format!("{}m {:.1}s", minutes, seconds)
+        }
+    }
+
+    /// Creates a formatted message with emoji/color based on message type
+    fn format_message(
+        &self,
+        message_type: MessageType,
+        text: &str,
+        context: Option<String>,
+        duration: Option<Duration>,
+        indent_level: usize,
+    ) -> String {
+        // Create indentation based on level
+        let indent = "  ".repeat(indent_level);
+
+        // Get appropriate emoji based on type
+        let emoji = self.get_emoji(&message_type);
+
+        // Apply styling based on type
+        let styled_text = self.style_text(text, &message_type);
+
+        let mut result = format!("{}{}{}", indent, emoji, styled_text);
+
+        if let Some(ctx) = context {
+            result.push_str(&format!(": {}", ctx));
+        }
+
+        if let Some(dur) = duration {
+            result.push_str(&format!(" ({})", self.format_duration(dur)));
+        }
+
+        result
+    }
+
+    /// Get the appropriate emoji (or text fallback) for a message type
+    fn get_emoji(&self, message_type: &MessageType) -> &str {
+        if self.use_unicode {
+            match message_type {
+                MessageType::Info => INFO_EMOJI.0,
+                MessageType::Success => SUCCESS_EMOJI.0,
+                MessageType::Error => ERROR_EMOJI.0,
+                MessageType::Warning => WARNING_EMOJI.0,
+                MessageType::Loading => LOADING_EMOJI.0,
+                MessageType::Status => BULLET_EMOJI.0,
+            }
+        } else {
+            match message_type {
+                MessageType::Info => INFO_EMOJI.1,
+                MessageType::Success => SUCCESS_EMOJI.1,
+                MessageType::Error => ERROR_EMOJI.1,
+                MessageType::Warning => WARNING_EMOJI.1,
+                MessageType::Loading => LOADING_EMOJI.1,
+                MessageType::Status => BULLET_EMOJI.1,
+            }
+        }
+    }
+
+    /// Apply appropriate styling to text based on message type
+    fn style_text(&self, text: &str, message_type: &MessageType) -> String {
+        if !self.use_colors {
+            return text.to_string();
+        }
+
+        match message_type {
+            MessageType::Info => style(text).blue().to_string(),
+            MessageType::Success => style(text).green().to_string(),
+            MessageType::Error => style(text).red().bold().to_string(),
+            MessageType::Warning => style(text).yellow().bold().to_string(),
+            MessageType::Loading => style(text).cyan().to_string(),
+            MessageType::Status => text.to_string(),
+        }
+    }
+
+    /// Create a status line with specific styling
     pub fn status_line(&self, message_type: MessageType, message: &str) -> String {
         match message_type {
-            MessageType::Info => self.progress_reporter.info(message),
-            MessageType::Success => self.progress_reporter.success(message),
-            MessageType::Error => self.progress_reporter.error(message),
-            MessageType::Warning => self.progress_reporter.warning(message),
-            MessageType::Loading => self.progress_reporter.loading(message),
-            MessageType::Status => self.progress_reporter.status(message, None, None, 0),
+            MessageType::Info => self.info(message),
+            MessageType::Success => self.success(message),
+            MessageType::Error => self.error(message),
+            MessageType::Warning => self.warning(message),
+            MessageType::Loading => self.loading(message),
+            MessageType::Status => self.status(message, None, None, 0),
         }
     }
 
     /// Returns whether colors are enabled for this progress manager
     pub fn use_colors(&self) -> bool {
         self.use_colors
+    }
+
+    pub fn verbose(&self) -> bool {
+        self.verbose
+    }
+}
+
+impl<'a> From<&'a AppConfig> for ProgressManager {
+    /// Create a new progress manager from AppConfig
+    fn from(config: &'a AppConfig) -> Self {
+        Self {
+            multi_progress: Arc::new(MultiProgress::new()),
+            progress_bars: Arc::new(Mutex::new(HashMap::new())),
+            use_colors: config.use_colors(),
+            use_unicode: config.use_unicode(),
+            verbose: config.verbose(),
+        }
     }
 }
 
@@ -391,9 +560,24 @@ impl ProgressDisplay {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::installation::InstallationStatus;
-    use crate::ports::progress::MessageType;
+    use crate::domain::{config::AppConfigBuilder, installation::InstallationStatus};
     use std::thread;
+
+    #[test]
+    fn test_progress_manager_from_config() {
+        let config = AppConfigBuilder::default()
+            .environment("test-env")
+            .package_directory("/test/path")
+            .verbose(true)
+            .use_colors(false)
+            .use_unicode(true)
+            .build();
+
+        let manager = ProgressManager::from(&config);
+
+        assert!(manager.verbose());
+        assert!(!manager.use_colors());
+    }
 
     #[test]
     fn test_create_progress_bar() {

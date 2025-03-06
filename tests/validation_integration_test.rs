@@ -3,9 +3,9 @@
 
 use selfie::{
     adapters::progress::ProgressManager,
-    domain::config::ConfigBuilder,
+    domain::config::AppConfigBuilder,
     ports::{command::MockCommandRunner, filesystem::MockFileSystem},
-    services::package_validation_command::{PackageValidationCommand, PackageValidationResult},
+    services::validation_command::{ValidationCommand, ValidationCommandResult},
 };
 use std::path::Path;
 
@@ -16,7 +16,7 @@ fn test_validation_integration() {
     let mut runner = MockCommandRunner::new();
 
     // Create config
-    let config = ConfigBuilder::default()
+    let config = AppConfigBuilder::default()
         .environment("test-env")
         .package_directory("/test/packages")
         .build();
@@ -58,15 +58,9 @@ fn test_validation_integration() {
     fs.mock_read_file(&invalid_path, invalid_yaml);
 
     // Set up command runner
-    runner
-        .expect_is_command_available()
-        .with(mockall::predicate::eq("echo"))
-        .returning(|_| true);
+    runner.mock_is_command_available("echo", true);
 
-    runner
-        .expect_is_command_available()
-        .with(mockall::predicate::eq("which"))
-        .returning(|_| true);
+    runner.mock_is_command_available("which", true);
 
     // Set up package repository for file finding
     // let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
@@ -75,8 +69,7 @@ fn test_validation_integration() {
     let progress_manager = ProgressManager::new(false, false, false);
 
     // Create validation command
-    let command =
-        PackageValidationCommand::new(&fs, &runner, config.clone(), &progress_manager, false);
+    let command = ValidationCommand::new(&fs, &runner, &config, &progress_manager);
 
     // Test validation on valid package
     let valid_cmd = selfie::domain::application::commands::PackageCommand::Validate {
@@ -86,7 +79,7 @@ fn test_validation_integration() {
 
     let result = command.execute(&valid_cmd);
     match result {
-        PackageValidationResult::Valid(output) => {
+        ValidationCommandResult::Valid(output) => {
             assert!(output.contains("valid-package"));
             assert!(output.contains("is valid"));
         }
@@ -101,7 +94,7 @@ fn test_validation_integration() {
 
     let result = command.execute(&invalid_cmd);
     match result {
-        PackageValidationResult::Invalid(output) => {
+        ValidationCommandResult::Invalid(output) => {
             eprintln!("{}", &output);
             assert!(output.contains("invalid-package"));
             assert!(output.contains("Validation failed"));
@@ -119,7 +112,7 @@ fn test_validation_integration() {
 
     let result = command.execute(&path_cmd);
     match result {
-        PackageValidationResult::Valid(_) => {
+        ValidationCommandResult::Valid(_) => {
             // Expected result
         }
         _ => panic!("Expected Valid result for path validation"),

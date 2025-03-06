@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use serde_yaml;
 
 use crate::{
-    domain::config::Config,
+    domain::config::FileConfig,
     ports::{
         config_loader::{ConfigLoadError, ConfigLoader},
         filesystem::FileSystem,
@@ -22,19 +22,19 @@ impl<'a, F: FileSystem> YamlConfigLoader<'a, F> {
 }
 
 impl<F: FileSystem> ConfigLoader for YamlConfigLoader<'_, F> {
-    fn load_config(&self) -> Result<Config, ConfigLoadError> {
+    fn load_config(&self) -> Result<FileConfig, ConfigLoadError> {
         let config_paths = self.find_config_paths();
 
         if config_paths.is_empty() {
-            // No config file found, return default
-            return Ok(self.default_config());
+            // No config file found, return error
+            return Err(ConfigLoadError::NotFound);
         }
 
         // Use the first config file found
         self.load_config_from_path(&config_paths[0])
     }
 
-    fn load_config_from_path(&self, path: &Path) -> Result<Config, ConfigLoadError> {
+    fn load_config_from_path(&self, path: &Path) -> Result<FileConfig, ConfigLoadError> {
         if !self.fs.path_exists(path) {
             return Err(ConfigLoadError::ReadError(format!(
                 "Can't read config file: {}",
@@ -49,7 +49,7 @@ impl<F: FileSystem> ConfigLoader for YamlConfigLoader<'_, F> {
             .map_err(|e| ConfigLoadError::ReadError(e.to_string()))?;
 
         // Parse the YAML content
-        let config: Config = serde_yaml::from_str(&content)
+        let config: FileConfig = serde_yaml::from_str(&content)
             .map_err(|e| ConfigLoadError::ParseError(e.to_string()))?;
 
         // Validate the config
@@ -64,8 +64,8 @@ impl<F: FileSystem> ConfigLoader for YamlConfigLoader<'_, F> {
         let mut paths = Vec::new();
 
         if let Ok(config_dir) = self.fs.config_dir() {
-            let config_yaml = config_dir.join("selfie").join("config.yaml");
-            let config_yml = config_dir.join("selfie").join("config.yml");
+            let config_yaml = config_dir.join("config.yaml");
+            let config_yml = config_dir.join("config.yml");
 
             if self.fs.path_exists(&config_yaml) {
                 paths.push(config_yaml);
@@ -78,9 +78,9 @@ impl<F: FileSystem> ConfigLoader for YamlConfigLoader<'_, F> {
         paths
     }
 
-    fn default_config(&self) -> Config {
+    fn default_config(&self) -> FileConfig {
         // Create a minimal default configuration
-        Config::new(String::new(), PathBuf::new())
+        FileConfig::new(String::new(), PathBuf::new())
     }
 }
 
@@ -91,7 +91,7 @@ mod tests {
     use crate::ports::filesystem::MockFileSystem;
     use std::path::Path;
 
-    fn setup_test_fs() -> MockFileSystem {
+    fn setup_test_fs() -> (MockFileSystem, PathBuf) {
         let mut fs = MockFileSystem::default();
 
         // Set up mock HOME environment for test
@@ -110,13 +110,13 @@ mod tests {
         fs.mock_path_exists(&config_dir.join("config.yml"), false);
         fs.mock_read_file(config_path, config_yaml);
 
-        fs
+        (fs, home_dir.into())
     }
 
     #[test]
     fn test_find_config_paths() {
-        let mut fs = setup_test_fs();
-        let config_dir = Path::new("/home/test/.config");
+        let (mut fs, home_dir) = setup_test_fs();
+        let config_dir = home_dir.join(".config").join("selfie");
         fs.mock_config_dir(&config_dir);
         fs.mock_path_exists(config_dir.join("selfie").join("config.yaml"), true);
 
@@ -131,8 +131,8 @@ mod tests {
 
     #[test]
     fn test_load_config() {
-        let mut fs = setup_test_fs();
-        let config_dir = Path::new("/home/test/.config");
+        let (mut fs, home_dir) = setup_test_fs();
+        let config_dir = home_dir.join(".config").join("selfie");
         fs.mock_config_dir(&config_dir);
         fs.mock_path_exists(config_dir.join("selfie").join("config.yaml"), true);
 
@@ -148,18 +148,60 @@ mod tests {
     #[test]
     fn test_load_config_not_found() {
         let mut fs = MockFileSystem::default(); // Empty file system
-        let config_dir = Path::new("/home/test/.config");
+        let config_dir = Path::new("/home/test/.config/selfie");
         fs.mock_config_dir(&config_dir);
-        fs.mock_path_exists(config_dir, false);
-        fs.mock_path_exists(config_dir.join("selfie").join("config.yaml"), false);
-        fs.mock_path_exists(config_dir.join("selfie").join("config.yml"), false);
+        fs.mock_path_exists(config_dir, true);
+        fs.mock_path_exists(config_dir.join("config.yaml"), false);
+        fs.mock_path_exists(config_dir.join("config.yml"), false);
 
         let loader = YamlConfigLoader::new(&fs);
 
-        // Should return default config
-        let config = loader.load_config().unwrap();
+        // Should return error
+        let result = loader.load_config();
+        assert!(matches!(result, Err(ConfigLoadError::NotFound)));
+    }
 
-        assert_eq!(config.environment, "");
-        assert!(config.package_directory.as_os_str().is_empty());
+    #[test]
+    fn test_load_config_with_extended_settings() {
+        let mut fs = MockFileSystem::default();
+        let config_dir = Path::new("/home/test/.config");
+
+        // Config with extended settings
+        let config_yaml = r#"
+            environment: "test-env"
+            package_directory: "/test/packages"
+            command_timeout: 120
+            stop_on_error: false
+            max_parallel_installations: 8
+            logging:
+              enabled: true
+              directory: "/test/logs"
+              max_files: 5
+              max_size: 20
+        "#;
+
+        let config_path = config_dir.join("selfie").join("config.yaml");
+        fs.mock_config_dir(&config_dir);
+        fs.mock_path_exists(&config_path, true);
+        fs.mock_read_file(&config_path, config_yaml);
+
+        let loader = YamlConfigLoader::new(&fs);
+        let config = loader.load_config_from_path(&config_path).unwrap();
+
+        // Check basic settings
+        assert_eq!(config.environment, "test-env");
+        assert_eq!(config.package_directory, Path::new("/test/packages"));
+
+        // Check extended settings
+        assert_eq!(config.command_timeout, Some(120));
+        assert_eq!(config.stop_on_error, Some(false));
+        assert_eq!(config.max_parallel_installations, Some(8));
+
+        // Check logging settings
+        let logging = config.logging.unwrap();
+        assert!(logging.enabled);
+        assert_eq!(logging.directory, Path::new("/test/logs"));
+        assert_eq!(logging.max_files, 5);
+        assert_eq!(logging.max_size, 20);
     }
 }

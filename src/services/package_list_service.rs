@@ -5,7 +5,7 @@ use console::style;
 
 use crate::{
     adapters::progress::{ProgressManager, ProgressStyleType},
-    domain::{config::Config, package::Package},
+    domain::{config::AppConfig, package::Package},
     ports::command::CommandRunner,
     ports::package_repo::{PackageRepoError, PackageRepository},
     services::command_validator::CommandValidator,
@@ -22,10 +22,8 @@ pub enum PackageListResult {
 /// Handles the 'package list' command with enhanced command availability checking
 pub struct PackageListService<'a, R: CommandRunner, P: PackageRepository> {
     runner: &'a R,
-    config: &'a Config,
+    config: &'a AppConfig,
     progress_manager: &'a ProgressManager,
-    verbose: bool,
-    use_colors: bool,
     package_repo: &'a P,
 }
 
@@ -33,18 +31,14 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
     /// Create a new list command handler
     pub fn new(
         runner: &'a R,
-        config: &'a Config,
+        config: &'a AppConfig,
         progress_manager: &'a ProgressManager,
-        verbose: bool,
         package_repo: &'a P,
     ) -> Self {
-        let use_colors = progress_manager.use_colors();
         Self {
             runner,
             config,
             progress_manager,
-            verbose,
-            use_colors,
             package_repo,
         }
     }
@@ -89,16 +83,16 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
         sorted_packages.sort_by(|a, b| a.name.cmp(&b.name));
 
         for package in sorted_packages {
-            let is_compatible = package.environments.contains_key(&self.config.environment);
+            let is_compatible = package.environments.contains_key(self.config.environment());
 
             // Style the package name and version with color
-            let package_name = if self.use_colors {
+            let package_name = if self.config.use_colors() {
                 style(&package.name).magenta().bold().to_string()
             } else {
                 package.name.clone()
             };
 
-            let version = if self.use_colors {
+            let version = if self.config.use_colors() {
                 style(format!("v{}", &package.version)).dim().to_string()
             } else {
                 format!("v{}", &package.version)
@@ -106,14 +100,14 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
 
             // Style the compatibility message with color
             let compatibility = if is_compatible {
-                if self.use_colors {
+                if self.config.use_colors() {
                     style("Compatible with current environment")
                         .green()
                         .to_string()
                 } else {
                     "Compatible with current environment".to_string()
                 }
-            } else if self.use_colors {
+            } else if self.config.use_colors() {
                 style("Not compatible with current environment")
                     .red()
                     .to_string()
@@ -127,8 +121,8 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
             ));
 
             // Check command availability for compatible packages
-            if is_compatible && self.verbose {
-                if let Some(env_config) = package.environments.get(&self.config.environment) {
+            if is_compatible && self.config.verbose() {
+                if let Some(env_config) = package.environments.get(self.config.environment()) {
                     // Extract base command
                     if let Some(base_cmd) =
                         CommandValidator::<R>::extract_base_command(&env_config.install)
@@ -136,12 +130,12 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
                         let cmd_available = self.runner.is_command_available(base_cmd);
 
                         let status = if cmd_available {
-                            if self.use_colors {
+                            if self.config.use_colors() {
                                 style("    ✓ Install command available").green().to_string()
                             } else {
                                 "    ✓ Install command available".to_string()
                             }
-                        } else if self.use_colors {
+                        } else if self.config.use_colors() {
                             style(format!("    ⚠ Install command '{}' not found", base_cmd))
                                 .yellow()
                                 .to_string()
@@ -154,10 +148,10 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
 
                     // Check for environment-specific recommendations
                     if let Some(recommendation) = command_validator.is_command_recommended_for_env(
-                        &self.config.environment,
+                        self.config.environment(),
                         &env_config.install,
                     ) {
-                        let recommendation_text = if self.use_colors {
+                        let recommendation_text = if self.config.use_colors() {
                             style(format!("    ℹ {}", recommendation))
                                 .blue()
                                 .to_string()
@@ -171,9 +165,9 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
             }
 
             // Add more details if verbose mode is enabled
-            if self.verbose {
+            if self.config.verbose() {
                 if let Some(desc) = &package.description {
-                    let description = if self.use_colors {
+                    let description = if self.config.use_colors() {
                         style(format!("    Description: {}", desc))
                             .blue()
                             .to_string()
@@ -184,7 +178,7 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
                 }
 
                 if let Some(homepage) = &package.homepage {
-                    let homepage_text = if self.use_colors {
+                    let homepage_text = if self.config.use_colors() {
                         style(format!("    Homepage: {}", homepage))
                             .blue()
                             .to_string()
@@ -202,7 +196,7 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
 
                 // Check for potential issues in commands
                 if is_compatible {
-                    if let Some(env_config) = package.environments.get(&self.config.environment) {
+                    if let Some(env_config) = package.environments.get(self.config.environment()) {
                         let mut warnings = Vec::new();
 
                         if command_validator.might_require_sudo(&env_config.install) {
@@ -218,7 +212,7 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
                         }
 
                         if !warnings.is_empty() {
-                            let warning_text = if self.use_colors {
+                            let warning_text = if self.config.use_colors() {
                                 style(format!("    ⚠ Command notes: {}", warnings.join(", ")))
                                     .yellow()
                                     .to_string()
@@ -233,7 +227,7 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
 
                 // Show file path if available
                 if let Some(path) = &package.path {
-                    let path_text = if self.use_colors {
+                    let path_text = if self.config.use_colors() {
                         style(format!("    Path: {}", path.display()))
                             .dim()
                             .to_string()
@@ -299,7 +293,7 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
         let mut output = String::from("Packages by environment compatibility:\n\n");
 
         // Identify current environment
-        let current_env = &self.config.environment;
+        let current_env = self.config.environment();
 
         // Compatible with current environment
         let compatible: Vec<_> = packages
@@ -314,7 +308,7 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
             .collect();
 
         // Format section for compatible packages
-        let compatible_heading = if self.use_colors {
+        let compatible_heading = if self.config.use_colors() {
             style(format!(
                 "Compatible with current environment ({}):",
                 current_env
@@ -332,7 +326,7 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
             output.push_str("  No packages found\n");
         } else {
             for package in compatible {
-                let pkg_text = if self.use_colors {
+                let pkg_text = if self.config.use_colors() {
                     format!(
                         "  {} ({})",
                         style(&package.name).magenta().bold(),
@@ -348,7 +342,7 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
 
         // Format section for incompatible packages
         output.push('\n');
-        let incompatible_heading = if self.use_colors {
+        let incompatible_heading = if self.config.use_colors() {
             style("Not compatible with current environment:")
                 .red()
                 .bold()
@@ -363,7 +357,7 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
             output.push_str("  No packages found\n");
         } else {
             for package in incompatible {
-                let pkg_text = if self.use_colors {
+                let pkg_text = if self.config.use_colors() {
                     format!(
                         "  {} ({}) - Available for: {}",
                         style(&package.name).magenta(),
@@ -402,7 +396,7 @@ mod tests {
     use super::*;
     use crate::{
         adapters::package_repo::yaml::YamlPackageRepository,
-        domain::{config::ConfigBuilder, package::PackageBuilder},
+        domain::{config::AppConfigBuilder, package::PackageBuilder},
         ports::{
             command::MockCommandRunner,
             filesystem::{MockFileSystem, MockFileSystemExt},
@@ -413,7 +407,7 @@ mod tests {
     #[test]
     fn test_list_empty_directory() {
         let mut fs = MockFileSystem::default();
-        let config = ConfigBuilder::default()
+        let config = AppConfigBuilder::default()
             .environment("test-env")
             .package_directory("/test/packages")
             .build();
@@ -423,9 +417,9 @@ mod tests {
         // Create a repository with an empty directory
         let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
         let runner = MockCommandRunner::new();
-        let manager = ProgressManager::new(false, false, false);
+        let manager = ProgressManager::from(&config);
 
-        let cmd = PackageListService::new(&runner, &config, &manager, false, &repo);
+        let cmd = PackageListService::new(&runner, &config, &manager, &repo);
 
         let result = cmd.list_packages();
         assert!(result.is_ok());
@@ -435,7 +429,7 @@ mod tests {
     #[test]
     fn test_list_packages() {
         let mut fs = MockFileSystem::default();
-        let config = ConfigBuilder::default()
+        let config = AppConfigBuilder::default()
             .environment("test-env")
             .package_directory("/test/packages")
             .build();
@@ -476,14 +470,13 @@ mod tests {
             .with(mockall::predicate::eq("brew"))
             .returning(|_| true);
 
-        let manager = ProgressManager::new(false, false, false);
-        let cmd = PackageListService::new(&runner, &config, &manager, false, &repo);
+        let manager = ProgressManager::from(&config);
+        let cmd = PackageListService::new(&runner, &config, &manager, &repo);
 
         // Test the list_packages function with our repo
         let result = cmd.list_packages();
         assert!(result.is_ok());
         let output = result.unwrap();
-        dbg!(&output);
 
         // Check that both packages are listed
         assert!(output.contains("ripgrep (v1.0.0)"));
@@ -497,9 +490,10 @@ mod tests {
     #[test]
     fn test_list_packages_verbose() {
         let mut fs = MockFileSystem::default();
-        let config = ConfigBuilder::default()
+        let config = AppConfigBuilder::default()
             .environment("test-env")
             .package_directory("/test/packages")
+            .verbose(true)
             .build();
 
         let package_dir = Path::new("/test/packages");
@@ -534,8 +528,8 @@ mod tests {
             .with(mockall::predicate::eq("apt"))
             .returning(|_| true);
 
-        let manager = ProgressManager::new(false, false, false);
-        let cmd = PackageListService::new(&runner, &config, &manager, true, &repo);
+        let manager = ProgressManager::from(&config);
+        let cmd = PackageListService::new(&runner, &config, &manager, &repo);
 
         // Test the list_packages function with our repo
         let result = cmd.list_packages();
@@ -581,14 +575,14 @@ mod tests {
 
         // Create the service
         let fs = MockFileSystem::default();
-        let config = ConfigBuilder::default()
+        let config = AppConfigBuilder::default()
             .environment("test-env")
             .package_directory("/test/packages")
             .build();
         let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
         let runner = MockCommandRunner::new();
-        let manager = ProgressManager::new(false, false, false);
-        let cmd = PackageListService::new(&runner, &config, &manager, false, &repo);
+        let manager = ProgressManager::from(&config);
+        let cmd = PackageListService::new(&runner, &config, &manager, &repo);
 
         // Filter by name
         let filtered = cmd.filter_packages(&packages, Some("rip"));
@@ -613,7 +607,7 @@ mod tests {
     #[test]
     fn test_list_packages_by_environment() {
         let mut fs = MockFileSystem::default();
-        let config = ConfigBuilder::default()
+        let config = AppConfigBuilder::default()
             .environment("test-env")
             .package_directory("/test/packages")
             .build();
@@ -663,8 +657,8 @@ mod tests {
         // Create a repository with our mock filesystem
         let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
         let runner = MockCommandRunner::new();
-        let manager = ProgressManager::new(false, false, false);
-        let cmd = PackageListService::new(&runner, &config, &manager, false, &repo);
+        let manager = ProgressManager::from(&config);
+        let cmd = PackageListService::new(&runner, &config, &manager, &repo);
 
         // Test grouping by environment
         let result = cmd.list_packages_by_environment();

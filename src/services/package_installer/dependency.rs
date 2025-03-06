@@ -2,7 +2,7 @@
 use thiserror::Error;
 
 use crate::{
-    domain::config::Config,
+    domain::config::AppConfig,
     domain::dependency::{DependencyGraph, DependencyGraphError},
     domain::package::Package,
     ports::package_repo::{PackageRepoError, PackageRepository},
@@ -30,12 +30,12 @@ pub enum DependencyResolverError {
 }
 
 pub struct DependencyResolver<'a, P: PackageRepository> {
-    package_repo: P,
-    config: &'a Config,
+    package_repo: &'a P,
+    config: &'a AppConfig,
 }
 
 impl<'a, P: PackageRepository> DependencyResolver<'a, P> {
-    pub fn new(package_repo: P, config: &'a Config) -> Self {
+    pub fn new(package_repo: &'a P, config: &'a AppConfig) -> Self {
         Self {
             package_repo,
             config,
@@ -104,7 +104,7 @@ impl<'a, P: PackageRepository> DependencyResolver<'a, P> {
         // Get environment configuration for this package
         let env_config = self.config.resolve_environment(&package).map_err(|_| {
             DependencyResolverError::EnvironmentNotSupported(
-                self.config.environment.clone(),
+                self.config.environment().to_string(),
                 package.name.clone(),
             )
         })?;
@@ -158,12 +158,12 @@ impl<'a, P: PackageRepository> DependencyResolver<'a, P> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{domain::config::ConfigBuilder, ports::package_repo::MockPackageRepository};
+    use crate::{domain::config::AppConfigBuilder, ports::package_repo::MockPackageRepository};
 
-    fn setup_test_environment() -> (MockPackageRepository, Config) {
+    fn setup_test_environment() -> (MockPackageRepository, AppConfig) {
         let package_repo = MockPackageRepository::new();
 
-        let config = ConfigBuilder::default()
+        let config = AppConfigBuilder::default()
             .environment("test-env")
             .package_directory("/test/packages")
             .build();
@@ -205,7 +205,7 @@ environments:
         package_repo.mock_get_package_ok("dep-pkg", dep);
 
         // Create resolver and resolve dependencies
-        let resolver = DependencyResolver::new(package_repo, &config);
+        let resolver = DependencyResolver::new(&package_repo, &config);
         let result = resolver.resolve_dependencies("main-pkg");
 
         assert!(result.is_ok());
@@ -231,7 +231,7 @@ environments:
         package_repo.mock_get_package_ok("dep3", dep3);
 
         // Create resolver and resolve dependencies
-        let resolver = DependencyResolver::new(package_repo, &config);
+        let resolver = DependencyResolver::new(&package_repo, &config);
         let result = resolver.resolve_dependencies("main-pkg");
 
         assert!(result.is_ok());
@@ -261,7 +261,7 @@ environments:
         package_repo.mock_get_package_ok("common-dep", common);
 
         // Create resolver and resolve dependencies
-        let resolver = DependencyResolver::new(package_repo, &config);
+        let resolver = DependencyResolver::new(&package_repo, &config);
         let result = resolver.resolve_dependencies("main-pkg");
 
         assert!(result.is_ok());
@@ -289,7 +289,7 @@ environments:
         package_repo.mock_get_package_ok("dep1", dep1);
 
         // Create resolver and resolve dependencies
-        let resolver = DependencyResolver::new(package_repo, &config);
+        let resolver = DependencyResolver::new(&package_repo, &config);
         let result = resolver.resolve_dependencies("main-pkg");
 
         assert!(result.is_err());
@@ -321,7 +321,7 @@ environments:
             PackageRepoError::PackageNotFound("missing-dep".to_string()),
         );
 
-        let resolver = DependencyResolver::new(package_repo, &config);
+        let resolver = DependencyResolver::new(&package_repo, &config);
         let result = resolver.resolve_dependencies("main-pkg");
 
         assert!(result.is_err());
@@ -354,7 +354,7 @@ environments:
         package_repo.mock_get_package_ok("dep1", dep1);
 
         // Create resolver and resolve dependencies
-        let resolver = DependencyResolver::new(package_repo, &config);
+        let resolver = DependencyResolver::new(&package_repo, &config);
         let result = resolver.resolve_dependencies("main-pkg");
 
         assert!(result.is_err());

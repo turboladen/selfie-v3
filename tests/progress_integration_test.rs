@@ -2,12 +2,12 @@
 
 use selfie::{
     adapters::progress::{ProgressManager, ProgressStyleType},
-    domain::{config::ConfigBuilder, installation::InstallationStatus},
+    domain::{config::AppConfigBuilder, installation::InstallationStatus},
     ports::{
         command::{MockCommandRunner, MockCommandRunnerExt},
         filesystem::MockFileSystem,
     },
-    services::multi_package_installation_service::MultiPackageInstallationService,
+    services::package_installer::PackageInstaller,
 };
 
 // Import the enhanced package installer
@@ -20,12 +20,12 @@ fn test_package_install_with_progress_display() {
     let mut runner = MockCommandRunner::new();
 
     // Create config
-    let config = ConfigBuilder::default()
+    let config = AppConfigBuilder::default()
         .environment("test-env")
         .package_directory("/test/packages")
         .build();
-
     // Set up package files in the filesystem
+
     // Main package with two dependencies
     let main_package_yaml = r#"
         name: main-pkg
@@ -85,14 +85,14 @@ fn test_package_install_with_progress_display() {
     runner.success_response("dep1 install", "Installed successfully");
     runner.error_response("dep2 check", "Not found", 1);
     runner.success_response("dep2 install", "Installed successfully");
+    runner.mock_is_command_available("dep1", true);
+    runner.mock_is_command_available("dep2", true);
+    runner.mock_is_command_available("main", true);
+
+    let progress_manager = ProgressManager::new(false, true, true);
 
     // Create the enhanced installer
-    let installer = MultiPackageInstallationService::new(
-        &fs, &runner, &config, true,  // verbose output
-        false, // no colors
-        true,  // use unicode
-        false,
-    );
+    let installer = PackageInstaller::new(&fs, &runner, &config, &progress_manager, true);
 
     // Run the installation
     let result = installer.install_package("main-pkg");
@@ -163,25 +163,19 @@ fn test_direct_progress_display_usage() {
     // Add some progress to the bar
     bar_pb.set_position(50);
 
+    let info_message = progress_manager.info("Information message");
+    assert!(info_message.contains("Information message"));
+
+    let success_message = progress_manager.success("Success message");
+    assert!(success_message.contains("Success message"));
+
+    let error_message = progress_manager.error("Error message");
+    assert!(error_message.contains("Error message"));
+
     // Complete a progress bar
     progress_manager
         .complete_progress("spinner-test", "Completed spinner")
         .unwrap();
-
-    // Update using installation status
-    progress_manager
-        .update_from_status(
-            "bar-test",
-            &InstallationStatus::Complete,
-            Some(std::time::Duration::from_millis(123)),
-        )
-        .unwrap();
-
-    // Test getting a non-existent progress bar
-    assert!(progress_manager.get_progress_bar("nonexistent").is_none());
-    assert!(progress_manager
-        .update_progress("nonexistent", "test")
-        .is_err());
 
     // Finish test
     message_pb.finish_with_message("Test completed");
