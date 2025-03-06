@@ -1,7 +1,9 @@
 // src/ports/config_loader.rs
-use crate::domain::config::Config;
 use std::path::{Path, PathBuf};
+
 use thiserror::Error;
+
+use crate::domain::config::FileConfig;
 
 #[derive(Error, Debug)]
 pub enum ConfigLoadError {
@@ -22,16 +24,17 @@ pub enum ConfigLoadError {
 }
 
 /// Port for loading configuration from disk
+#[mockall::automock]
 pub trait ConfigLoader {
     /// Load configuration from standard locations
-    fn load_config(&self) -> Result<Config, ConfigLoadError>;
+    fn load_config(&self) -> Result<FileConfig, ConfigLoadError>;
 
     /// Load configuration from a specific path
-    fn load_config_from_path(&self, path: &Path) -> Result<Config, ConfigLoadError>;
+    fn load_config_from_path(&self, path: &Path) -> Result<FileConfig, ConfigLoadError>;
 
     /// Find possible configuration file paths
     fn find_config_paths(&self) -> Vec<PathBuf>;
 
     /// Get the default configuration
-    fn default_config(&self) -> Config;
+    fn default_config(&self) -> FileConfig;
 }

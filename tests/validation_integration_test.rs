@@ -3,7 +3,7 @@
 
 use selfie::{
     adapters::progress::ProgressManager,
-    domain::config::ConfigBuilder,
+    domain::config::AppConfigBuilder,
     ports::{command::MockCommandRunner, filesystem::MockFileSystem},
     services::validation_command::{ValidationCommand, ValidationCommandResult},
 };
@@ -16,7 +16,7 @@ fn test_validation_integration() {
     let mut runner = MockCommandRunner::new();
 
     // Create config
-    let config = ConfigBuilder::default()
+    let config = AppConfigBuilder::default()
         .environment("test-env")
         .package_directory("/test/packages")
         .build();
@@ -69,7 +69,7 @@ fn test_validation_integration() {
     let progress_manager = ProgressManager::new(false, false, false);
 
     // Create validation command
-    let command = ValidationCommand::new(&fs, &runner, config.clone(), &progress_manager, false);
+    let command = ValidationCommand::new(&fs, &runner, &config, &progress_manager);
 
     // Test validation on valid package
     let valid_cmd = selfie::domain::application::commands::PackageCommand::Validate {

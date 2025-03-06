@@ -4,12 +4,13 @@ use crate::{
         package_repo::yaml::YamlPackageRepository,
         progress::{ProgressManager, ProgressStyleType},
     },
-    domain::{application::commands::PackageCommand, config::Config},
+    domain::{application::commands::PackageCommand, config::AppConfig},
     ports::{command::CommandRunner, filesystem::FileSystem},
     services::package_validator::PackageValidator,
 };
 
 /// Result of running the validate command
+#[derive(Debug)]
 pub enum ValidationCommandResult {
     /// Package validation successful (may include warnings)
     Valid(String),
@@ -23,9 +24,8 @@ pub enum ValidationCommandResult {
 pub struct ValidationCommand<'a, F: FileSystem, R: CommandRunner> {
     fs: &'a F,
     runner: &'a R,
-    config: Config,
+    config: &'a AppConfig,
     progress_manager: &'a ProgressManager,
-    verbose: bool,
 }
 
 impl<'a, F: FileSystem, R: CommandRunner> ValidationCommand<'a, F, R> {
@@ -33,17 +33,14 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidationCommand<'a, F, R> {
     pub fn new(
         fs: &'a F,
         runner: &'a R,
-        config: Config,
+        config: &'a AppConfig,
         progress_manager: &'a ProgressManager,
-        verbose: bool,
     ) -> Self {
-        // Get the color setting from the progress manager
         Self {
             fs,
             runner,
             config,
             progress_manager,
-            verbose,
         }
     }
 
@@ -67,7 +64,7 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidationCommand<'a, F, R> {
 
                 // Create the enhanced validator
                 let validator =
-                    PackageValidator::new(self.fs, self.runner, &self.config, &package_repo);
+                    PackageValidator::new(self.fs, self.runner, self.config, &package_repo);
 
                 // Validate package
                 let result = if let Some(path) = package_path {
@@ -92,7 +89,7 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidationCommand<'a, F, R> {
                     }
                     Err(err) => {
                         // More verbose error handling
-                        if self.verbose {
+                        if self.config.verbose() {
                             progress.println(format!("Error details: {:#?}", err));
                         }
 
@@ -106,6 +103,68 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidationCommand<'a, F, R> {
             _ => ValidationCommandResult::Error(
                 "Invalid command. Expected 'validate <package-name>'".to_string(),
             ),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+    use crate::{
+        domain::{application::commands::PackageCommand, config::AppConfigBuilder},
+        ports::{command::MockCommandRunner, filesystem::MockFileSystem},
+    };
+
+    #[test]
+    fn test_execute_validation_command() {
+        let package_dir = Path::new("/test/packages");
+
+        let mut fs = MockFileSystem::default();
+        fs.mock_path_exists(package_dir, true);
+        fs.mock_path_exists(package_dir.join("test-package.yaml"), true);
+        fs.mock_path_exists(package_dir.join("test-package.yml"), false);
+        fs.mock_read_file(
+            package_dir.join("test-package.yaml"),
+            r#"---
+        name: test-package
+        # version:
+        homepage:
+        description: 
+        environmentttttttt:
+          cool-computer:
+            install:
+            check: sad face
+            "#,
+        );
+
+        let runner = MockCommandRunner::new();
+
+        let config = AppConfigBuilder::default()
+            .environment("test-env")
+            .package_directory(package_dir)
+            .verbose(true)
+            .build();
+
+        let progress_manager = ProgressManager::from(&config);
+
+        let cmd = ValidationCommand::new(&fs, &runner, &config, &progress_manager);
+
+        let package_cmd = PackageCommand::Validate {
+            package_name: "test-package".to_string(),
+            package_path: None,
+        };
+
+        // This would need to be more thoroughly mocked to test actual validation
+        // For now we're just testing that the command structure works
+        let result = cmd.execute(&package_cmd);
+
+        match result {
+            ValidationCommandResult::Invalid(_) => {
+                // Expected for this simple test
+            }
+            _ => panic!("Expected error result due to lack of mocking"),
         }
     }
 }

@@ -1,8 +1,9 @@
 // src/ports/application.rs
-use crate::domain::application::commands::ApplicationCommand;
-use crate::domain::config::ConfigValidationError;
 use std::path::PathBuf;
+
 use thiserror::Error;
+
+use crate::domain::{application::commands::ApplicationCommand, config::ConfigValidationError};
 
 #[derive(Debug, Clone)]
 pub struct ApplicationArguments {

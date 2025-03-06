@@ -11,7 +11,7 @@ use std::{
 use console::style;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
-use crate::domain::installation::InstallationStatus;
+use crate::domain::{config::AppConfig, installation::InstallationStatus};
 
 /// Standard emojis for different message types
 static INFO_EMOJI: (&str, &str) = ("ℹ️ ", "[i] ");
@@ -488,6 +488,19 @@ impl ProgressManager {
     }
 }
 
+impl<'a> From<&'a AppConfig> for ProgressManager {
+    /// Create a new progress manager from AppConfig
+    fn from(config: &'a AppConfig) -> Self {
+        Self {
+            multi_progress: Arc::new(MultiProgress::new()),
+            progress_bars: Arc::new(Mutex::new(HashMap::new())),
+            use_colors: config.use_colors(),
+            use_unicode: config.use_unicode(),
+            verbose: config.verbose(),
+        }
+    }
+}
+
 /// Represents a progress display for a single task
 pub struct ProgressDisplay {
     /// The progress bar for this task
@@ -551,8 +564,24 @@ impl ProgressDisplay {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::installation::InstallationStatus;
+    use crate::domain::{config::AppConfigBuilder, installation::InstallationStatus};
     use std::thread;
+
+    #[test]
+    fn test_progress_manager_from_config() {
+        let config = AppConfigBuilder::default()
+            .environment("test-env")
+            .package_directory("/test/path")
+            .verbose(true)
+            .use_colors(false)
+            .use_unicode(true)
+            .build();
+
+        let manager = ProgressManager::from(&config);
+
+        assert!(manager.verbose());
+        assert!(!manager.use_colors());
+    }
 
     #[test]
     fn test_create_progress_bar() {

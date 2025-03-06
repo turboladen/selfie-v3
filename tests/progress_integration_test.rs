@@ -2,7 +2,7 @@
 
 use selfie::{
     adapters::progress::{ProgressManager, ProgressStyleType},
-    domain::{config::ConfigBuilder, installation::InstallationStatus},
+    domain::{config::AppConfigBuilder, installation::InstallationStatus},
     ports::{
         command::{MockCommandRunner, MockCommandRunnerExt},
         filesystem::MockFileSystem,
@@ -20,7 +20,7 @@ fn test_package_install_with_progress_display() {
     let mut runner = MockCommandRunner::new();
 
     // Create config
-    let config = ConfigBuilder::default()
+    let config = AppConfigBuilder::default()
         .environment("test-env")
         .package_directory("/test/packages")
         .build();

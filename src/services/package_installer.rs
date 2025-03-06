@@ -13,7 +13,7 @@ use crate::{
         progress::{ProgressManager, ProgressStyleType},
     },
     domain::{
-        config::Config,
+        config::AppConfig,
         installation::{Installation, InstallationError, InstallationStatus},
         package::Package,
     },
@@ -125,7 +125,7 @@ impl InstallationResult {
 pub struct PackageInstaller<'a, F: FileSystem, R: CommandRunner> {
     fs: &'a F,
     runner: &'a R,
-    config: &'a Config,
+    config: &'a AppConfig,
     progress_manager: &'a ProgressManager,
     check_commands: bool,
 }
@@ -134,7 +134,7 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
     pub fn new(
         fs: &'a F,
         runner: &'a R,
-        config: &'a Config,
+        config: &'a AppConfig,
         progress_manager: &'a ProgressManager,
         check_commands: bool,
     ) -> Self {
@@ -345,13 +345,13 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
             })?;
 
         // Check if package supports current environment
-        if !package.environments.contains_key(&self.config.environment) {
+        if !package.environments.contains_key(self.config.environment()) {
             return Ok(false);
         }
 
         // Check if required commands are available
         if self.check_commands {
-            if let Some(env_config) = package.environments.get(&self.config.environment) {
+            if let Some(env_config) = package.environments.get(self.config.environment()) {
                 if let Some(base_cmd) = Self::extract_base_command(&env_config.install) {
                     if !self.runner.is_command_available(base_cmd) {
                         return Ok(false);
@@ -389,7 +389,7 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
         let mut missing_commands = Vec::new();
 
         for package in packages {
-            if let Some(env_config) = package.environments.get(&self.config.environment) {
+            if let Some(env_config) = package.environments.get(self.config.environment()) {
                 // Extract and check base command
                 if let Some(base_cmd) = Self::extract_base_command(&env_config.install) {
                     if !self.runner.is_command_available(base_cmd) {
@@ -452,7 +452,7 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
 
         // If check_commands is enabled, double-check command availability
         if self.check_commands {
-            if let Some(env_config) = package.environments.get(&self.config.environment) {
+            if let Some(env_config) = package.environments.get(self.config.environment()) {
                 if let Some(base_cmd) = Self::extract_base_command(&env_config.install) {
                     if !self.runner.is_command_available(base_cmd) {
                         let duration = start_time.elapsed();
@@ -485,7 +485,7 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
         // Create installation instance
         let mut installation = Installation::new(
             package.clone(),
-            &self.config.environment,
+            self.config.environment(),
             env_config.clone(),
         );
 
@@ -652,7 +652,7 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        domain::{config::ConfigBuilder, package::PackageBuilder},
+        domain::{config::AppConfigBuilder, package::PackageBuilder},
         ports::{
             command::{MockCommandRunner, MockCommandRunnerExt},
             filesystem::MockFileSystem,
@@ -669,8 +669,8 @@ mod tests {
             .build()
     }
 
-    fn create_test_config() -> Config {
-        ConfigBuilder::default()
+    fn create_test_config() -> AppConfig {
+        AppConfigBuilder::default()
             .environment("test-env")
             .package_directory("/test/path")
             .build()
@@ -753,7 +753,7 @@ mod tests {
     #[test]
     fn test_installation_manager_environment_incompatible() {
         let package = create_test_package();
-        let config = ConfigBuilder::default()
+        let config = AppConfigBuilder::default()
             .environment("different-env")
             .package_directory("/test/path")
             .build();

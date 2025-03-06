@@ -101,7 +101,7 @@ impl ValidationIssue {
 }
 
 /// Results of a package validation
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ValidationResult {
     /// The package that was validated
     pub package_name: String,
@@ -370,49 +370,63 @@ impl ValidationResult {
     fn add_verbose_information(&self, output: &mut String, use_colors: bool) {
         output.push_str("\n--- Verbose Information ---\n");
 
-        // Add file details (stub)
+        // Add file details
         if let Some(path) = &self.package_path {
             output.push_str("\nPackage file details:\n");
             output.push_str(&format!("  Path: {}\n", path.display()));
 
-            let metadata = path.metadata().expect("metadata call failed");
-
-            output.push_str(&format!(
-                "  Permissions: {:o}\n",
-                metadata.permissions().mode()
-            ));
-
-            let now = Zoned::now();
-            let printer = SpanPrinter::new();
-
-            {
-                let created = Zoned::try_from(metadata.created().unwrap()).unwrap();
-
-                let ago = now
-                    .duration_since(&created)
-                    .round(Unit::Second)
-                    .unwrap_or_default();
-
+            if let Ok(metadata) = path.metadata() {
                 output.push_str(&format!(
-                    "  Created: {:?} ({} ago)\n",
-                    &created.round(Unit::Second),
-                    printer.duration_to_string(&ago)
+                    "  Permissions: {:o}\n",
+                    metadata.permissions().mode()
                 ));
-            }
+                let now = Zoned::now();
+                let printer = SpanPrinter::new();
 
-            {
-                let modified = Zoned::try_from(metadata.modified().unwrap()).unwrap();
+                // Use use_colors for styling if needed
+                let created_prefix = if use_colors {
+                    style("  Created:").dim().to_string()
+                } else {
+                    "  Created:".to_string()
+                };
 
-                let ago = now
-                    .duration_since(&modified)
-                    .round(Unit::Second)
-                    .unwrap_or_default();
+                {
+                    let created = Zoned::try_from(metadata.created().unwrap()).unwrap();
 
-                output.push_str(&format!(
-                    "  Modified: {:?} ({} ago)\n",
-                    &modified.round(Unit::Second),
-                    printer.duration_to_string(&ago)
-                ));
+                    let ago = now
+                        .duration_since(&created)
+                        .round(Unit::Second)
+                        .unwrap_or_default();
+
+                    output.push_str(&format!(
+                        "{} {:?} ({} ago)\n",
+                        created_prefix,
+                        &created.round(Unit::Second),
+                        printer.duration_to_string(&ago)
+                    ));
+                }
+
+                let modified_prefix = if use_colors {
+                    style("  Modified:").dim().to_string()
+                } else {
+                    "  Modified:".to_string()
+                };
+
+                {
+                    let modified = Zoned::try_from(metadata.modified().unwrap()).unwrap();
+
+                    let ago = now
+                        .duration_since(&modified)
+                        .round(Unit::Second)
+                        .unwrap_or_default();
+
+                    output.push_str(&format!(
+                        "{} {:?} ({} ago)\n",
+                        modified_prefix,
+                        &modified.round(Unit::Second),
+                        printer.duration_to_string(&ago)
+                    ));
+                }
             }
         }
 

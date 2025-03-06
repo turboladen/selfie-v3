@@ -4,7 +4,7 @@ use std::path::Path;
 
 use selfie::{
     adapters::progress::ProgressManager,
-    domain::{config::ConfigBuilder, installation::InstallationStatus},
+    domain::{config::AppConfigBuilder, installation::InstallationStatus},
     ports::{
         command::{MockCommandRunner, MockCommandRunnerExt},
         filesystem::MockFileSystem,
@@ -19,7 +19,7 @@ fn test_package_install_end_to_end() {
     let mut runner = MockCommandRunner::new();
 
     // Create config
-    let config = ConfigBuilder::default()
+    let config = AppConfigBuilder::default()
         .environment("test-env")
         .package_directory("/test/packages")
         .build();
@@ -67,7 +67,7 @@ fn test_package_install_with_dependencies() {
     let mut runner = MockCommandRunner::new();
 
     // Create config
-    let config = ConfigBuilder::default()
+    let config = AppConfigBuilder::default()
         .environment("test-env")
         .package_directory("/test/packages")
         .build();
@@ -137,7 +137,7 @@ fn test_package_install_with_complex_dependencies() {
     let mut runner = MockCommandRunner::new();
 
     // Create config
-    let config = ConfigBuilder::default()
+    let config = AppConfigBuilder::default()
         .environment("test-env")
         .package_directory("/test/packages")
         .build();

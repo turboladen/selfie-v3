@@ -2,7 +2,7 @@
 use thiserror::Error;
 
 use crate::{
-    domain::config::Config,
+    domain::config::AppConfig,
     domain::dependency::{DependencyGraph, DependencyGraphError},
     domain::package::Package,
     ports::package_repo::{PackageRepoError, PackageRepository},
@@ -31,11 +31,11 @@ pub enum DependencyResolverError {
 
 pub struct DependencyResolver<'a, P: PackageRepository> {
     package_repo: &'a P,
-    config: &'a Config,
+    config: &'a AppConfig,
 }
 
 impl<'a, P: PackageRepository> DependencyResolver<'a, P> {
-    pub fn new(package_repo: &'a P, config: &'a Config) -> Self {
+    pub fn new(package_repo: &'a P, config: &'a AppConfig) -> Self {
         Self {
             package_repo,
             config,
@@ -104,7 +104,7 @@ impl<'a, P: PackageRepository> DependencyResolver<'a, P> {
         // Get environment configuration for this package
         let env_config = self.config.resolve_environment(&package).map_err(|_| {
             DependencyResolverError::EnvironmentNotSupported(
-                self.config.environment.clone(),
+                self.config.environment().to_string(),
                 package.name.clone(),
             )
         })?;
@@ -158,12 +158,12 @@ impl<'a, P: PackageRepository> DependencyResolver<'a, P> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{domain::config::ConfigBuilder, ports::package_repo::MockPackageRepository};
+    use crate::{domain::config::AppConfigBuilder, ports::package_repo::MockPackageRepository};
 
-    fn setup_test_environment() -> (MockPackageRepository, Config) {
+    fn setup_test_environment() -> (MockPackageRepository, AppConfig) {
         let package_repo = MockPackageRepository::new();
 
-        let config = ConfigBuilder::default()
+        let config = AppConfigBuilder::default()
             .environment("test-env")
             .package_directory("/test/packages")
             .build();

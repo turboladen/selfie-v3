@@ -5,7 +5,7 @@ use thiserror::Error;
 
 use crate::{
     domain::{
-        config::Config,
+        config::AppConfig,
         package::{Package, PackageParseError},
         validation::{ValidationErrorCategory, ValidationIssue, ValidationResult},
     },
@@ -44,13 +44,13 @@ pub enum PackageValidatorError {
 pub struct PackageValidator<'a, F: FileSystem, R: CommandRunner, P: PackageRepository> {
     fs: &'a F,
     runner: &'a R,
-    config: &'a Config,
+    config: &'a AppConfig,
     package_repo: &'a P,
 }
 
 impl<'a, F: FileSystem, R: CommandRunner, P: PackageRepository> PackageValidator<'a, F, R, P> {
     /// Create a new package validator
-    pub fn new(fs: &'a F, runner: &'a R, config: &'a Config, package_repo: &'a P) -> Self {
+    pub fn new(fs: &'a F, runner: &'a R, config: &'a AppConfig, package_repo: &'a P) -> Self {
         Self {
             fs,
             runner,
@@ -116,7 +116,7 @@ impl<'a, F: FileSystem, R: CommandRunner, P: PackageRepository> PackageValidator
         match package {
             Ok(pkg) => {
                 // Start with domain validation
-                let domain_issues = pkg.validate(&self.config.environment);
+                let domain_issues = pkg.validate(self.config.environment());
                 result.add_issues(domain_issues);
 
                 // Run the enhanced validation which now includes command validation
@@ -155,7 +155,7 @@ impl<'a, F: FileSystem, R: CommandRunner, P: PackageRepository> PackageValidator
     /// Validate command availability
     fn validate_command_availability(&self, package: &Package, result: &mut ValidationResult) {
         // We only check commands for the current environment
-        if let Some(env_config) = package.environments.get(&self.config.environment) {
+        if let Some(env_config) = package.environments.get(self.config.environment()) {
             // Extract base command from install command
             if let Some(base_cmd) = Self::extract_base_command(&env_config.install) {
                 let is_available = self.runner.is_command_available(base_cmd);
@@ -163,10 +163,11 @@ impl<'a, F: FileSystem, R: CommandRunner, P: PackageRepository> PackageValidator
                 if !is_available {
                     result.add_issue(ValidationIssue::warning(
                         ValidationErrorCategory::Availability,
-                        &format!("environments.{}.install", self.config.environment),
+                        &format!("environments.{}.install", self.config.environment()),
                         &format!(
                             "Command '{}' not found in environment '{}'",
-                            base_cmd, self.config.environment
+                            base_cmd,
+                            self.config.environment()
                         ),
                         None,
                         Some("Install the command before using this package."),
@@ -182,10 +183,11 @@ impl<'a, F: FileSystem, R: CommandRunner, P: PackageRepository> PackageValidator
                     if !is_available {
                         result.add_issue(ValidationIssue::warning(
                             ValidationErrorCategory::Availability,
-                            &format!("environments.{}.check", self.config.environment),
+                            &format!("environments.{}.check", self.config.environment()),
                             &format!(
                                 "Check command '{}' not found in environment '{}'",
-                                base_cmd, self.config.environment
+                                base_cmd,
+                                self.config.environment()
                             ),
                             None,
                             Some("Install the command before using this package."),
@@ -302,13 +304,13 @@ impl<'a, F: FileSystem, R: CommandRunner, P: PackageRepository> PackageValidator
         result: &mut ValidationResult,
     ) {
         // We only check for the current environment
-        if let Some(env_config) = package.environments.get(&self.config.environment) {
+        if let Some(env_config) = package.environments.get(self.config.environment()) {
             if let Some(recommendation) =
-                self.is_command_recommended_for_env(&self.config.environment, &env_config.install)
+                self.is_command_recommended_for_env(self.config.environment(), &env_config.install)
             {
                 result.add_issue(ValidationIssue::warning(
                     ValidationErrorCategory::Environment,
-                    &format!("environments.{}.install", self.config.environment),
+                    &format!("environments.{}.install", self.config.environment()),
                     &recommendation,
                     None,
                     Some("Using environment-specific package managers may improve reliability."),
@@ -319,7 +321,7 @@ impl<'a, F: FileSystem, R: CommandRunner, P: PackageRepository> PackageValidator
             if self.might_require_sudo(&env_config.install) {
                 result.add_issue(ValidationIssue::warning(
                     ValidationErrorCategory::CommandSyntax,
-                    &format!("environments.{}.install", self.config.environment),
+                    &format!("environments.{}.install", self.config.environment()),
                     "Command might require sudo privileges",
                     None,
                     Some("This command may require administrative privileges to run."),
@@ -329,7 +331,7 @@ impl<'a, F: FileSystem, R: CommandRunner, P: PackageRepository> PackageValidator
             if self.might_download_content(&env_config.install) {
                 result.add_issue(ValidationIssue::warning(
                     ValidationErrorCategory::CommandSyntax,
-                    &format!("environments.{}.install", self.config.environment),
+                    &format!("environments.{}.install", self.config.environment()),
                     "Command may download content from the internet",
                     None,
                     Some(
@@ -426,16 +428,23 @@ impl<'a, F: FileSystem, R: CommandRunner, P: PackageRepository> PackageValidator
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapters::package_repo::yaml::YamlPackageRepository;
-    use crate::domain::config::ConfigBuilder;
-    use crate::ports::command::MockCommandRunner;
-    use crate::ports::filesystem::{MockFileSystem, MockFileSystemExt};
+
     use std::path::Path;
 
+    use crate::{
+        adapters::package_repo::yaml::YamlPackageRepository,
+        domain::config::AppConfigBuilder,
+        ports::{
+            command::MockCommandRunner,
+            filesystem::{MockFileSystem, MockFileSystemExt},
+            package_repo::MockPackageRepository,
+        },
+    };
+
     // Helper function to create a test environment
-    fn setup_test_environment() -> (MockFileSystem, MockCommandRunner, Config) {
+    fn setup_test_environment() -> (MockFileSystem, MockCommandRunner, AppConfig) {
         let mut fs = MockFileSystem::default();
-        let config = ConfigBuilder::default()
+        let config = AppConfigBuilder::default()
             .environment("test-env")
             .package_directory("/test/packages")
             .build();
@@ -689,5 +698,48 @@ environments:
             result,
             Err(PackageValidatorError::MultiplePackagesFound(_))
         ));
+    }
+
+    #[test]
+    fn test_validate_package_file() {
+        let yaml = r#"
+name: test-package
+version: 1.0.0
+environments:
+  other-env:  # Not the current environment (test-env)
+    install: brew install test-package
+"#;
+        let package_path = Path::new("/test/packages/test.yaml");
+
+        let (mut fs, runner, config) = setup_test_environment();
+        fs.mock_read_file(&package_path, yaml);
+
+        let package_repo = MockPackageRepository::new();
+
+        let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
+
+        // This is a simplified test that would need more mocking to validate actual functionality
+        let result = validator.validate_package_file(package_path).unwrap();
+
+        // Should fail because the file doesn't exist in our mock filesystem
+        pretty_assertions::assert_eq!(
+            result,
+            ValidationResult {
+                package_name: "test-package".to_string(),
+                package_path: Some(package_path.into()),
+                issues: vec![ValidationIssue {
+                    category: ValidationErrorCategory::Environment,
+                    field: "environments".to_string(),
+                    message: "Current environment 'test-env' is not configured".to_string(),
+                    line: None,
+                    is_warning: true,
+                    suggestion: Some(
+                        "Add an environment section for 'test-env' if needed for this environment."
+                            .to_string()
+                    )
+                }],
+                package: Some(Package::from_yaml(yaml).unwrap())
+            }
+        );
     }
 }
