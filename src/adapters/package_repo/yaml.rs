@@ -112,7 +112,7 @@ impl<F: FileSystem> PackageRepository for YamlPackageRepository<'_, F> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ports::filesystem::{MockFileSystem, MockFileSystemExt};
+    use crate::ports::filesystem::MockFileSystem;
 
     #[test]
     fn test_get_package_success() {
@@ -197,17 +197,9 @@ mod tests {
         let yaml_path = package_dir.join("ripgrep.yaml");
         let yml_path = package_dir.join("ripgrep.yml");
 
-        let yaml = r#"
-            name: ripgrep
-            version: 0.1.0
-            environments:
-              mac:
-                install: brew install ripgrep
-        "#;
-
-        fs.add_file(&yaml_path, yaml);
-        fs.add_file(&yml_path, yaml);
-        fs.add_existing_path(&package_dir);
+        fs.mock_path_exists(&package_dir, true);
+        fs.mock_path_exists(&yaml_path, true);
+        fs.mock_path_exists(&yml_path, true);
 
         let repo = YamlPackageRepository::new(&fs, package_dir);
         let result = repo.get_package("ripgrep");

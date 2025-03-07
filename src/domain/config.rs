@@ -282,10 +282,7 @@ impl AppConfig {
             command_timeout: Duration::from_secs(
                 config.command_timeout.unwrap_or(COMMAND_TIMEOUT_DEFAULT),
             ),
-            max_parallel: config
-                .max_parallel_installations
-                .map(|v| v as usize)
-                .unwrap_or(num_cpus::get()),
+            max_parallel: config.max_parallel_installations.unwrap_or(num_cpus::get()),
             stop_on_error: config.stop_on_error.unwrap_or(STOP_ON_ERROR_DEFAULT),
             logging_enabled: config.logging.as_ref().is_some_and(|l| l.enabled),
             log_directory: config.logging.as_ref().map(|l| l.directory.clone()),

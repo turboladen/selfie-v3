@@ -529,7 +529,7 @@ impl PackageBuilder {
 
 #[cfg(test)]
 mod tests {
-    use crate::ports::filesystem::{FileSystemError, MockFileSystem, MockFileSystemExt};
+    use crate::ports::filesystem::{FileSystemError, MockFileSystem};
 
     use super::*;
 
@@ -812,7 +812,7 @@ mod tests {
                 install: apt install ripgrep
         "#;
 
-        fs.add_file(path, yaml);
+        fs.mock_read_file(path, yaml);
 
         let package = Package::from_file(&fs, path).unwrap();
 

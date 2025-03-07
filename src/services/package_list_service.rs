@@ -397,23 +397,23 @@ mod tests {
     use crate::{
         adapters::package_repo::yaml::YamlPackageRepository,
         domain::{config::AppConfigBuilder, package::PackageBuilder},
-        ports::{
-            command::MockCommandRunner,
-            filesystem::{MockFileSystem, MockFileSystemExt},
-        },
+        ports::{command::MockCommandRunner, filesystem::MockFileSystem},
     };
     use std::path::Path;
 
     #[test]
     fn test_list_empty_directory() {
         let mut fs = MockFileSystem::default();
+        let package_dir = Path::new("/test/packages");
+
         let config = AppConfigBuilder::default()
             .environment("test-env")
-            .package_directory("/test/packages")
+            .package_directory(package_dir)
             .use_colors(false) // (Colors mess up output matching in tests)
             .build();
 
-        fs.add_existing_path(Path::new("/test/packages"));
+        fs.mock_path_exists(&package_dir, true);
+        fs.mock_list_directory(&package_dir, &[]);
 
         // Create a repository with an empty directory
         let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());

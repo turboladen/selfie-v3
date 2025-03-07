@@ -54,7 +54,7 @@ impl<'a> ErrorFormatter<'a> {
                 output.push_str(&format!("  {} {}\n", bullet, suggestion_text));
             }
 
-            output.push_str("\n");
+            output.push('\n');
         }
 
         output.push_str("You can use 'selfie package list' to see all available packages.\n");
@@ -116,7 +116,7 @@ impl<'a> ErrorFormatter<'a> {
             for line in stdout.lines() {
                 output.push_str(&format!("  {}\n", line));
             }
-            output.push_str("\n");
+            output.push('\n');
         }
 
         // Add stderr if present
@@ -131,7 +131,7 @@ impl<'a> ErrorFormatter<'a> {
             for line in stderr.lines() {
                 output.push_str(&format!("  {}\n", line));
             }
-            output.push_str("\n");
+            output.push('\n');
         }
 
         // Add a note about exit codes
@@ -164,7 +164,7 @@ impl<'a> ErrorFormatter<'a> {
 
                 output.push_str(&format!("  {} {}\n", bullet, dependency));
             }
-            output.push_str("\n");
+            output.push('\n');
         }
 
         output.push_str("Please resolve the dependency issues before trying again.\n");

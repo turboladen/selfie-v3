@@ -1,15 +1,10 @@
 // tests/error_handling_test.rs
 // Integration tests for enhanced error handling
 
-use std::path::Path;
-
 use selfie::{
     adapters::progress::ProgressManager,
     domain::errors::{EnhancedPackageError, ErrorContext},
-    ports::{
-        filesystem::{MockFileSystem, MockFileSystemExt},
-        package_repo::MockPackageRepository,
-    },
+    ports::{filesystem::MockFileSystem, package_repo::MockPackageRepository},
     services::{
         enhanced_error_handler::EnhancedErrorHandler, suggestion_provider::SuggestionProvider,
     },
@@ -18,20 +13,9 @@ use selfie::{
 #[test]
 fn test_enhanced_error_handler_package_not_found() {
     // Set up test environment
-    let mut fs = MockFileSystem::default();
+    let fs = MockFileSystem::default();
     let mut package_repo = MockPackageRepository::new();
     let progress_manager = ProgressManager::new(false, true, false);
-
-    // Add some package files
-    let yaml = r#"
-        name: ripgrep
-        version: 1.0.0
-        environments:
-          test-env:
-            install: brew install ripgrep
-    "#;
-
-    fs.add_file(Path::new("/test/packages/ripgrep.yaml"), yaml);
 
     // Set up package repository to return 'not found' for a nonexistent package
     package_repo

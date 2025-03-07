@@ -435,8 +435,7 @@ mod tests {
         adapters::package_repo::yaml::YamlPackageRepository,
         domain::config::AppConfigBuilder,
         ports::{
-            command::MockCommandRunner,
-            filesystem::{MockFileSystem, MockFileSystemExt},
+            command::MockCommandRunner, filesystem::MockFileSystem,
             package_repo::MockPackageRepository,
         },
     };
@@ -450,7 +449,7 @@ mod tests {
             .build();
 
         // Add the package directory to the filesystem
-        fs.add_existing_path(Path::new("/test/packages"));
+        fs.mock_path_exists("/test/packages", true);
 
         let runner = MockCommandRunner::new();
 
@@ -512,7 +511,8 @@ environments:
   test-env:
     install: brew install test-package
 "#;
-        fs.add_file(Path::new("/test/packages/incomplete.yaml"), yaml);
+        fs.mock_path_exists("/test/packages/incomplete.yaml", true);
+        fs.mock_read_file("/test/packages/incomplete.yaml", yaml);
 
         runner.mock_is_command_available("brew", true);
 
@@ -550,7 +550,7 @@ environments:
   test-env:
     install: brew install test-package
 "#;
-        fs.add_file(Path::new("/test/packages/invalid-url.yaml"), yaml);
+        fs.mock_read_file("/test/packages/invalid-url.yaml", yaml);
 
         runner.mock_is_command_available("brew", true);
 
@@ -579,7 +579,7 @@ environments:
     install: brew install test-package "with unmatched quote
     check: echo "hello | | invalid pipes"
 "#;
-        fs.add_file(Path::new("/test/packages/bad-commands.yaml"), yaml);
+        fs.mock_read_file("/test/packages/bad-commands.yaml", yaml);
 
         runner.mock_is_command_available("brew", true);
         runner.mock_is_command_available("echo", true);
@@ -615,7 +615,7 @@ environments:
   test-env:
     install: brew install test-package
 "#;
-        fs.add_file(Path::new("/test/packages/bad-version.yaml"), yaml);
+        fs.mock_read_file("/test/packages/bad-version.yaml", yaml);
 
         runner.mock_is_command_available("brew", true);
 
@@ -644,7 +644,7 @@ environments:
   other-env:  # Not the current environment (test-env)
     install: brew install test-package
 "#;
-        fs.add_file(Path::new("/test/packages/missing-env.yaml"), yaml);
+        fs.mock_read_file("/test/packages/missing-env.yaml", yaml);
 
         let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
         let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
@@ -686,9 +686,8 @@ environments:
         let (mut fs, runner, config) = setup_test_environment();
 
         // Add two files for the same package
-        let yaml = create_valid_package_yaml();
-        fs.add_file(Path::new("/test/packages/duplicate.yaml"), &yaml);
-        fs.add_file(Path::new("/test/packages/duplicate.yml"), &yaml);
+        fs.mock_path_exists("/test/packages/duplicate.yaml", true);
+        fs.mock_path_exists("/test/packages/duplicate.yml", true);
 
         let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
         let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
