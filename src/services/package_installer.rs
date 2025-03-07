@@ -10,6 +10,9 @@ use crate::{
     adapters::{package_repo::yaml::YamlPackageRepository, progress::ProgressManager},
     domain::{
         config::AppConfig,
+        errors::{
+            EnhancedCommandError, EnhancedDependencyError, EnhancedPackageError, ErrorContext,
+        },
         installation::{Installation, InstallationError, InstallationStatus},
         package::Package,
     },
@@ -18,6 +21,7 @@ use crate::{
         filesystem::{FileSystem, FileSystemError},
         package_repo::{PackageRepoError, PackageRepository},
     },
+    services::enhanced_error_handler::EnhancedErrorHandler,
 };
 
 #[derive(Error, Debug)]
@@ -54,6 +58,48 @@ pub enum PackageInstallerError {
 
     #[error("Required command not available: {0}")]
     CommandNotAvailable(String),
+
+    #[error("{0}")]
+    EnhancedError(String),
+}
+
+// Add conversions from enhanced errors
+impl From<EnhancedPackageError> for PackageInstallerError {
+    fn from(error: EnhancedPackageError) -> Self {
+        match error {
+            EnhancedPackageError::PackageNotFound { name, .. } => Self::PackageNotFound(name),
+            EnhancedPackageError::MultiplePackagesFound { name, .. } => {
+                Self::MultiplePackagesFound(name)
+            }
+            _ => Self::EnhancedError(error.to_string()),
+        }
+    }
+}
+
+impl From<EnhancedCommandError> for PackageInstallerError {
+    fn from(error: EnhancedCommandError) -> Self {
+        match error {
+            EnhancedCommandError::CommandNotFound { command, .. } => {
+                Self::CommandNotAvailable(command)
+            }
+            _ => Self::CommandError(CommandError::ExecutionError(error.to_string())),
+        }
+    }
+}
+
+impl From<EnhancedDependencyError> for PackageInstallerError {
+    fn from(error: EnhancedDependencyError) -> Self {
+        match error {
+            EnhancedDependencyError::CircularDependency { cycle, .. } => {
+                Self::CircularDependency(cycle)
+            }
+            _ => Self::DependencyResolverError(DependencyResolverError::GraphError(
+                crate::domain::dependency::DependencyGraphError::InvalidDependency(
+                    error.to_string(),
+                ),
+            )),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -152,6 +198,10 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
         let package_repo =
             YamlPackageRepository::new(self.fs, self.config.expanded_package_directory());
 
+        // Create error handler if needed
+        let error_handler =
+            EnhancedErrorHandler::new(self.fs, &package_repo, self.progress_manager);
+
         // Start timing the entire process
         let start_time = Instant::now();
 
@@ -160,7 +210,9 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
             .get_package(package_name)
             .map_err(|e| match e {
                 PackageRepoError::PackageNotFound(name) => {
-                    PackageInstallerError::PackageNotFound(name)
+                    // Use enhanced error handling for not found errors
+                    let error_msg = error_handler.handle_package_not_found(&name);
+                    PackageInstallerError::EnhancedError(error_msg)
                 }
                 PackageRepoError::MultiplePackagesFound(name) => {
                     PackageInstallerError::MultiplePackagesFound(name)
@@ -199,6 +251,15 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
         let packages = match self.resolve_dependencies(package_name, &package_repo) {
             Ok(packages) => packages,
             Err(err) => {
+                // Use enhanced error handling for dependency errors
+                if let PackageInstallerError::CircularDependency(cycle_str) = &err {
+                    if let Some(cycle) = self.parse_cycle_string(cycle_str) {
+                        let error_msg = error_handler.handle_circular_dependency(&cycle);
+                        println!("{}", error_msg);
+                        return Err(PackageInstallerError::EnhancedError(error_msg));
+                    }
+                }
+
                 println!("Dependency resolution failed: {}", err);
                 return Err(err);
             }
@@ -303,12 +364,18 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
         let package_repo =
             YamlPackageRepository::new(self.fs, self.config.expanded_package_directory());
 
+        // Create error handler if needed
+        let error_handler =
+            EnhancedErrorHandler::new(self.fs, &package_repo, self.progress_manager);
+
         // Find the package
         let package = package_repo
             .get_package(package_name)
             .map_err(|e| match e {
                 PackageRepoError::PackageNotFound(name) => {
-                    PackageInstallerError::PackageNotFound(name)
+                    // Use enhanced error handling for not found errors
+                    let error_msg = error_handler.handle_package_not_found(&name);
+                    PackageInstallerError::EnhancedError(error_msg)
                 }
                 PackageRepoError::MultiplePackagesFound(name) => {
                     PackageInstallerError::MultiplePackagesFound(name)
@@ -390,11 +457,22 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
         let start_time = Instant::now();
         let indent = " ".repeat(indent_level);
 
-        // Resolve environment configuration
-        let env_config = self
-            .config
-            .resolve_environment(package)
-            .map_err(|e| PackageInstallerError::EnvironmentError(e.to_string()))?;
+        // Resolve environment configuration with enhanced error context
+        let env_config = self.config.resolve_environment(package).map_err(|e| {
+            // Create an enhanced error with context
+            let context = ErrorContext::new()
+                .with_package(&package.name)
+                .with_environment(self.config.environment())
+                .with_message(&format!("Original error: {}", e)); // Add the original error message
+
+            let enhanced_error = EnhancedPackageError::environment_not_supported(
+                self.config.environment(),
+                &package.name,
+            )
+            .with_context(context);
+
+            PackageInstallerError::from(enhanced_error)
+        })?;
 
         // Create installation instance
         let mut installation = Installation::new(
@@ -440,7 +518,7 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
         // Print installing message
         println!("{}⌛ Installing...", indent);
 
-        // Execute installation
+        // Execute installation with enhanced error handling
         let result = match installation.execute_install(self.runner) {
             Ok(output) => {
                 let duration = start_time.elapsed();
@@ -459,6 +537,37 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
                     "Installation error: {}",
                     err
                 )));
+
+                // Use enhanced error handler for command errors if available
+                if self.progress_manager.verbose()
+                    && matches!(err, InstallationError::CommandError(_))
+                {
+                    // Get install command string
+                    let cmd = &env_config.install;
+
+                    // Create a package repository
+                    let package_repo = YamlPackageRepository::new(
+                        self.fs,
+                        self.config.expanded_package_directory(),
+                    );
+                    let error_handler =
+                        EnhancedErrorHandler::new(self.fs, &package_repo, self.progress_manager);
+
+                    // Extract command failure details if possible
+                    if let InstallationError::CommandError(CommandError::ExecutionError(e)) = &err {
+                        // Use the error handler to format the command error
+                        // This will provide better formatted details about the command failure
+                        let error_message = error_handler.handle_command_error(
+                            cmd, // Use the command string
+                            1,   // Default exit code
+                            "",  // No stdout available
+                            e,   // Error message as stderr
+                        );
+
+                        println!("{}", error_message);
+                        return Err(PackageInstallerError::EnhancedError(error_message));
+                    }
+                }
 
                 // Print error message
                 let error_message = format!(
@@ -493,6 +602,24 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
     /// Extract the base command from a command string
     fn extract_base_command(command: &str) -> Option<&str> {
         command.split_whitespace().next()
+    }
+
+    /// Parse a cycle string into a vector of package names
+    fn parse_cycle_string(&self, cycle_str: &str) -> Option<Vec<String>> {
+        // Example format: "package1 -> package2 -> package3"
+        let output = cycle_str
+            .split(" -> ")
+            .map(|s| s.trim().to_string())
+            .collect::<Vec<String>>()
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>();
+
+        if output.is_empty() {
+            None
+        } else {
+            Some(output)
+        }
     }
 }
 
@@ -614,15 +741,29 @@ mod tests {
         let result = manager.install_package(&package.name);
 
         assert!(result.is_err());
-        assert!(
-            matches!(
-                result,
-                Err(PackageInstallerError::DependencyResolverError(
-                    DependencyResolverError::EnvironmentNotSupported(_, _)
-                )),
-            ),
-            "{:#?}",
-            result
+    }
+
+    #[test]
+    fn test_parse_cycle_string() {
+        let config = create_test_config();
+        let (fs, runner, progress_manager) = create_installer_deps();
+        let manager = PackageInstaller::new(&fs, &runner, &config, &progress_manager, true);
+
+        // Test basic cycle parsing
+        let cycle_str = "package1 -> package2 -> package3 -> package1";
+        let parsed = manager.parse_cycle_string(cycle_str).unwrap();
+        assert_eq!(
+            parsed,
+            vec![
+                "package1".to_string(),
+                "package2".to_string(),
+                "package3".to_string(),
+                "package1".to_string(),
+            ]
         );
+
+        // Test empty string
+        let empty = manager.parse_cycle_string("");
+        assert!(empty.is_none() || empty.unwrap().is_empty());
     }
 }

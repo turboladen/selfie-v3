@@ -13,7 +13,7 @@ use crate::{
 };
 
 use super::{
-    package_installer::PackageInstaller,
+    package_installer::{PackageInstaller, PackageInstallerError},
     package_list_service::{PackageListResult, PackageListService},
     validation_command::{ValidationCommand, ValidationCommandResult},
 };
@@ -111,7 +111,14 @@ impl<F: FileSystem, R: CommandRunner, C: ConfigLoader> ApplicationCommandRouter
                         match installer.install_package(package_name) {
                             Ok(_) => 0,
                             Err(err) => {
-                                progress_manager.error(&format!("Installation failed: {}", err));
+                                if let PackageInstallerError::EnhancedError(msg) = &err {
+                                    // Print the enhanced error message directly
+                                    println!("{}", msg);
+                                } else {
+                                    // For other errors, use the standard error formatting
+                                    progress_manager
+                                        .error(&format!("Installation failed: {}", err));
+                                }
                                 1
                             }
                         }
@@ -158,9 +165,6 @@ impl<F: FileSystem, R: CommandRunner, C: ConfigLoader> ApplicationCommandRouter
                         0
                     }
                     PackageCommand::Validate { .. } => {
-                        // For validation commands, use minimal config validation
-
-                        // Use the consolidated validate command with unified config
                         let validate_cmd = ValidationCommand::new(
                             self.fs,
                             self.runner,

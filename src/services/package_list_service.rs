@@ -410,6 +410,7 @@ mod tests {
         let config = AppConfigBuilder::default()
             .environment("test-env")
             .package_directory("/test/packages")
+            .use_colors(false) // (Colors mess up output matching in tests)
             .build();
 
         fs.add_existing_path(Path::new("/test/packages"));
@@ -432,6 +433,7 @@ mod tests {
         let config = AppConfigBuilder::default()
             .environment("test-env")
             .package_directory("/test/packages")
+            .use_colors(false) // (Colors mess up output matching in tests)
             .build();
 
         let package_dir = Path::new("/test/packages");
@@ -493,6 +495,7 @@ mod tests {
         let config = AppConfigBuilder::default()
             .environment("test-env")
             .package_directory("/test/packages")
+            .use_colors(false) // (Colors mess up output matching in tests)
             .verbose(true)
             .build();
 
@@ -578,6 +581,7 @@ mod tests {
         let config = AppConfigBuilder::default()
             .environment("test-env")
             .package_directory("/test/packages")
+            .use_colors(false) // (Colors mess up output matching in tests)
             .build();
         let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
         let runner = MockCommandRunner::new();
@@ -610,6 +614,7 @@ mod tests {
         let config = AppConfigBuilder::default()
             .environment("test-env")
             .package_directory("/test/packages")
+            .use_colors(false) // (Colors mess up output matching in tests)
             .build();
 
         let package_dir = Path::new("/test/packages");

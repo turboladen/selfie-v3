@@ -431,7 +431,6 @@ impl Package {
 }
 
 // Builder pattern for testing
-#[cfg(test)]
 #[derive(Default)]
 pub struct PackageBuilder {
     name: String,
@@ -441,7 +440,6 @@ pub struct PackageBuilder {
     environments: HashMap<String, EnvironmentConfig>,
 }
 
-#[cfg(test)]
 impl PackageBuilder {
     pub fn name(mut self, name: &str) -> Self {
         self.name = name.to_string();

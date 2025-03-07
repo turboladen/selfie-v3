@@ -199,13 +199,13 @@
 
 ### Error Handling (Step 16)
 
-- [ ] Create error type hierarchy
-- [ ] Add context to errors
-- [ ] Implement error formatting
-- [ ] Add "did you mean" suggestions
-- [ ] Write tests
-  - [ ] Test error cases
-  - [ ] Test suggestions
+- [x] Create error type hierarchy
+- [x] Add context to errors
+- [x] Implement error formatting
+- [x] Add "did you mean" suggestions
+- [x] Write tests
+  - [x] Test error cases
+  - [x] Test suggestions
 
 ### Logging (Step 17)
 
