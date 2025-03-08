@@ -1,26 +1,35 @@
-use std::path::{Path, PathBuf};
+use std::{
+    num::{NonZeroU64, NonZeroUsize},
+    path::{Path, PathBuf},
+};
 
 use serde::Deserialize;
+use validator::{Validate, ValidateArgs};
 
 use crate::domain::package::{EnvironmentConfig, Package, PackageValidationError};
 
-use super::{validate_config::ValidateConfig, ConfigValidationError, LogConfig};
+use super::{validate_path, ConfigValidationError, ConfigValidationErrors, LogConfig};
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Validate)]
 pub struct FileConfig {
+    #[validate(length(min = 1, message = "Environment name cannot be empty"))]
     pub environment: String,
+
+    #[validate(custom(function = "validate_path"))]
     pub package_directory: PathBuf,
 
     #[serde(default)]
-    pub command_timeout: Option<u64>,
+    pub command_timeout: Option<NonZeroU64>,
 
     #[serde(default)]
     pub stop_on_error: Option<bool>,
 
     #[serde(default)]
-    pub max_parallel_installations: Option<usize>,
+    pub max_parallel_installations: Option<NonZeroUsize>,
 
     #[serde(default)]
+    // #[validate(nested)]
+    // TODO: Have to manually validate this for now.
     pub logging: Option<LogConfig>,
 }
 
@@ -37,37 +46,21 @@ impl FileConfig {
     }
 
     /// Full validation for commands that require a complete configuration
-    pub fn validate(&self) -> Result<(), ConfigValidationError> {
-        Self::validate_environment(&self.environment)?;
-        Self::validate_package_directory(&self.package_directory)?;
+    pub fn validate(&self) -> Result<(), ConfigValidationErrors> {
+        <Self as validator::Validate>::validate(self)?;
 
-        // Validate optional parameters
-        if let Some(timeout) = self.command_timeout {
-            Self::validate_command_timeout(timeout)?;
+        if let Some(logging) = self.logging.as_ref() {
+            logging.validate_with_args(logging)?
         }
-
-        if let Some(max_parallel) = self.max_parallel_installations {
-            Self::validate_max_parallel_installations(max_parallel)?;
-        }
-
-        // Validate logging config if present
-        if let Some(log_config) = &self.logging {
-            if log_config.enabled {
-                Self::validate_log_directory(log_config.directory.as_os_str())?;
-                Self::validate_log_max_files(log_config.max_files)?;
-                Self::validate_log_max_size(log_config.max_size)?;
-            }
-        }
-
         Ok(())
     }
 
     /// Minimal validation for commands that only require a package directory
     pub fn validate_minimal(&self) -> Result<(), ConfigValidationError> {
         if self.package_directory.as_os_str().is_empty() {
-            return Err(ConfigValidationError::EmptyField(
-                "package_directory".to_string(),
-            ));
+            return Err(ConfigValidationError::EmptyField {
+                field: "package_directory".to_string(),
+            });
         }
 
         // Expand the package directory path
@@ -121,9 +114,9 @@ impl FileConfig {
 pub struct FileConfigBuilder {
     environment: String,
     package_directory: PathBuf,
-    command_timeout: Option<u64>,
+    command_timeout: Option<NonZeroU64>,
     stop_on_error: Option<bool>,
-    max_parallel_installations: Option<usize>,
+    max_parallel_installations: Option<NonZeroUsize>,
     logging: Option<LogConfig>,
 }
 
@@ -138,7 +131,7 @@ impl FileConfigBuilder {
         self
     }
 
-    pub fn command_timeout(mut self, timeout: u64) -> Self {
+    pub fn command_timeout(mut self, timeout: NonZeroU64) -> Self {
         self.command_timeout = Some(timeout);
         self
     }
@@ -148,7 +141,7 @@ impl FileConfigBuilder {
         self
     }
 
-    pub fn max_parallel(mut self, max: usize) -> Self {
+    pub fn max_parallel(mut self, max: NonZeroUsize) -> Self {
         self.max_parallel_installations = Some(max);
         self
     }

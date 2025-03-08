@@ -279,3 +279,20 @@
 - [ ] Create release artifacts
 - [ ] Final testing
 - [ ] Documentation review
+
+---
+
+## Things to consider updating
+
+- [ ] Allow for empty `install` field in packages. Ex. a package depends on the curl package, but on
+      mac, I just want to use the OS-provided `curl` (and thus don't want to use selfie to install
+      it). Right now, you can just use `install:` and that suffices, but maybe isnt't ideal.
+
+## Bugs
+
+- [ ] 2025-03-08 When removing `environment:` from my config (to test), I get a warning about that
+      field missing, but also get an error that `package_directory` "Path cannot be empty" (it's not
+      empty)
+  - Ah, I just tested setting `max_parallel_installations: 0` to see if my `NonZeroUsize` changes
+    worked, and I incorrectly get errors on all the other fields that i have set in the file (which
+    are valid)

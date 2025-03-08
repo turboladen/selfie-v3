@@ -58,7 +58,7 @@ impl<'a, F: FileSystem, R: CommandRunner, C: ConfigLoader> ApplicationCommandSer
         let file_config = base_config.unwrap_or_else(|| self.config_loader.default_config());
 
         // Create AppConfig and apply CLI overrides
-        let app_config = AppConfig::from_file_config(file_config).apply_cli_args(
+        let app_config = AppConfig::from(file_config).apply_cli_args(
             args.environment.clone(),
             args.package_directory.clone(),
             args.verbose,
@@ -68,8 +68,8 @@ impl<'a, F: FileSystem, R: CommandRunner, C: ConfigLoader> ApplicationCommandSer
         // Validate based on requirements
         if full_validation {
             app_config
-                .validate()
-                .map_err(ApplicationError::ConfigError)?;
+                .validate_full()
+                .map_err(ApplicationError::ConfigErrors)?;
         } else {
             app_config
                 .validate_minimal()

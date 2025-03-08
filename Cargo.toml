@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "4.5.31", features = ["derive"] }
+config = "0.15.9"
 console = "0.15.10"
 etcetera = "0.10.0"
 indicatif = "0.17.11"
@@ -19,6 +20,7 @@ shellexpand = "3.1.0"
 strsim = "0.11.1"
 thiserror = "2.0.11"
 url = "2.5.4"
+validator = { version = "0.20.0", features = ["derive"] }
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"

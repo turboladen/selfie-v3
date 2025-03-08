@@ -3,7 +3,10 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
-use crate::domain::{application::commands::ApplicationCommand, config::ConfigValidationError};
+use crate::domain::{
+    application::commands::ApplicationCommand,
+    config::{ConfigValidationError, ConfigValidationErrors},
+};
 
 #[derive(Debug, Clone)]
 pub struct ApplicationArguments {
@@ -18,6 +21,9 @@ pub struct ApplicationArguments {
 pub enum ApplicationError {
     #[error("Invalid application arguments: {0}")]
     InvalidArguments(String),
+
+    #[error("Configuration errors: {0}")]
+    ConfigErrors(#[from] ConfigValidationErrors),
 
     #[error("Configuration error: {0}")]
     ConfigError(#[from] ConfigValidationError),

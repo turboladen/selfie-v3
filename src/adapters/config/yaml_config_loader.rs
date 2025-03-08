@@ -89,7 +89,10 @@ impl<F: FileSystem> ConfigLoader for YamlConfigLoader<'_, F> {
 mod tests {
     use super::*;
     use crate::ports::filesystem::MockFileSystem;
-    use std::path::Path;
+    use std::{
+        num::{NonZeroU64, NonZeroUsize},
+        path::Path,
+    };
 
     fn setup_test_fs() -> (MockFileSystem, PathBuf) {
         let mut fs = MockFileSystem::default();
@@ -193,15 +196,15 @@ mod tests {
         assert_eq!(config.package_directory, Path::new("/test/packages"));
 
         // Check extended settings
-        assert_eq!(config.command_timeout, Some(120));
+        assert_eq!(config.command_timeout, NonZeroU64::new(120));
         assert_eq!(config.stop_on_error, Some(false));
-        assert_eq!(config.max_parallel_installations, Some(8));
+        assert_eq!(config.max_parallel_installations, NonZeroUsize::new(8));
 
         // Check logging settings
         let logging = config.logging.unwrap();
         assert!(logging.enabled);
         assert_eq!(logging.directory, Path::new("/test/logs"));
-        assert_eq!(logging.max_files, 5);
-        assert_eq!(logging.max_size, 20);
+        assert_eq!(logging.max_files, NonZeroUsize::new(5).unwrap());
+        assert_eq!(logging.max_size, NonZeroUsize::new(20).unwrap());
     }
 }
