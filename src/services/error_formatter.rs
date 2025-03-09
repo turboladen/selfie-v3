@@ -261,8 +261,6 @@ impl MessageType {
             MessageType::Success => "Success",
             MessageType::Error => "Error",
             MessageType::Warning => "Warning",
-            MessageType::Loading => "Loading",
-            MessageType::Status => "Status",
         }
     }
 }

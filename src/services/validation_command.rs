@@ -53,7 +53,6 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidationCommand<'a, F, R> {
             } => {
                 // Create progress display
                 let progress = self.progress_manager.create_progress_bar(
-                    "validate",
                     &format!("Validating package '{}'", package_name),
                     ProgressStyleType::Spinner,
                 );

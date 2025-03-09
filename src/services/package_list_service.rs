@@ -46,11 +46,9 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
     /// Execute the list command
     pub fn execute(&self) -> PackageListResult {
         // Create progress display
-        let progress = self.progress_manager.create_progress_bar(
-            "list",
-            "Searching for packages...",
-            ProgressStyleType::Spinner,
-        );
+        let progress = self
+            .progress_manager
+            .create_progress_bar("Searching for packages...", ProgressStyleType::Spinner);
 
         // Get list of packages
         match self.list_packages() {
