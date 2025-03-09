@@ -1,20 +1,17 @@
 // src/adapters/progress.rs
-// Streamlined progress reporting with direct use of indicatif
+// Simplified progress reporting without indicatif dependency
 
 use std::time::Duration;
 
-use console::style;
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use console::{style, Emoji};
 
 use crate::domain::{config::AppConfig, installation::InstallationStatus};
 
-/// Style types for progress elements
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ProgressStyleType {
-    Spinner,
-    Bar,
-    Message,
-}
+// Define emojis with fallbacks
+static INFO_EMOJI: Emoji<'_, '_> = Emoji("ℹ️ ", "[i] ");
+static SUCCESS_EMOJI: Emoji<'_, '_> = Emoji("✅ ", "[√] ");
+static ERROR_EMOJI: Emoji<'_, '_> = Emoji("❌ ", "[x] ");
+static WARNING_EMOJI: Emoji<'_, '_> = Emoji("⚠️ ", "[!] ");
 
 /// Types of status messages
 #[derive(Debug, Clone, PartialEq)]
@@ -26,87 +23,19 @@ pub enum MessageType {
 }
 
 /// Streamlined progress manager
+#[derive(Default)]
 pub struct ProgressManager {
-    multi_progress: MultiProgress,
     use_colors: bool,
-    use_unicode: bool,
     verbose: bool,
 }
 
 impl ProgressManager {
     /// Create a new progress manager
-    pub fn new(use_colors: bool, use_unicode: bool, verbose: bool) -> Self {
+    pub fn new(use_colors: bool, verbose: bool) -> Self {
         Self {
-            multi_progress: MultiProgress::new(),
             use_colors,
-            use_unicode,
             verbose,
         }
-    }
-
-    /// Create a progress bar
-    pub fn create_progress_bar(&self, message: &str, style_type: ProgressStyleType) -> ProgressBar {
-        let pb = match style_type {
-            ProgressStyleType::Spinner => {
-                let spinner = if self.use_unicode {
-                    "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-                } else {
-                    "-\\|/"
-                };
-
-                let template = if self.use_colors {
-                    "{spinner:.cyan} {msg}"
-                } else {
-                    "{spinner} {msg}"
-                };
-
-                let pb = ProgressBar::new_spinner();
-                pb.set_style(
-                    ProgressStyle::default_spinner()
-                        .tick_chars(spinner)
-                        .template(template)
-                        .unwrap(),
-                );
-                pb
-            }
-            ProgressStyleType::Bar => {
-                let chars = if self.use_unicode {
-                    "█▉▊▋▌▍▎▏ "
-                } else {
-                    "##--"
-                };
-
-                let template = if self.use_colors {
-                    "  {bar:40.cyan/blue} {pos:>3}/{len:3} {msg}"
-                } else {
-                    "  {bar:40} {pos:>3}/{len:3} {msg}"
-                };
-
-                let pb = ProgressBar::new(100);
-                pb.set_style(
-                    ProgressStyle::default_bar()
-                        .progress_chars(chars)
-                        .template(template)
-                        .unwrap(),
-                );
-                pb
-            }
-            ProgressStyleType::Message => {
-                let pb = ProgressBar::new(1);
-                pb.set_style(ProgressStyle::default_spinner().template("{msg}").unwrap());
-                pb
-            }
-        };
-
-        let progress_bar = self.multi_progress.add(pb);
-        progress_bar.set_message(message.to_string());
-
-        // Enable spinner animation for spinner-type progress bars
-        if style_type == ProgressStyleType::Spinner {
-            progress_bar.enable_steady_tick(Duration::from_millis(100));
-        }
-
-        progress_bar
     }
 
     /// Format installation status update
@@ -165,34 +94,10 @@ impl ProgressManager {
     /// Format a status message
     pub fn status_line(&self, message_type: MessageType, message: &str) -> String {
         let prefix = match message_type {
-            MessageType::Info => {
-                if self.use_unicode {
-                    "ℹ️ "
-                } else {
-                    "[i] "
-                }
-            }
-            MessageType::Success => {
-                if self.use_unicode {
-                    "✅ "
-                } else {
-                    "[√] "
-                }
-            }
-            MessageType::Error => {
-                if self.use_unicode {
-                    "❌ "
-                } else {
-                    "[x] "
-                }
-            }
-            MessageType::Warning => {
-                if self.use_unicode {
-                    "⚠️ "
-                } else {
-                    "[!] "
-                }
-            }
+            MessageType::Info => INFO_EMOJI,
+            MessageType::Success => SUCCESS_EMOJI,
+            MessageType::Error => ERROR_EMOJI,
+            MessageType::Warning => WARNING_EMOJI,
         };
 
         let formatted_message = if self.use_colors {
@@ -233,10 +138,10 @@ impl ProgressManager {
     pub fn format_duration(&self, duration: Duration) -> String {
         let total_seconds = duration.as_secs_f64();
 
-        if total_seconds < 0.1 {
-            format!("{:.1}ms", duration.as_millis())
+        if total_seconds < 0.5 {
+            format!("{:.1}ms", duration.as_millis() as f64)
         } else if total_seconds < 1.0 {
-            format!("{:.2}s", total_seconds)
+            format!("{:.2}s", total_seconds as f32)
         } else if total_seconds < 60.0 {
             format!("{:.1}s", total_seconds)
         } else {
@@ -265,65 +170,44 @@ impl ProgressManager {
         self.verbose
     }
 
-    /// Returns whether unicode is enabled
-    pub fn use_unicode(&self) -> bool {
-        self.use_unicode
+    /// Print a simple progress message (replacement for progress bars)
+    pub fn print_progress(&self, message: &str) {
+        println!("{}", message);
+    }
+
+    /// Print a success message
+    pub fn print_success(&self, message: &str) {
+        println!("{}", self.success(message));
+    }
+
+    /// Print an error message
+    pub fn print_error(&self, message: &str) {
+        println!("{}", self.error(message));
+    }
+
+    /// Print an info message
+    pub fn print_info(&self, message: &str) {
+        println!("{}", self.info(message));
+    }
+
+    /// Print a warning message
+    pub fn print_warning(&self, message: &str) {
+        println!("{}", self.warning(message));
+    }
+
+    /// Print verbose output if verbose mode is enabled
+    pub fn print_verbose(&self, message: &str) {
+        if self.verbose {
+            println!("  {}", message);
+        }
     }
 }
 
 impl<'a> From<&'a AppConfig> for ProgressManager {
     fn from(config: &'a AppConfig) -> Self {
         Self {
-            multi_progress: MultiProgress::new(),
             use_colors: config.use_colors(),
-            use_unicode: config.use_unicode(),
             verbose: config.verbose(),
-        }
-    }
-}
-
-/// Progress display for a single task
-pub struct ProgressDisplay {
-    progress_bar: ProgressBar,
-    verbose: bool,
-}
-
-impl ProgressDisplay {
-    /// Create a new progress display
-    pub fn new(progress_bar: ProgressBar, verbose: bool) -> Self {
-        Self {
-            progress_bar,
-            verbose,
-        }
-    }
-
-    /// Update the progress message
-    pub fn update(&self, message: &str) {
-        self.progress_bar.set_message(message.to_string());
-    }
-
-    /// Complete the progress with success
-    pub fn success(&self, message: &str) {
-        self.progress_bar.finish_with_message(message.to_string());
-    }
-
-    /// Complete the progress with error
-    pub fn error(&self, message: &str) {
-        self.progress_bar.abandon_with_message(message.to_string());
-    }
-
-    /// Add output text when in verbose mode
-    pub fn add_line(&self, text: &str) {
-        if self.verbose {
-            self.progress_bar.println(text);
-        }
-    }
-
-    /// Add command output when in verbose mode
-    pub fn add_output(&self, output_type: &str, content: &str) {
-        if self.verbose {
-            let line = format!("  {}: {}", output_type, content.trim());
-            self.progress_bar.println(line);
         }
     }
 }
@@ -347,12 +231,11 @@ mod tests {
 
         assert!(manager.verbose());
         assert!(!manager.use_colors());
-        assert!(manager.use_unicode());
     }
 
     #[test]
     fn test_format_status_update() {
-        let manager = ProgressManager::new(false, false, true);
+        let manager = ProgressManager::default();
 
         // Test various status updates
         let checking = manager.format_status_update(&InstallationStatus::Checking, None);
@@ -378,46 +261,33 @@ mod tests {
     #[test]
     fn test_status_line() {
         // Test without colors
-        let manager = ProgressManager::new(false, false, true);
+        let manager = ProgressManager::default();
 
         let info = manager.status_line(MessageType::Info, "Info message");
-        assert!(info.contains("[i]"));
+        assert!(info.contains("ℹ️"));
         assert!(info.contains("Info message"));
 
         let success = manager.status_line(MessageType::Success, "Success message");
-        assert!(success.contains("[√]"));
+        assert!(success.contains("✅"));
         assert!(success.contains("Success message"));
 
         let error = manager.status_line(MessageType::Error, "Error message");
-        assert!(error.contains("[x]"));
+        assert!(error.contains("❌"));
         assert!(error.contains("Error message"));
 
         let warning = manager.status_line(MessageType::Warning, "Warning message");
-        assert!(warning.contains("[!]"));
+        assert!(warning.contains("⚠️"));
         assert!(warning.contains("Warning message"));
     }
 
     #[test]
     fn test_format_duration() {
-        let manager = ProgressManager::new(false, false, true);
+        let manager = ProgressManager::default();
 
         // Test different duration ranges
         assert_eq!(manager.format_duration(Duration::from_millis(50)), "50.0ms");
         assert_eq!(manager.format_duration(Duration::from_millis(500)), "0.50s");
         assert_eq!(manager.format_duration(Duration::from_secs(5)), "5.0s");
         assert_eq!(manager.format_duration(Duration::from_secs(90)), "1m 30.0s");
-    }
-
-    #[test]
-    fn test_progress_display() {
-        let manager = ProgressManager::new(false, false, true);
-        let pb = manager.create_progress_bar("Test progress", ProgressStyleType::Spinner);
-        let display = ProgressDisplay::new(pb, true);
-
-        // Test basic operations
-        display.update("Working...");
-        display.add_line("Output line");
-        display.add_output("stdout", "Test output");
-        display.success("Completed");
     }
 }

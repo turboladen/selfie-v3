@@ -168,7 +168,7 @@ mod tests {
     fn test_handle_package_not_found() {
         let fs = MockFileSystem::default();
         let mut package_repo = MockPackageRepository::new();
-        let progress_manager = ProgressManager::new(false, false, true);
+        let progress_manager = ProgressManager::default();
 
         // Create test packages
         let packages = vec![
@@ -210,7 +210,7 @@ mod tests {
     fn test_handle_path_not_found() {
         let mut fs = MockFileSystem::default();
         let package_repo = MockPackageRepository::new();
-        let progress_manager = ProgressManager::new(false, false, true);
+        let progress_manager = ProgressManager::default();
 
         // Set up mock filesystem
         let dir = Path::new("/test/dir");
@@ -243,7 +243,7 @@ mod tests {
     fn test_handle_circular_dependency() {
         let fs = MockFileSystem::default();
         let package_repo = MockPackageRepository::new();
-        let progress_manager = ProgressManager::new(false, false, true);
+        let progress_manager = ProgressManager::default();
 
         let handler = EnhancedErrorHandler::new(&fs, &package_repo, &progress_manager);
 
@@ -263,7 +263,7 @@ mod tests {
     fn test_extract_quoted_text() {
         let fs = MockFileSystem::default();
         let package_repo = MockPackageRepository::new();
-        let progress_manager = ProgressManager::new(false, false, true);
+        let progress_manager = ProgressManager::default();
 
         let handler = EnhancedErrorHandler::new(&fs, &package_repo, &progress_manager);
 

@@ -653,7 +653,7 @@ mod tests {
         (
             MockFileSystem::new(),
             MockCommandRunner::new(),
-            ProgressManager::new(false, true, true),
+            ProgressManager::new(false, true),
         )
     }
 

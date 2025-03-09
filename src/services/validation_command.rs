@@ -1,9 +1,6 @@
 // src/services/validation_command.rs
 use crate::{
-    adapters::{
-        package_repo::yaml::YamlPackageRepository,
-        progress::{ProgressManager, ProgressStyleType},
-    },
+    adapters::{package_repo::yaml::YamlPackageRepository, progress::ProgressManager},
     domain::{application::commands::PackageCommand, config::AppConfig},
     ports::{command::CommandRunner, filesystem::FileSystem},
     services::package_validator::PackageValidator,
@@ -51,11 +48,8 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidationCommand<'a, F, R> {
                 package_name,
                 package_path,
             } => {
-                // Create progress display
-                let progress = self.progress_manager.create_progress_bar(
-                    &format!("Validating package '{}'", package_name),
-                    ProgressStyleType::Spinner,
-                );
+                self.progress_manager
+                    .print_progress(&format!("Validating package '{}'", package_name));
 
                 // Create package repository
                 let package_repo =
@@ -79,20 +73,21 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidationCommand<'a, F, R> {
                             validation_result.format_validation_result(self.progress_manager);
 
                         if validation_result.is_valid() {
-                            progress.finish_with_message("Validation successful");
+                            self.progress_manager.print_success("Validation successful");
                             ValidationCommandResult::Valid(formatted)
                         } else {
-                            progress.abandon_with_message("Validation failed");
+                            self.progress_manager.print_error("Validation failed");
                             ValidationCommandResult::Invalid(formatted)
                         }
                     }
                     Err(err) => {
                         // More verbose error handling
                         if self.config.verbose() {
-                            progress.println(format!("Error details: {:#?}", err));
+                            self.progress_manager
+                                .print_progress(&format!("Error details: {:#?}", err));
                         }
 
-                        progress.abandon_with_message("Validation failed");
+                        self.progress_manager.print_error("Validation failed");
 
                         let e = err;
                         ValidationCommandResult::Error(format!("Error: {}", e))

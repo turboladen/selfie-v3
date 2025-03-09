@@ -66,7 +66,7 @@ fn test_validation_integration() {
     // let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
 
     // Create progress manager
-    let progress_manager = ProgressManager::new(false, false, false);
+    let progress_manager = ProgressManager::default();
 
     // Create validation command
     let command = ValidationCommand::new(&fs, &runner, &config, &progress_manager);

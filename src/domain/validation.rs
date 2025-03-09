@@ -4,10 +4,7 @@ use std::{collections::HashMap, fmt, os::unix::fs::PermissionsExt, path::PathBuf
 use console::style;
 use jiff::{fmt::temporal::SpanPrinter, Unit, Zoned};
 
-use crate::{
-    adapters::progress::{MessageType, ProgressManager},
-    domain::package::Package,
-};
+use crate::{adapters::progress::ProgressManager, domain::package::Package};
 
 /// Categories of package validation errors
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -184,19 +181,13 @@ impl ValidationResult {
         let mut output = String::new();
 
         if self.is_valid() {
-            let status = if progress_manager.use_colors() {
-                progress_manager.status_line(MessageType::Success, "✓")
-            } else {
-                "✓".to_string()
-            };
-
             let package_name = if progress_manager.use_colors() {
                 style(&self.package_name).magenta().bold().to_string()
             } else {
                 self.package_name.clone()
             };
 
-            output.push_str(&format!("{} Package '{}' is valid\n", status, package_name));
+            output.push_str(&format!("Package '{package_name}' is valid\n"));
 
             // Add warnings if any
             let warnings = self.warnings();
@@ -521,7 +512,7 @@ mod tests {
             Some("Update to the newer syntax."),
         ));
 
-        let progress_manager = ProgressManager::new(false, false, true);
+        let progress_manager = ProgressManager::default();
 
         // Format the result
         let formatted = result.format_validation_result(&progress_manager);

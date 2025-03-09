@@ -272,7 +272,7 @@ mod tests {
 
     #[test]
     fn test_format_package_not_found() {
-        let progress_manager = ProgressManager::new(false, false, true);
+        let progress_manager = ProgressManager::default();
         let formatter = ErrorFormatter::new(&progress_manager);
 
         let suggestions = vec!["ripgrep".to_string(), "ripgrep-all".to_string()];
@@ -289,7 +289,7 @@ mod tests {
 
     #[test]
     fn test_format_command_error() {
-        let progress_manager = ProgressManager::new(false, false, true);
+        let progress_manager = ProgressManager::default();
         let formatter = ErrorFormatter::new(&progress_manager);
 
         let output = formatter.format_command_error(
@@ -311,7 +311,7 @@ mod tests {
 
     #[test]
     fn test_format_circular_dependency() {
-        let progress_manager = ProgressManager::new(false, false, true);
+        let progress_manager = ProgressManager::default();
         let formatter = ErrorFormatter::new(&progress_manager);
 
         let cycle = vec![
@@ -330,7 +330,7 @@ mod tests {
 
     #[test]
     fn test_format_permission_error() {
-        let progress_manager = ProgressManager::new(false, false, true);
+        let progress_manager = ProgressManager::default();
         let formatter = ErrorFormatter::new(&progress_manager);
 
         let path = PathBuf::from("/protected/file.txt");

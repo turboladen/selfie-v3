@@ -32,11 +32,7 @@ fn main() {
     let cmd_service = ApplicationCommandService::new(&fs, &runner, &config_loader);
 
     // Create a progress manager for error formatting
-    let progress_manager = ProgressManager::new(
-        !args.no_color,
-        true, // Unicode
-        args.verbose,
-    );
+    let progress_manager = ProgressManager::new(!args.no_color, args.verbose);
 
     // Process the command and get an exit code
     let exit_code = match cmd_service.process_command(args) {

@@ -4,7 +4,7 @@
 use console::style;
 
 use crate::{
-    adapters::progress::{ProgressManager, ProgressStyleType},
+    adapters::progress::ProgressManager,
     domain::{config::AppConfig, package::Package},
     ports::command::CommandRunner,
     ports::package_repo::{PackageRepoError, PackageRepository},
@@ -45,19 +45,11 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
 
     /// Execute the list command
     pub fn execute(&self) -> PackageListResult {
-        // Create progress display
-        let progress = self
-            .progress_manager
-            .create_progress_bar("Searching for packages...", ProgressStyleType::Spinner);
-
         // Get list of packages
         match self.list_packages() {
-            Ok(output) => {
-                progress.finish_with_message("Done");
-                PackageListResult::Success(output)
-            }
+            Ok(output) => PackageListResult::Success(output),
             Err(err) => {
-                progress.abandon_with_message("Failed");
+                self.progress_manager.print_error("Failed");
                 PackageListResult::Error(format!("Error: {}", err))
             }
         }

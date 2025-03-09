@@ -15,7 +15,7 @@ fn test_enhanced_error_handler_package_not_found() {
     // Set up test environment
     let fs = MockFileSystem::default();
     let mut package_repo = MockPackageRepository::new();
-    let progress_manager = ProgressManager::new(false, true, false);
+    let progress_manager = ProgressManager::new(false, true);
 
     // Set up package repository to return 'not found' for a nonexistent package
     package_repo
