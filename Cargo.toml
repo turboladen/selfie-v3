@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "4.5.31", features = ["derive"] }
+config = { version = "0.15.9", features = ["yaml"] }
 console = "0.15.10"
 etcetera = "0.10.0"
 indicatif = "0.17.11"

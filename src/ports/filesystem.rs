@@ -111,4 +111,16 @@ impl MockFileSystem {
         let p = PathBuf::from(path);
         self.expect_config_dir().return_once(|| Ok(p));
     }
+
+    pub fn mock_expand_path<P>(&mut self, input: P, output: P)
+    where
+        PathBuf: From<P>,
+    {
+        let input = PathBuf::from(input);
+        let output = PathBuf::from(output);
+
+        self.expect_expand_path()
+            .with(mockall::predicate::eq(input))
+            .return_once(|_| Ok(output));
+    }
 }
