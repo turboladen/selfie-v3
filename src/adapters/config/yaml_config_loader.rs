@@ -1,11 +1,12 @@
 // src/adapters/config/yaml_config_loader.rs
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use serde_yaml;
+use config::FileFormat;
 
 use crate::{
-    domain::config::FileConfig,
+    domain::config::AppConfig,
     ports::{
+        application::ApplicationArguments,
         config_loader::{ConfigLoadError, ConfigLoader},
         filesystem::FileSystem,
     },
@@ -22,7 +23,7 @@ impl<'a, F: FileSystem> YamlConfigLoader<'a, F> {
 }
 
 impl<F: FileSystem> ConfigLoader for YamlConfigLoader<'_, F> {
-    fn load_config(&self) -> Result<FileConfig, ConfigLoadError> {
+    fn load_config(&self, app_args: &ApplicationArguments) -> Result<AppConfig, ConfigLoadError> {
         let config_paths = self.find_config_paths();
 
         if config_paths.is_empty() {
@@ -30,34 +31,54 @@ impl<F: FileSystem> ConfigLoader for YamlConfigLoader<'_, F> {
             return Err(ConfigLoadError::NotFound);
         }
 
-        // Use the first config file found
-        self.load_config_from_path(&config_paths[0])
-    }
+        // Start with default configuration
+        let mut builder = config::Config::builder();
 
-    fn load_config_from_path(&self, path: &Path) -> Result<FileConfig, ConfigLoadError> {
-        if !self.fs.path_exists(path) {
-            return Err(ConfigLoadError::ReadError(format!(
-                "Can't read config file: {}",
-                path.display()
-            )));
+        // Add default values
+        builder = builder.set_default("verbose", false).unwrap();
+
+        // builder = builder.add_source(config::File::from(config_paths[0].as_path()));
+        let config_path = &config_paths[0];
+        let file_contents = self
+            .fs
+            .read_file(config_path)
+            .map_err(|e| ConfigLoadError::ReadError(e.to_string()))?;
+        builder = builder.add_source(config::File::from_str(&file_contents, FileFormat::Yaml));
+
+        // Add CLI overrides
+        if let Some(environment) = app_args.environment.as_ref() {
+            builder = builder.set_override("environment", environment.clone())?;
         }
 
-        // Read the file
-        let content = self
-            .fs
-            .read_file(path)
-            .map_err(|e| ConfigLoadError::ReadError(e.to_string()))?;
+        if let Some(package_directory) = app_args.package_directory.as_ref() {
+            builder = builder.set_override(
+                "package_directory",
+                package_directory.clone().to_string_lossy().to_string(),
+            )?;
+        }
 
-        // Parse the YAML content
-        let config: FileConfig = serde_yaml::from_str(&content)
-            .map_err(|e| ConfigLoadError::ParseError(e.to_string()))?;
+        builder = builder.set_override("verbose", app_args.verbose)?;
+        builder = builder.set_override("use_colors", !app_args.no_color)?;
 
-        // Validate the config
-        config
-            .validate()
-            .map_err(|e| ConfigLoadError::ValidationError(e.to_string()))?;
+        // Build the config
+        let config = builder.build()?;
 
-        Ok(config)
+        // Convert to our type
+        let mut app_config: AppConfig = config.try_deserialize()?;
+
+        // Special handling for package_directory ~ expansion
+        if let Ok(expanded) = self.fs.expand_path(app_config.package_directory()) {
+            app_config.package_directory = expanded;
+        }
+
+        // If logging is enabled but no directory specified, use default
+        if app_config.logging.enabled && app_config.logging.directory.is_none() {
+            return Err(ConfigLoadError::ValidationError(
+                "Logging is enabled, but logging directory not set".to_string(),
+            ));
+        }
+
+        Ok(app_config)
     }
 
     fn find_config_paths(&self) -> Vec<PathBuf> {
@@ -78,17 +99,16 @@ impl<F: FileSystem> ConfigLoader for YamlConfigLoader<'_, F> {
         paths
     }
 
-    fn default_config(&self) -> FileConfig {
+    fn default_config(&self) -> AppConfig {
         // Create a minimal default configuration
-        FileConfig::new(String::new(), PathBuf::new())
+        AppConfig::new(String::new(), PathBuf::new())
     }
 }
 
-// src/adapters/config/yaml_config_loader_test.rs
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ports::filesystem::MockFileSystem;
+    use crate::ports::{application::ApplicationArgumentsBuilder, filesystem::MockFileSystem};
     use std::path::Path;
 
     fn setup_test_fs() -> (MockFileSystem, PathBuf) {
@@ -134,15 +154,23 @@ mod tests {
         let (mut fs, home_dir) = setup_test_fs();
         let config_dir = home_dir.join(".config").join("selfie");
         fs.mock_config_dir(&config_dir);
-        fs.mock_path_exists(config_dir.join("selfie").join("config.yaml"), true);
+        fs.mock_path_exists(config_dir.join("config.yaml"), true);
+
+        let package_dir = Path::new("/test/packages");
+        fs.mock_path_exists(&package_dir, true);
+        fs.mock_expand_path(&package_dir, &package_dir);
 
         let loader = YamlConfigLoader::new(&fs);
+        let args = ApplicationArgumentsBuilder::default()
+            .environment("test-env")
+            .package_directory(package_dir)
+            .build();
 
-        let config = loader.load_config().unwrap();
+        let config = loader.load_config(&args).unwrap();
 
         // Check the loaded values
         assert_eq!(config.environment, "test-env");
-        assert_eq!(config.package_directory, Path::new("/test/packages"));
+        assert_eq!(config.package_directory, package_dir);
     }
 
     #[test]
@@ -157,14 +185,14 @@ mod tests {
         let loader = YamlConfigLoader::new(&fs);
 
         // Should return error
-        let result = loader.load_config();
+        let result = loader.load_config(&ApplicationArguments::default());
         assert!(matches!(result, Err(ConfigLoadError::NotFound)));
     }
 
     #[test]
     fn test_load_config_with_extended_settings() {
         let mut fs = MockFileSystem::default();
-        let config_dir = Path::new("/home/test/.config");
+        let config_dir = Path::new("/home/test/.config/selfie");
 
         // Config with extended settings
         let config_yaml = r#"
@@ -180,28 +208,33 @@ mod tests {
               max_size: 20
         "#;
 
-        let config_path = config_dir.join("selfie").join("config.yaml");
+        let config_path = config_dir.join("config.yaml");
         fs.mock_config_dir(&config_dir);
         fs.mock_path_exists(&config_path, true);
+        fs.mock_path_exists(&config_dir.join("config.yml"), false);
         fs.mock_read_file(&config_path, config_yaml);
 
+        fs.mock_expand_path("/test/packages", "/test/packages");
+
         let loader = YamlConfigLoader::new(&fs);
-        let config = loader.load_config_from_path(&config_path).unwrap();
+        let config = loader
+            .load_config(&ApplicationArguments::default())
+            .unwrap();
 
         // Check basic settings
         assert_eq!(config.environment, "test-env");
         assert_eq!(config.package_directory, Path::new("/test/packages"));
 
         // Check extended settings
-        assert_eq!(config.command_timeout, Some(120));
-        assert_eq!(config.stop_on_error, Some(false));
-        assert_eq!(config.max_parallel_installations, Some(8));
+        assert_eq!(config.command_timeout, 120.try_into().unwrap());
+        assert!(!config.stop_on_error);
+        assert_eq!(config.max_parallel_installations, 8.try_into().unwrap());
 
         // Check logging settings
-        let logging = config.logging.unwrap();
+        let logging = &config.logging;
         assert!(logging.enabled);
-        assert_eq!(logging.directory, Path::new("/test/logs"));
-        assert_eq!(logging.max_files, 5);
-        assert_eq!(logging.max_size, 20);
+        assert_eq!(logging.directory.as_ref().unwrap(), Path::new("/test/logs"));
+        assert_eq!(logging.max_files, 5.try_into().unwrap());
+        assert_eq!(logging.max_size, 20.try_into().unwrap());
     }
 }

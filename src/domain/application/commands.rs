@@ -10,6 +10,12 @@ pub enum ApplicationCommand {
     Config(ConfigCommand),
 }
 
+impl Default for ApplicationCommand {
+    fn default() -> Self {
+        Self::Package(PackageCommand::List)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum PackageCommand {
     /// Install a package

@@ -2,6 +2,7 @@
 
 use std::{
     ffi::OsStr,
+    num::{NonZeroU64, NonZeroUsize},
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -9,79 +10,97 @@ use std::{
 use serde::Deserialize;
 use thiserror::Error;
 
-use crate::domain::package::{EnvironmentConfig, Package, PackageValidationError};
+use crate::{
+    domain::package::{EnvironmentConfig, Package, PackageValidationError},
+    ports::application::ApplicationArguments,
+};
 
-const COMMAND_TIMEOUT_DEFAULT: u64 = 60;
 const VERBOSE_DEFAULT: bool = false;
 const USE_COLORS_DEFAULT: bool = true;
 const USE_UNICODE_DEFAULT: bool = true;
 const STOP_ON_ERROR_DEFAULT: bool = true;
-const LOGGING_ENABLED_DEFAULT: bool = false;
-const LOG_MAX_FILES_DEFAULT: usize = 10;
-const LOG_MAX_SIZE_DEFAULT: usize = 10;
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct FileConfig {
-    pub environment: String,
-    pub package_directory: PathBuf,
+/// Comprehensive application configuration that combines file config and CLI args
+#[derive(Debug, Clone, Deserialize)]
+pub struct AppConfig {
+    // Core settings
+    pub(crate) environment: String,
+    pub(crate) package_directory: PathBuf,
 
+    // UI settings
     #[serde(default)]
-    pub command_timeout: Option<u64>,
+    pub(crate) verbose: bool,
 
-    #[serde(default)]
-    pub stop_on_error: Option<bool>,
+    #[serde(default = "default_use_colors")]
+    pub(crate) use_colors: bool,
 
-    #[serde(default)]
-    pub max_parallel_installations: Option<usize>,
+    #[serde(default = "default_use_unicode")]
+    pub(crate) use_unicode: bool,
 
+    // Execution settings
+    // command_timeout: Duration,
+    #[serde(default = "default_command_timeout")]
+    pub(crate) command_timeout: NonZeroU64,
+
+    #[serde(default = "default_stop_on_error")]
+    pub(crate) stop_on_error: bool,
+
+    #[serde(default = "default_max_parallel")]
+    pub(crate) max_parallel_installations: NonZeroUsize,
+
+    // Logging settings
     #[serde(default)]
-    pub logging: Option<LogConfig>,
+    pub(crate) logging: LoggingConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct LogConfig {
+pub struct LoggingConfig {
     #[serde(default)]
     pub enabled: bool,
 
-    pub directory: PathBuf,
+    #[serde(default)]
+    pub directory: Option<PathBuf>,
 
-    #[serde(default = "default_max_files")]
-    pub max_files: usize,
+    #[serde(default = "default_log_max_files")]
+    pub max_files: NonZeroUsize,
 
-    #[serde(default = "default_max_size")]
-    pub max_size: usize,
+    #[serde(default = "default_log_max_size")]
+    pub max_size: NonZeroUsize,
 }
 
-const fn default_max_files() -> usize {
-    LOG_MAX_FILES_DEFAULT
+impl Default for LoggingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            directory: None,
+            max_files: default_log_max_files(),
+            max_size: default_log_max_size(),
+        }
+    }
 }
 
-const fn default_max_size() -> usize {
-    LOG_MAX_SIZE_DEFAULT
+const fn default_log_max_files() -> NonZeroUsize {
+    unsafe { NonZeroUsize::new_unchecked(10) }
 }
 
-/// Comprehensive application configuration that combines file config and CLI args
-#[derive(Debug, Clone)]
-pub struct AppConfig {
-    // Core settings
-    environment: String,
-    package_directory: PathBuf,
+const fn default_log_max_size() -> NonZeroUsize {
+    unsafe { NonZeroUsize::new_unchecked(10) }
+}
 
-    // UI settings
-    verbose: bool,
-    use_colors: bool,
-    use_unicode: bool,
-
-    // Execution settings
-    command_timeout: Duration,
-    max_parallel: usize,
-    stop_on_error: bool,
-
-    // Logging settings
-    logging_enabled: bool,
-    log_directory: Option<PathBuf>,
-    log_max_files: usize,
-    log_max_size: usize,
+fn default_command_timeout() -> NonZeroU64 {
+    unsafe { NonZeroU64::new_unchecked(60) }
+}
+fn default_stop_on_error() -> bool {
+    true
+}
+fn default_max_parallel() -> NonZeroUsize {
+    NonZeroUsize::new(num_cpus::get()).unwrap_or_else(|| unsafe { NonZeroUsize::new_unchecked(4) })
+}
+fn default_use_colors() -> bool {
+    true
+}
+fn default_use_unicode() -> bool {
+    true
 }
 
 #[derive(Error, Debug, PartialEq)]
@@ -111,99 +130,6 @@ pub enum ConfigValidationError {
     InvalidLogConfig(String),
 }
 
-// Renamed from Config to FileConfig for clarity
-impl FileConfig {
-    pub fn new(environment: String, package_directory: PathBuf) -> Self {
-        Self {
-            environment,
-            package_directory,
-            command_timeout: None,
-            stop_on_error: None,
-            max_parallel_installations: None,
-            logging: None,
-        }
-    }
-
-    /// Full validation for commands that require a complete configuration
-    pub fn validate(&self) -> Result<(), ConfigValidationError> {
-        Self::validate_environment(&self.environment)?;
-        Self::validate_package_directory(&self.package_directory)?;
-
-        // Validate optional parameters
-        if let Some(timeout) = self.command_timeout {
-            Self::validate_command_timeout(timeout)?;
-        }
-
-        if let Some(max_parallel) = self.max_parallel_installations {
-            Self::validate_max_parallel_installations(max_parallel)?;
-        }
-
-        // Validate logging config if present
-        if let Some(log_config) = &self.logging {
-            if log_config.enabled {
-                Self::validate_log_directory(log_config.directory.as_os_str())?;
-                Self::validate_log_max_files(log_config.max_files)?;
-                Self::validate_log_max_size(log_config.max_size)?;
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Minimal validation for commands that only require a package directory
-    pub fn validate_minimal(&self) -> Result<(), ConfigValidationError> {
-        if self.package_directory.as_os_str().is_empty() {
-            return Err(ConfigValidationError::EmptyField(
-                "package_directory".to_string(),
-            ));
-        }
-
-        // Expand the package directory path
-        let package_dir = self.package_directory.to_string_lossy();
-        let expanded_path = shellexpand::tilde(&package_dir);
-        let expanded_path = Path::new(expanded_path.as_ref());
-
-        if !expanded_path.is_absolute() {
-            return Err(ConfigValidationError::InvalidPackageDirectory(
-                "Package directory must be an absolute path".to_string(),
-            ));
-        }
-
-        Ok(())
-    }
-
-    pub fn expanded_package_directory(&self) -> PathBuf {
-        let package_dir = self.package_directory.to_string_lossy();
-        let expanded_path = shellexpand::tilde(&package_dir);
-        PathBuf::from(expanded_path.as_ref())
-    }
-
-    pub fn resolve_environment<'a>(
-        &self,
-        package: &'a Package,
-    ) -> Result<&'a EnvironmentConfig, ConfigValidationError> {
-        if self.environment.is_empty() {
-            return Err(ConfigValidationError::InvalidPackage(
-                "Package has no environments".to_string(),
-            ));
-        }
-
-        package
-            .resolve_environment(&self.environment)
-            .map_err(|e| match e {
-                PackageValidationError::EnvironmentNotSupported(_) => {
-                    ConfigValidationError::EnvironmentNotFound(self.environment.clone())
-                }
-                PackageValidationError::MissingField(_) => {
-                    ConfigValidationError::InvalidPackage("Package has no environments".to_string())
-                }
-                _ => ConfigValidationError::InvalidPackage(
-                    "Invalid package configuration".to_string(),
-                ),
-            })
-    }
-}
-
 impl AppConfig {
     pub fn environment(&self) -> &str {
         &self.environment
@@ -226,11 +152,11 @@ impl AppConfig {
     }
 
     pub fn command_timeout(&self) -> Duration {
-        self.command_timeout
+        Duration::from_secs(self.command_timeout.into())
     }
 
-    pub fn max_parallel(&self) -> usize {
-        self.max_parallel
+    pub fn max_parallel(&self) -> NonZeroUsize {
+        self.max_parallel_installations
     }
 
     pub fn stop_on_error(&self) -> bool {
@@ -238,19 +164,19 @@ impl AppConfig {
     }
 
     pub fn logging_enabled(&self) -> bool {
-        self.logging_enabled
+        self.logging.enabled
     }
 
     pub fn log_directory(&self) -> Option<&PathBuf> {
-        self.log_directory.as_ref()
+        self.logging.directory.as_ref()
     }
 
-    pub fn log_max_files(&self) -> usize {
-        self.log_max_files
+    pub fn log_max_files(&self) -> NonZeroUsize {
+        self.logging.max_files
     }
 
-    pub fn log_max_size(&self) -> usize {
-        self.log_max_size
+    pub fn log_max_size(&self) -> NonZeroUsize {
+        self.logging.max_size
     }
 
     /// Create a new AppConfig with default values
@@ -261,57 +187,28 @@ impl AppConfig {
             verbose: VERBOSE_DEFAULT,
             use_colors: USE_COLORS_DEFAULT,
             use_unicode: USE_UNICODE_DEFAULT,
-            command_timeout: Duration::from_secs(COMMAND_TIMEOUT_DEFAULT),
-            max_parallel: num_cpus::get(),
+            command_timeout: default_command_timeout(),
+            max_parallel_installations: default_max_parallel(),
             stop_on_error: STOP_ON_ERROR_DEFAULT,
-            logging_enabled: LOGGING_ENABLED_DEFAULT,
-            log_directory: None,
-            log_max_files: LOG_MAX_FILES_DEFAULT,
-            log_max_size: LOG_MAX_SIZE_DEFAULT,
-        }
-    }
-
-    /// Create an AppConfig from a FileConfig
-    pub fn from_file_config(config: FileConfig) -> Self {
-        Self {
-            environment: config.environment,
-            package_directory: config.package_directory,
-            verbose: VERBOSE_DEFAULT,
-            use_colors: USE_COLORS_DEFAULT,
-            use_unicode: USE_UNICODE_DEFAULT,
-            command_timeout: Duration::from_secs(
-                config.command_timeout.unwrap_or(COMMAND_TIMEOUT_DEFAULT),
-            ),
-            max_parallel: config.max_parallel_installations.unwrap_or(num_cpus::get()),
-            stop_on_error: config.stop_on_error.unwrap_or(STOP_ON_ERROR_DEFAULT),
-            logging_enabled: config.logging.as_ref().is_some_and(|l| l.enabled),
-            log_directory: config.logging.as_ref().map(|l| l.directory.clone()),
-            log_max_files: config.logging.as_ref().map_or(10, |l| l.max_files),
-            log_max_size: config.logging.as_ref().map_or(10, |l| l.max_size),
+            logging: LoggingConfig::default(),
         }
     }
 
     /// Apply CLI arguments to override configuration
-    pub fn apply_cli_args(
-        mut self,
-        environment: Option<String>,
-        package_directory: Option<PathBuf>,
-        verbose: bool,
-        no_color: bool,
-    ) -> Self {
+    pub fn apply_cli_args(mut self, args: &ApplicationArguments) -> Self {
         // Override environment if specified
-        if let Some(env) = environment {
-            self.environment = env;
+        if let Some(env) = args.environment.as_ref() {
+            self.environment = env.clone();
         }
 
         // Override package directory if specified
-        if let Some(dir) = package_directory {
-            self.package_directory = dir;
+        if let Some(dir) = args.package_directory.as_ref() {
+            self.package_directory = dir.clone();
         }
 
         // Apply UI settings
-        self.verbose = verbose;
-        self.use_colors = !no_color;
+        self.verbose = args.verbose;
+        self.use_colors = !args.no_color;
 
         self
     }
@@ -320,20 +217,16 @@ impl AppConfig {
     pub fn validate(&self) -> Result<(), ConfigValidationError> {
         Self::validate_environment(&self.environment)?;
         Self::validate_package_directory(&self.package_directory)?;
-        Self::validate_command_timeout(self.command_timeout.as_secs())?;
-        Self::validate_max_parallel_installations(self.max_parallel)?;
 
         // Validate logging settings if enabled
-        if self.logging_enabled {
+        if self.logging.enabled {
             Self::validate_log_directory(
-                self.log_directory
+                self.logging
+                    .directory
                     .as_ref()
                     .map(|ld| ld.as_os_str())
                     .unwrap_or_default(),
             )?;
-
-            Self::validate_log_max_files(self.log_max_files)?;
-            Self::validate_log_max_size(self.log_max_size)?;
         }
 
         Ok(())
@@ -425,28 +318,6 @@ trait ValidateConfig {
         Ok(())
     }
 
-    fn validate_command_timeout(command_timeout_secs: u64) -> Result<(), ConfigValidationError> {
-        if command_timeout_secs == 0 {
-            Err(ConfigValidationError::InvalidCommandTimeout(
-                "Command timeout must be greater than 0".to_string(),
-            ))
-        } else {
-            Ok(())
-        }
-    }
-
-    fn validate_max_parallel_installations(
-        max_parallel: usize,
-    ) -> Result<(), ConfigValidationError> {
-        if max_parallel == 0 {
-            Err(ConfigValidationError::InvalidMaxParallel(
-                "Max parallel installations must be greater than 0".to_string(),
-            ))
-        } else {
-            Ok(())
-        }
-    }
-
     fn validate_log_directory(log_directory: &OsStr) -> Result<(), ConfigValidationError> {
         if log_directory.is_empty() {
             Err(ConfigValidationError::InvalidLogConfig(
@@ -456,79 +327,9 @@ trait ValidateConfig {
             Ok(())
         }
     }
-
-    fn validate_log_max_files(max_files: usize) -> Result<(), ConfigValidationError> {
-        if max_files == 0 {
-            Err(ConfigValidationError::InvalidLogConfig(
-                "Max log files must be greater than 0".to_string(),
-            ))
-        } else {
-            Ok(())
-        }
-    }
-
-    fn validate_log_max_size(max_size: usize) -> Result<(), ConfigValidationError> {
-        if max_size == 0 {
-            Err(ConfigValidationError::InvalidLogConfig(
-                "Max log size must be greater than 0".to_string(),
-            ))
-        } else {
-            Ok(())
-        }
-    }
 }
 
-impl ValidateConfig for FileConfig {}
 impl ValidateConfig for AppConfig {}
-
-/// Builder pattern for testing
-#[derive(Default)]
-pub struct ConfigBuilder {
-    environment: String,
-    package_directory: PathBuf,
-    command_timeout: Option<u64>,
-    stop_on_error: Option<bool>,
-    max_parallel_installations: Option<usize>,
-    logging: Option<LogConfig>,
-}
-
-impl ConfigBuilder {
-    pub fn environment(mut self, environment: &str) -> Self {
-        self.environment = environment.to_string();
-        self
-    }
-
-    pub fn package_directory(mut self, package_directory: &str) -> Self {
-        self.package_directory = PathBuf::from(package_directory);
-        self
-    }
-
-    pub fn command_timeout(mut self, timeout: u64) -> Self {
-        self.command_timeout = Some(timeout);
-        self
-    }
-
-    pub fn stop_on_error(mut self, stop: bool) -> Self {
-        self.stop_on_error = Some(stop);
-        self
-    }
-
-    pub fn max_parallel(mut self, max: usize) -> Self {
-        self.max_parallel_installations = Some(max);
-        self
-    }
-
-    pub fn build(self) -> FileConfig {
-        FileConfig {
-            environment: self.environment,
-            package_directory: self.package_directory,
-            command_timeout: self.command_timeout,
-            stop_on_error: self.stop_on_error,
-            max_parallel_installations: self.max_parallel_installations,
-            logging: self.logging,
-        }
-    }
-}
 
 /// Builder pattern for AppConfig testing
 pub struct AppConfigBuilder {
@@ -537,13 +338,10 @@ pub struct AppConfigBuilder {
     verbose: bool,
     use_colors: bool,
     use_unicode: bool,
-    command_timeout: u64,
-    max_parallel: usize,
+    command_timeout: NonZeroU64,
+    max_parallel: NonZeroUsize,
     stop_on_error: bool,
-    logging_enabled: bool,
-    log_directory: Option<PathBuf>,
-    log_max_files: usize,
-    log_max_size: usize,
+    logging: LoggingConfig,
 }
 
 impl AppConfigBuilder {
@@ -575,13 +373,23 @@ impl AppConfigBuilder {
         self
     }
 
-    pub fn command_timeout(mut self, timeout: u64) -> Self {
+    pub fn command_timeout(mut self, timeout: NonZeroU64) -> Self {
         self.command_timeout = timeout;
         self
     }
 
-    pub fn max_parallel(mut self, max: usize) -> Self {
+    pub fn command_timeout_unchecked(mut self, timeout: u64) -> Self {
+        self.command_timeout = NonZeroU64::new(timeout).unwrap();
+        self
+    }
+
+    pub fn max_parallel(mut self, max: NonZeroUsize) -> Self {
         self.max_parallel = max;
+        self
+    }
+
+    pub fn max_parallel_unchecked(mut self, max: usize) -> Self {
+        self.max_parallel = NonZeroUsize::new(max).unwrap();
         self
     }
 
@@ -591,7 +399,7 @@ impl AppConfigBuilder {
     }
 
     pub fn logging_enabled(mut self, enabled: bool) -> Self {
-        self.logging_enabled = enabled;
+        self.logging.enabled = enabled;
         self
     }
 
@@ -599,17 +407,27 @@ impl AppConfigBuilder {
     where
         D: AsRef<std::ffi::OsStr>,
     {
-        self.log_directory = Some(PathBuf::from(directory.as_ref()));
+        self.logging.directory = Some(PathBuf::from(directory.as_ref()));
         self
     }
 
-    pub fn log_max_files(mut self, max: usize) -> Self {
-        self.log_max_files = max;
+    pub fn log_max_files(mut self, max: NonZeroUsize) -> Self {
+        self.logging.max_files = max;
         self
     }
 
-    pub fn log_max_size(mut self, max: usize) -> Self {
-        self.log_max_size = max;
+    pub fn log_max_files_unchecked(mut self, max: usize) -> Self {
+        self.logging.max_files = NonZeroUsize::new(max).unwrap();
+        self
+    }
+
+    pub fn log_max_size(mut self, max: NonZeroUsize) -> Self {
+        self.logging.max_size = max;
+        self
+    }
+
+    pub fn log_max_size_unchecked(mut self, max: usize) -> Self {
+        self.logging.max_size = NonZeroUsize::new(max).unwrap();
         self
     }
 
@@ -620,13 +438,15 @@ impl AppConfigBuilder {
             verbose: self.verbose,
             use_colors: self.use_colors,
             use_unicode: self.use_unicode,
-            command_timeout: Duration::from_secs(self.command_timeout),
-            max_parallel: self.max_parallel,
+            command_timeout: self.command_timeout,
+            max_parallel_installations: self.max_parallel,
             stop_on_error: self.stop_on_error,
-            logging_enabled: self.logging_enabled,
-            log_directory: self.log_directory,
-            log_max_files: self.log_max_files,
-            log_max_size: self.log_max_size,
+            logging: LoggingConfig {
+                enabled: self.logging.enabled,
+                directory: self.logging.directory,
+                max_files: self.logging.max_files,
+                max_size: self.logging.max_size,
+            },
         }
     }
 }
@@ -639,19 +459,18 @@ impl Default for AppConfigBuilder {
             verbose: VERBOSE_DEFAULT,
             use_colors: USE_COLORS_DEFAULT,
             use_unicode: USE_UNICODE_DEFAULT,
-            command_timeout: COMMAND_TIMEOUT_DEFAULT,
-            max_parallel: num_cpus::get(),
+            command_timeout: default_command_timeout(),
+            max_parallel: default_max_parallel(),
             stop_on_error: STOP_ON_ERROR_DEFAULT,
-            logging_enabled: LOGGING_ENABLED_DEFAULT,
-            log_directory: None,
-            log_max_files: LOG_MAX_FILES_DEFAULT,
-            log_max_size: LOG_MAX_SIZE_DEFAULT,
+            logging: LoggingConfig::default(),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::domain::application::commands::{ApplicationCommand, PackageCommand};
+
     use super::*;
 
     #[test]
@@ -661,37 +480,19 @@ mod tests {
             .package_directory("/test/path")
             .verbose(true)
             .use_colors(false)
-            .command_timeout(120)
-            .max_parallel(8)
+            .command_timeout_unchecked(120)
+            .max_parallel_unchecked(8)
             .build();
 
         assert_eq!(config.environment, "test-env");
         assert_eq!(config.package_directory, PathBuf::from("/test/path"));
         assert!(config.verbose);
         assert!(!config.use_colors);
-        assert_eq!(config.command_timeout, Duration::from_secs(120));
-        assert_eq!(config.max_parallel, 8);
-    }
-
-    #[test]
-    fn test_app_config_from_file_config() {
-        let file_config = ConfigBuilder::default()
-            .environment("test-env")
-            .package_directory("/test/path")
-            .command_timeout(120)
-            .max_parallel(8)
-            .stop_on_error(false)
-            .build();
-
-        let app_config = AppConfig::from_file_config(file_config);
-
-        assert_eq!(app_config.environment, "test-env");
-        assert_eq!(app_config.package_directory, PathBuf::from("/test/path"));
-        assert!(!app_config.verbose); // Default is false
-        assert!(app_config.use_colors); // Default is true
-        assert_eq!(app_config.command_timeout, Duration::from_secs(120));
-        assert_eq!(app_config.max_parallel, 8);
-        assert!(!app_config.stop_on_error);
+        assert_eq!(config.command_timeout(), Duration::from_secs(120));
+        assert_eq!(
+            config.max_parallel_installations,
+            NonZeroUsize::new(8).unwrap()
+        );
     }
 
     #[test]
@@ -701,12 +502,14 @@ mod tests {
             .package_directory("/file/path")
             .build();
 
-        let updated = config.apply_cli_args(
-            Some("cli-env".to_string()),
-            Some(PathBuf::from("/cli/path")),
-            true,
-            true,
-        );
+        let args = ApplicationArguments {
+            environment: Some("cli-env".to_string()),
+            package_directory: Some(PathBuf::from("/cli/path")),
+            verbose: true,
+            no_color: true,
+            command: ApplicationCommand::Package(PackageCommand::List),
+        };
+        let updated = config.apply_cli_args(&args);
 
         assert_eq!(updated.environment, "cli-env");
         assert_eq!(updated.package_directory, PathBuf::from("/cli/path"));
@@ -733,43 +536,6 @@ mod tests {
         assert!(matches!(
             invalid_config.validate(),
             Err(ConfigValidationError::EmptyField(field)) if field == "environment"
-        ));
-
-        // Zero command timeout
-        let invalid_config = AppConfigBuilder::default()
-            .environment("test-env")
-            .package_directory("/test/path")
-            .command_timeout(0)
-            .build();
-
-        assert!(matches!(
-            invalid_config.validate(),
-            Err(ConfigValidationError::InvalidCommandTimeout(_))
-        ));
-
-        // Zero max parallel
-        let invalid_config = AppConfigBuilder::default()
-            .environment("test-env")
-            .package_directory("/test/path")
-            .max_parallel(0)
-            .build();
-
-        assert!(matches!(
-            invalid_config.validate(),
-            Err(ConfigValidationError::InvalidMaxParallel(_))
-        ));
-
-        // Invalid logging config
-        let invalid_config = AppConfigBuilder::default()
-            .environment("test-env")
-            .package_directory("/test/path")
-            .logging_enabled(true)
-            .log_max_files(0)
-            .build();
-
-        assert!(matches!(
-            invalid_config.validate(),
-            Err(ConfigValidationError::InvalidLogConfig(_))
         ));
     }
 }

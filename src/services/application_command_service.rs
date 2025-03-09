@@ -7,7 +7,7 @@ use crate::{
     ports::{
         application::{ApplicationArguments, ApplicationCommandRouter, ApplicationError},
         command::CommandRunner,
-        config_loader::{ConfigLoadError, ConfigLoader},
+        config_loader::ConfigLoader,
         filesystem::FileSystem,
     },
 };
@@ -39,31 +39,7 @@ impl<'a, F: FileSystem, R: CommandRunner, C: ConfigLoader> ApplicationCommandSer
         args: &ApplicationArguments,
         full_validation: bool,
     ) -> Result<AppConfig, ApplicationError> {
-        // Try to load base config from file
-        let base_config = match self.config_loader.load_config() {
-            Ok(config) => Some(config),
-            Err(err) => {
-                // Log the error but continue with default config if we can
-                if let ConfigLoadError::NotFound = err {
-                    None // Not found is fine, we'll use defaults
-                } else {
-                    // For other errors, log but continue with defaults
-                    eprintln!("Warning: Failed to load config file: {}", err);
-                    None
-                }
-            }
-        };
-
-        // Start with either the loaded config or default
-        let file_config = base_config.unwrap_or_else(|| self.config_loader.default_config());
-
-        // Create AppConfig and apply CLI overrides
-        let app_config = AppConfig::from_file_config(file_config).apply_cli_args(
-            args.environment.clone(),
-            args.package_directory.clone(),
-            args.verbose,
-            args.no_color,
-        );
+        let app_config = self.config_loader.load_config(args)?;
 
         // Validate based on requirements
         if full_validation {
@@ -234,35 +210,39 @@ mod tests {
 
     use super::*;
     use crate::{
-        domain::{application::commands::ApplicationCommand, config::FileConfig},
+        domain::{application::commands::ApplicationCommand, config::AppConfig},
         ports::{
-            application::ApplicationArguments, command::MockCommandRunner,
-            config_loader::MockConfigLoader, filesystem::MockFileSystem,
+            application::ApplicationArguments,
+            command::MockCommandRunner,
+            config_loader::{ConfigLoadError, MockConfigLoader},
+            filesystem::MockFileSystem,
         },
     };
 
     fn setup_service_with_config(
-        file_config: Option<FileConfig>,
-        default_config: Option<FileConfig>,
+        app_config: Option<AppConfig>,
+        app_args: Option<ApplicationArguments>,
     ) -> (MockFileSystem, MockCommandRunner, MockConfigLoader) {
         let fs = MockFileSystem::default();
         let runner = MockCommandRunner::new();
         let mut config_loader = MockConfigLoader::new();
 
-        if let Some(config) = file_config {
-            config_loader
-                .expect_load_config()
-                .returning(move || Ok(config.clone()));
-        } else {
-            config_loader
-                .expect_load_config()
-                .returning(|| Err(ConfigLoadError::NotFound));
-        }
-
-        if let Some(config) = default_config {
-            config_loader
-                .expect_default_config()
-                .returning(move || config.clone());
+        match (app_config, app_args) {
+            (Some(config), Some(app_args)) => {
+                config_loader.mock_load_config_ok(app_args, config);
+            }
+            (None, Some(app_args)) => {
+                config_loader.mock_load_config_err(app_args, ConfigLoadError::NotFound);
+            }
+            (Some(config), None) => {
+                config_loader.mock_load_config_ok(ApplicationArguments::default(), config);
+            }
+            (None, None) => {
+                config_loader.mock_load_config_err(
+                    ApplicationArguments::default(),
+                    ConfigLoadError::NotFound,
+                );
+            }
         }
 
         (fs, runner, config_loader)
@@ -271,9 +251,7 @@ mod tests {
     #[test]
     fn test_build_app_config() {
         // Setup mock config loader to return a test config
-        let file_config = FileConfig::new("file-env".to_string(), PathBuf::from("/file/path"));
-        let (fs, runner, config_loader) = setup_service_with_config(Some(file_config), None);
-        let service = ApplicationCommandService::new(&fs, &runner, &config_loader);
+        let app_config = AppConfig::new("file-env".to_string(), PathBuf::from("/file/path"));
 
         // Create arguments with CLI overrides
         let args = ApplicationArguments {
@@ -283,6 +261,10 @@ mod tests {
             no_color: true,
             command: ApplicationCommand::Package(PackageCommand::List),
         };
+
+        let (fs, runner, config_loader) =
+            setup_service_with_config(Some(app_config.clone()), Some(args.clone()));
+        let service = ApplicationCommandService::new(&fs, &runner, &config_loader);
 
         // Build the app config
         let app_config = service.build_config(&args, false).unwrap();
@@ -301,7 +283,7 @@ mod tests {
     fn test_build_app_config_no_file() {
         // Setup default config
         let default_config =
-            FileConfig::new("default-env".to_string(), PathBuf::from("/default/path"));
+            AppConfig::new("default-env".to_string(), PathBuf::from("/default/path"));
         let (fs, runner, config_loader) = setup_service_with_config(Some(default_config), None);
 
         let service = ApplicationCommandService::new(&fs, &runner, &config_loader);
