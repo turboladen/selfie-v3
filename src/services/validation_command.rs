@@ -49,7 +49,7 @@ impl<'a> ValidationCommand<'a> {
                 package_path,
             } => {
                 self.progress_manager
-                    .print_progress(&format!("Validating package '{}'", package_name));
+                    .print_progress(format!("Validating package '{}'", package_name));
 
                 // Create package repository
                 let package_repo = YamlPackageRepository::new(
@@ -87,7 +87,7 @@ impl<'a> ValidationCommand<'a> {
                         // More verbose error handling
                         if self.config.verbose() {
                             self.progress_manager
-                                .print_progress(&format!("Error details: {:#?}", err));
+                                .print_progress(format!("Error details: {:#?}", err));
                         }
 
                         self.progress_manager.print_error("Validation failed");

@@ -1,6 +1,6 @@
 // src/main.rs
 
-use std::{process, time::Duration};
+use std::process;
 
 use selfie::{
     adapters::{

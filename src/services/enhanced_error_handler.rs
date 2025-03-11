@@ -139,13 +139,13 @@ impl<'a> EnhancedErrorHandler<'a> {
         if error_text.contains("circular dependency") {
             return self.progress_manager.status_line(
                 MessageType::Error,
-                &format!("Circular dependency detected: {}", error),
+                format!("Circular dependency detected: {}", error),
             );
         }
 
         // For any other error, provide a generic formatted message
         self.progress_manager
-            .status_line(MessageType::Error, &error.to_string())
+            .status_line(MessageType::Error, error.to_string())
     }
 
     /// Extract text within quotes from an error message
