@@ -4,9 +4,8 @@ use std::process;
 
 use selfie::{
     adapters::{
-        cli::clap_adapter::ClapArguments, command::shell::ShellCommandRunner,
-        config::yaml_config_loader::YamlConfigLoader, filesystem::RealFileSystem,
-        progress::ProgressManager,
+        cli::clap_adapter::ClapArguments, command::shell::ShellCommandRunner, config_loader,
+        filesystem::RealFileSystem, progress::ProgressManager,
     },
     domain::errors::ErrorContext,
     ports::{
@@ -29,7 +28,7 @@ fn main() -> Result<(), anyhow::Error> {
         }
     };
 
-    let config_loader = YamlConfigLoader::new(&fs);
+    let config_loader = config_loader::Yaml::new(&fs);
     let app_config = config_loader.load_config(&args)?;
     let runner = ShellCommandRunner::new("/bin/sh", app_config.command_timeout());
 
