@@ -1,9 +1,10 @@
 // src/services/package_installer.rs
 mod dependency;
 
+use std::time::Instant;
+
 use console::style;
 use dependency::{DependencyResolver, DependencyResolverError};
-use std::time::{Duration, Instant};
 use thiserror::Error;
 
 use crate::{
@@ -13,11 +14,11 @@ use crate::{
         errors::{
             EnhancedCommandError, EnhancedDependencyError, EnhancedPackageError, ErrorContext,
         },
-        installation::{Installation, InstallationError, InstallationStatus},
+        installation::{Installation, InstallationError, InstallationResult, InstallationStatus},
         package::Package,
     },
     ports::{
-        command::{CommandError, CommandOutput, CommandRunner},
+        command::{CommandError, CommandRunner},
         filesystem::{FileSystem, FileSystemError},
         package_repo::{PackageRepoError, PackageRepository},
     },
@@ -99,76 +100,6 @@ impl From<EnhancedDependencyError> for PackageInstallerError {
                 ),
             )),
         }
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct InstallationResult {
-    pub(crate) package_name: String,
-    pub(crate) status: InstallationStatus,
-    pub(crate) duration: Duration,
-    pub(crate) command_output: Option<CommandOutput>,
-    pub(crate) dependencies: Vec<InstallationResult>,
-}
-
-impl InstallationResult {
-    pub(crate) fn success(
-        package_name: &str,
-        duration: Duration,
-        output: Option<CommandOutput>,
-    ) -> Self {
-        Self {
-            package_name: package_name.to_string(),
-            status: InstallationStatus::Complete,
-            duration,
-            command_output: output,
-            dependencies: Vec::new(),
-        }
-    }
-
-    pub(crate) fn already_installed(package_name: &str, duration: Duration) -> Self {
-        Self {
-            package_name: package_name.to_string(),
-            status: InstallationStatus::AlreadyInstalled,
-            duration,
-            command_output: None,
-            dependencies: Vec::new(),
-        }
-    }
-
-    pub(crate) fn failed(
-        package_name: &str,
-        status: InstallationStatus,
-        duration: Duration,
-    ) -> Self {
-        Self {
-            package_name: package_name.to_string(),
-            status,
-            duration,
-            command_output: None,
-            dependencies: Vec::new(),
-        }
-    }
-
-    pub(crate) fn with_dependencies(mut self, dependencies: Vec<InstallationResult>) -> Self {
-        self.dependencies = dependencies;
-        self
-    }
-
-    pub(crate) fn total_duration(&self) -> Duration {
-        let mut total = self.duration;
-        for dep in &self.dependencies {
-            total += dep.duration;
-        }
-        total
-    }
-
-    pub(crate) fn dependency_duration(&self) -> Duration {
-        let mut total = Duration::from_secs(0);
-        for dep in &self.dependencies {
-            total += dep.total_duration();
-        }
-        total
     }
 }
 

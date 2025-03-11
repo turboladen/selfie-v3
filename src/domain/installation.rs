@@ -2,6 +2,7 @@
 // Installation domain model
 
 use std::time::{Duration, Instant};
+
 use thiserror::Error;
 
 use crate::ports::command::{CommandError, CommandOutput, CommandRunner};
@@ -56,35 +57,6 @@ pub(crate) struct Installation {
 
     /// The environment configuration being used
     pub(crate) env_config: EnvironmentConfig,
-}
-
-/// Errors that can occur during installation
-#[derive(Error, Debug)]
-pub(crate) enum InstallationError {
-    #[error("Command execution error: {0}")]
-    CommandError(CommandError),
-
-    #[error("Installation failed: {0}")]
-    InstallationFailed(String),
-
-    #[error("Check command failed: {0}")]
-    CheckFailed(String),
-}
-
-/// Represents the result of an installation operation
-#[derive(Debug)]
-pub(crate) struct InstallationResult {
-    /// Name of the installed package
-    pub(crate) package_name: String,
-
-    /// Final installation status
-    pub(crate) status: InstallationStatus,
-
-    /// How long the installation took
-    pub(crate) duration: Duration,
-
-    /// Results of dependent package installations
-    pub(crate) dependencies: Vec<InstallationResult>,
 }
 
 impl Installation {
@@ -195,13 +167,49 @@ impl Installation {
     }
 }
 
+/// Errors that can occur during installation
+#[derive(Error, Debug)]
+pub(crate) enum InstallationError {
+    #[error("Command execution error: {0}")]
+    CommandError(CommandError),
+
+    #[error("Installation failed: {0}")]
+    InstallationFailed(String),
+
+    #[error("Check command failed: {0}")]
+    CheckFailed(String),
+}
+
+/// Represents the result of an installation operation
+#[derive(Debug)]
+pub(crate) struct InstallationResult {
+    /// Name of the installed package
+    pub(crate) package_name: String,
+
+    /// Final installation status
+    pub(crate) status: InstallationStatus,
+
+    /// How long the installation took
+    pub(crate) duration: Duration,
+
+    pub(crate) command_output: Option<CommandOutput>,
+
+    /// Results of dependent package installations
+    pub(crate) dependencies: Vec<InstallationResult>,
+}
+
 impl InstallationResult {
     /// Create a new successful installation result
-    pub(crate) fn success(package_name: &str, duration: Duration) -> Self {
+    pub(crate) fn success(
+        package_name: &str,
+        duration: Duration,
+        output: Option<CommandOutput>,
+    ) -> Self {
         Self {
             package_name: package_name.to_string(),
             status: InstallationStatus::Complete,
             duration,
+            command_output: output,
             dependencies: Vec::new(),
         }
     }
@@ -212,6 +220,7 @@ impl InstallationResult {
             package_name: package_name.to_string(),
             status: InstallationStatus::AlreadyInstalled,
             duration,
+            command_output: None,
             dependencies: Vec::new(),
         }
     }
@@ -226,6 +235,7 @@ impl InstallationResult {
             package_name: package_name.to_string(),
             status,
             duration,
+            command_output: None,
             dependencies: Vec::new(),
         }
     }
