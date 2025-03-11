@@ -552,6 +552,21 @@ impl<'a> PackageInstaller<'a> {
             }
         };
 
+        if self.progress_manager.verbose() && result.command_output.is_some() {
+            let output = result.command_output.as_ref().unwrap();
+            self.progress_manager.print_verbose("Command stdout:");
+            for line in output.stdout.lines() {
+                self.progress_manager.print_verbose(format!("  {}", line));
+            }
+
+            if !output.stderr.is_empty() {
+                self.progress_manager.print_verbose("Command stderr:");
+                for line in output.stderr.lines() {
+                    self.progress_manager.print_verbose(format!("  {}", line));
+                }
+            }
+        }
+
         Ok(result)
     }
 
@@ -561,6 +576,10 @@ impl<'a> PackageInstaller<'a> {
         let dep_duration = result.dependency_duration();
         let package_duration = result.duration;
 
+        self.progress_manager.print_success(format!(
+            "\nPackage '{}' installation summary:",
+            result.package_name
+        ));
         // Display timing information according to spec
         if !result.dependencies.is_empty() {
             self.progress_manager

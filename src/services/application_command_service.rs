@@ -87,7 +87,18 @@ impl ApplicationCommandRouter for ApplicationCommandService<'_> {
                         );
 
                         match installer.install_package(package_name) {
-                            Ok(_) => 0,
+                            Ok(result) => {
+                                if app_config.verbose() {
+                                    if let Some(output) = &result.command_output {
+                                        if !output.stderr.is_empty() {
+                                            progress_manager
+                                                .print_warning("\n\nCommand output (stderr):\n");
+                                            progress_manager.print_warning(&output.stderr);
+                                        }
+                                    }
+                                }
+                                0
+                            }
                             Err(err) => {
                                 if let PackageInstallerError::EnhancedError(msg) = &err {
                                     // Print the enhanced error message directly
