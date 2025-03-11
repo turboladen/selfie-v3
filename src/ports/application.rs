@@ -17,6 +17,7 @@ pub struct ApplicationArguments {
 }
 
 #[derive(Debug, Default)]
+#[cfg(test)]
 pub(crate) struct ApplicationArgumentsBuilder {
     environment: Option<String>,
     package_directory: Option<PathBuf>,
@@ -25,6 +26,7 @@ pub(crate) struct ApplicationArgumentsBuilder {
     command: ApplicationCommand,
 }
 
+#[cfg(test)]
 impl ApplicationArgumentsBuilder {
     pub(crate) fn environment(mut self, environment: &str) -> Self {
         self.environment = Some(environment.to_string());
