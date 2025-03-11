@@ -9,15 +9,15 @@ use super::config_loader::ConfigLoadError;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ApplicationArguments {
-    pub environment: Option<String>,
-    pub package_directory: Option<PathBuf>,
+    pub(crate) environment: Option<String>,
+    pub(crate) package_directory: Option<PathBuf>,
     pub verbose: bool,
     pub no_color: bool,
-    pub command: ApplicationCommand,
+    pub(crate) command: ApplicationCommand,
 }
 
 #[derive(Debug, Default)]
-pub struct ApplicationArgumentsBuilder {
+pub(crate) struct ApplicationArgumentsBuilder {
     environment: Option<String>,
     package_directory: Option<PathBuf>,
     verbose: bool,
@@ -26,16 +26,12 @@ pub struct ApplicationArgumentsBuilder {
 }
 
 impl ApplicationArgumentsBuilder {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn environment(mut self, environment: &str) -> Self {
+    pub(crate) fn environment(mut self, environment: &str) -> Self {
         self.environment = Some(environment.to_string());
         self
     }
 
-    pub fn package_directory<P>(mut self, package_directory: P) -> Self
+    pub(crate) fn package_directory<P>(mut self, package_directory: P) -> Self
     where
         PathBuf: From<P>,
     {
@@ -43,22 +39,22 @@ impl ApplicationArgumentsBuilder {
         self
     }
 
-    pub fn verbose(mut self, verbose: bool) -> Self {
+    pub(crate) fn verbose(mut self, verbose: bool) -> Self {
         self.verbose = verbose;
         self
     }
 
-    pub fn no_color(mut self, no_color: bool) -> Self {
+    pub(crate) fn no_color(mut self, no_color: bool) -> Self {
         self.no_color = no_color;
         self
     }
 
-    pub fn command(mut self, command: ApplicationCommand) -> Self {
+    pub(crate) fn command(mut self, command: ApplicationCommand) -> Self {
         self.command = command;
         self
     }
 
-    pub fn build(self) -> ApplicationArguments {
+    pub(crate) fn build(self) -> ApplicationArguments {
         ApplicationArguments {
             environment: self.environment,
             package_directory: self.package_directory,

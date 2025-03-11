@@ -17,7 +17,6 @@ use crate::{
 
 const VERBOSE_DEFAULT: bool = false;
 const USE_COLORS_DEFAULT: bool = true;
-const USE_UNICODE_DEFAULT: bool = true;
 const STOP_ON_ERROR_DEFAULT: bool = true;
 
 /// Comprehensive application configuration that combines file config and CLI args
@@ -33,9 +32,6 @@ pub struct AppConfig {
 
     #[serde(default = "default_use_colors")]
     pub(crate) use_colors: bool,
-
-    #[serde(default = "default_use_unicode")]
-    pub(crate) use_unicode: bool,
 
     // Execution settings
     // command_timeout: Duration,
@@ -54,18 +50,18 @@ pub struct AppConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct LoggingConfig {
+pub(crate) struct LoggingConfig {
     #[serde(default)]
-    pub enabled: bool,
+    pub(crate) enabled: bool,
 
     #[serde(default)]
-    pub directory: Option<PathBuf>,
+    pub(crate) directory: Option<PathBuf>,
 
     #[serde(default = "default_log_max_files")]
-    pub max_files: NonZeroUsize,
+    pub(crate) max_files: NonZeroUsize,
 
     #[serde(default = "default_log_max_size")]
-    pub max_size: NonZeroUsize,
+    pub(crate) max_size: NonZeroUsize,
 }
 
 impl Default for LoggingConfig {
@@ -99,9 +95,6 @@ fn default_max_parallel() -> NonZeroUsize {
 fn default_use_colors() -> bool {
     true
 }
-fn default_use_unicode() -> bool {
-    true
-}
 
 #[derive(Error, Debug, PartialEq)]
 pub enum ConfigValidationError {
@@ -120,17 +113,25 @@ pub enum ConfigValidationError {
     #[error("Invalid package: {0}")]
     InvalidPackage(String),
 
-    #[error("Invalid command timeout: {0}")]
-    InvalidCommandTimeout(String),
-
-    #[error("Invalid max parallel setting: {0}")]
-    InvalidMaxParallel(String),
-
     #[error("Invalid log configuration: {0}")]
     InvalidLogConfig(String),
 }
 
 impl AppConfig {
+    /// Create a new AppConfig with default values
+    pub(crate) fn new(environment: String, package_directory: PathBuf) -> Self {
+        Self {
+            environment,
+            package_directory,
+            verbose: VERBOSE_DEFAULT,
+            use_colors: USE_COLORS_DEFAULT,
+            command_timeout: default_command_timeout(),
+            max_parallel_installations: default_max_parallel(),
+            stop_on_error: STOP_ON_ERROR_DEFAULT,
+            logging: LoggingConfig::default(),
+        }
+    }
+
     pub fn environment(&self) -> &str {
         &self.environment
     }
@@ -145,10 +146,6 @@ impl AppConfig {
 
     pub fn use_colors(&self) -> bool {
         self.use_colors
-    }
-
-    pub fn use_unicode(&self) -> bool {
-        self.use_unicode
     }
 
     pub fn command_timeout(&self) -> Duration {
@@ -179,23 +176,8 @@ impl AppConfig {
         self.logging.max_size
     }
 
-    /// Create a new AppConfig with default values
-    pub fn new(environment: String, package_directory: PathBuf) -> Self {
-        Self {
-            environment,
-            package_directory,
-            verbose: VERBOSE_DEFAULT,
-            use_colors: USE_COLORS_DEFAULT,
-            use_unicode: USE_UNICODE_DEFAULT,
-            command_timeout: default_command_timeout(),
-            max_parallel_installations: default_max_parallel(),
-            stop_on_error: STOP_ON_ERROR_DEFAULT,
-            logging: LoggingConfig::default(),
-        }
-    }
-
     /// Apply CLI arguments to override configuration
-    pub fn apply_cli_args(mut self, args: &ApplicationArguments) -> Self {
+    pub(crate) fn apply_cli_args(mut self, args: &ApplicationArguments) -> Self {
         // Override environment if specified
         if let Some(env) = args.environment.as_ref() {
             self.environment = env.clone();
@@ -214,7 +196,7 @@ impl AppConfig {
     }
 
     /// Full validation for the AppConfig
-    pub fn validate(&self) -> Result<(), ConfigValidationError> {
+    pub(crate) fn validate(&self) -> Result<(), ConfigValidationError> {
         Self::validate_environment(&self.environment)?;
         Self::validate_package_directory(&self.package_directory)?;
 
@@ -233,7 +215,7 @@ impl AppConfig {
     }
 
     /// Validate minimal requirements for commands that don't need a full config
-    pub fn validate_minimal(&self) -> Result<(), ConfigValidationError> {
+    pub(crate) fn validate_minimal(&self) -> Result<(), ConfigValidationError> {
         if self.package_directory.as_os_str().is_empty() {
             return Err(ConfigValidationError::EmptyField(
                 "package_directory".to_string(),
@@ -255,14 +237,14 @@ impl AppConfig {
     }
 
     /// Get the expanded package directory path
-    pub fn expanded_package_directory(&self) -> PathBuf {
+    pub(crate) fn expanded_package_directory(&self) -> PathBuf {
         let package_dir = self.package_directory.to_string_lossy();
         let expanded_path = shellexpand::tilde(&package_dir);
         PathBuf::from(expanded_path.as_ref())
     }
 
     /// Resolve environment configuration for a package
-    pub fn resolve_environment<'a>(
+    pub(crate) fn resolve_environment<'a>(
         &self,
         package: &'a Package,
     ) -> Result<&'a EnvironmentConfig, ConfigValidationError> {
@@ -279,7 +261,7 @@ impl AppConfig {
                     ConfigValidationError::EnvironmentNotFound(self.environment.clone())
                 }
                 PackageValidationError::MissingField(_) => {
-                    ConfigValidationError::InvalidPackage("Package has no environments".to_string())
+                    ConfigValidationError::MissingField("Package has no environments".to_string())
                 }
                 _ => ConfigValidationError::InvalidPackage(
                     "Invalid package configuration".to_string(),
@@ -332,25 +314,26 @@ trait ValidateConfig {
 impl ValidateConfig for AppConfig {}
 
 /// Builder pattern for AppConfig testing
-pub struct AppConfigBuilder {
+#[cfg(test)]
+pub(crate) struct AppConfigBuilder {
     environment: String,
     package_directory: PathBuf,
     verbose: bool,
     use_colors: bool,
-    use_unicode: bool,
     command_timeout: NonZeroU64,
     max_parallel: NonZeroUsize,
     stop_on_error: bool,
     logging: LoggingConfig,
 }
 
+#[cfg(test)]
 impl AppConfigBuilder {
-    pub fn environment(mut self, environment: &str) -> Self {
+    pub(crate) fn environment(mut self, environment: &str) -> Self {
         self.environment = environment.to_string();
         self
     }
 
-    pub fn package_directory<D>(mut self, package_directory: D) -> Self
+    pub(crate) fn package_directory<D>(mut self, package_directory: D) -> Self
     where
         D: AsRef<std::ffi::OsStr>,
     {
@@ -358,52 +341,47 @@ impl AppConfigBuilder {
         self
     }
 
-    pub fn verbose(mut self, verbose: bool) -> Self {
+    pub(crate) fn verbose(mut self, verbose: bool) -> Self {
         self.verbose = verbose;
         self
     }
 
-    pub fn use_colors(mut self, use_colors: bool) -> Self {
+    pub(crate) fn use_colors(mut self, use_colors: bool) -> Self {
         self.use_colors = use_colors;
         self
     }
 
-    pub fn use_unicode(mut self, use_unicode: bool) -> Self {
-        self.use_unicode = use_unicode;
-        self
-    }
-
-    pub fn command_timeout(mut self, timeout: NonZeroU64) -> Self {
+    pub(crate) fn command_timeout(mut self, timeout: NonZeroU64) -> Self {
         self.command_timeout = timeout;
         self
     }
 
-    pub fn command_timeout_unchecked(mut self, timeout: u64) -> Self {
+    pub(crate) fn command_timeout_unchecked(mut self, timeout: u64) -> Self {
         self.command_timeout = NonZeroU64::new(timeout).unwrap();
         self
     }
 
-    pub fn max_parallel(mut self, max: NonZeroUsize) -> Self {
+    pub(crate) fn max_parallel(mut self, max: NonZeroUsize) -> Self {
         self.max_parallel = max;
         self
     }
 
-    pub fn max_parallel_unchecked(mut self, max: usize) -> Self {
+    pub(crate) fn max_parallel_unchecked(mut self, max: usize) -> Self {
         self.max_parallel = NonZeroUsize::new(max).unwrap();
         self
     }
 
-    pub fn stop_on_error(mut self, stop: bool) -> Self {
+    pub(crate) fn stop_on_error(mut self, stop: bool) -> Self {
         self.stop_on_error = stop;
         self
     }
 
-    pub fn logging_enabled(mut self, enabled: bool) -> Self {
+    pub(crate) fn logging_enabled(mut self, enabled: bool) -> Self {
         self.logging.enabled = enabled;
         self
     }
 
-    pub fn log_directory<D>(mut self, directory: D) -> Self
+    pub(crate) fn log_directory<D>(mut self, directory: D) -> Self
     where
         D: AsRef<std::ffi::OsStr>,
     {
@@ -411,33 +389,32 @@ impl AppConfigBuilder {
         self
     }
 
-    pub fn log_max_files(mut self, max: NonZeroUsize) -> Self {
+    pub(crate) fn log_max_files(mut self, max: NonZeroUsize) -> Self {
         self.logging.max_files = max;
         self
     }
 
-    pub fn log_max_files_unchecked(mut self, max: usize) -> Self {
+    pub(crate) fn log_max_files_unchecked(mut self, max: usize) -> Self {
         self.logging.max_files = NonZeroUsize::new(max).unwrap();
         self
     }
 
-    pub fn log_max_size(mut self, max: NonZeroUsize) -> Self {
+    pub(crate) fn log_max_size(mut self, max: NonZeroUsize) -> Self {
         self.logging.max_size = max;
         self
     }
 
-    pub fn log_max_size_unchecked(mut self, max: usize) -> Self {
+    pub(crate) fn log_max_size_unchecked(mut self, max: usize) -> Self {
         self.logging.max_size = NonZeroUsize::new(max).unwrap();
         self
     }
 
-    pub fn build(self) -> AppConfig {
+    pub(crate) fn build(self) -> AppConfig {
         AppConfig {
             environment: self.environment,
             package_directory: self.package_directory,
             verbose: self.verbose,
             use_colors: self.use_colors,
-            use_unicode: self.use_unicode,
             command_timeout: self.command_timeout,
             max_parallel_installations: self.max_parallel,
             stop_on_error: self.stop_on_error,
@@ -451,6 +428,7 @@ impl AppConfigBuilder {
     }
 }
 
+#[cfg(test)]
 impl Default for AppConfigBuilder {
     fn default() -> Self {
         Self {
@@ -458,7 +436,6 @@ impl Default for AppConfigBuilder {
             package_directory: PathBuf::new(),
             verbose: VERBOSE_DEFAULT,
             use_colors: USE_COLORS_DEFAULT,
-            use_unicode: USE_UNICODE_DEFAULT,
             command_timeout: default_command_timeout(),
             max_parallel: default_max_parallel(),
             stop_on_error: STOP_ON_ERROR_DEFAULT,

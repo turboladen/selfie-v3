@@ -9,18 +9,18 @@ use crate::adapters::progress::{MessageType, ProgressManager};
 use crate::domain::validation::ValidationResult;
 
 /// Helper for formatting user-friendly error messages
-pub struct ErrorFormatter<'a> {
-    pub progress_manager: &'a ProgressManager,
+pub(crate) struct ErrorFormatter<'a> {
+    pub(crate) progress_manager: &'a ProgressManager,
 }
 
 impl<'a> ErrorFormatter<'a> {
     /// Create a new error formatter
-    pub fn new(progress_manager: &'a ProgressManager) -> Self {
+    pub(crate) fn new(progress_manager: &'a ProgressManager) -> Self {
         Self { progress_manager }
     }
 
     /// Format a package not found error with suggestions
-    pub fn format_package_not_found(&self, name: &str, suggestions: &[String]) -> String {
+    pub(crate) fn format_package_not_found(&self, name: &str, suggestions: &[String]) -> String {
         let mut output = String::new();
 
         let error_header = self.format_header("Package not found", MessageType::Error);
@@ -63,7 +63,7 @@ impl<'a> ErrorFormatter<'a> {
     }
 
     /// Format a configuration error
-    pub fn format_config_error(&self, error: &dyn Error) -> String {
+    pub(crate) fn format_config_error(&self, error: &dyn Error) -> String {
         let mut output = String::new();
 
         let error_header = self.format_header("Configuration error", MessageType::Error);
@@ -82,7 +82,7 @@ impl<'a> ErrorFormatter<'a> {
     }
 
     /// Format a command execution error
-    pub fn format_command_error(
+    pub(crate) fn format_command_error(
         &self,
         command: &str,
         exit_code: i32,
@@ -142,7 +142,11 @@ impl<'a> ErrorFormatter<'a> {
     }
 
     /// Format a dependency error
-    pub fn format_dependency_error(&self, error: &dyn Error, dependencies: &[String]) -> String {
+    pub(crate) fn format_dependency_error(
+        &self,
+        error: &dyn Error,
+        dependencies: &[String],
+    ) -> String {
         let mut output = String::new();
 
         let error_header = self.format_header("Dependency error", MessageType::Error);
@@ -173,7 +177,7 @@ impl<'a> ErrorFormatter<'a> {
     }
 
     /// Format a permission error
-    pub fn format_permission_error(&self, path: &Path, action: &str) -> String {
+    pub(crate) fn format_permission_error(&self, path: &Path, action: &str) -> String {
         let mut output = String::new();
 
         let error_header = self.format_header("Permission denied", MessageType::Error);
@@ -200,7 +204,7 @@ impl<'a> ErrorFormatter<'a> {
     }
 
     /// Format a circular dependency error
-    pub fn format_circular_dependency(&self, cycle: &[String]) -> String {
+    pub(crate) fn format_circular_dependency(&self, cycle: &[String]) -> String {
         let mut output = String::new();
 
         let error_header = self.format_header("Circular dependency detected", MessageType::Error);
@@ -229,7 +233,7 @@ impl<'a> ErrorFormatter<'a> {
     }
 
     /// Format a validation result
-    pub fn format_validation(&self, result: &ValidationResult) -> String {
+    pub(crate) fn format_validation(&self, result: &ValidationResult) -> String {
         // Use the existing validation formatter
         result.format_validation_result(self.progress_manager)
     }

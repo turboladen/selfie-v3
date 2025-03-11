@@ -8,19 +8,19 @@ use thiserror::Error;
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommandOutput {
     /// Standard output from the command
-    pub stdout: String,
+    pub(crate) stdout: String,
 
     /// Standard error from the command
-    pub stderr: String,
+    pub(crate) stderr: String,
 
     /// Exit status code
-    pub status: i32,
+    pub(crate) status: i32,
 
     /// Whether the command was successful (status code 0)
-    pub success: bool,
+    pub(crate) success: bool,
 
     /// How long the command took to execute
-    pub duration: Duration,
+    pub(crate) duration: Duration,
 }
 
 /// Errors that can occur during command execution
@@ -34,16 +34,10 @@ pub enum CommandError {
 
     #[error("IO error: {0}")]
     IoError(String),
-
-    #[error("Command interrupted: {0}")]
-    InterruptedError(String),
-
-    #[error("Permission denied: {0}")]
-    PermissionDenied(String),
 }
 
 /// Port for command execution
-#[mockall::automock]
+#[cfg_attr(test, mockall::automock)]
 pub trait CommandRunner {
     /// Execute a command and return its output
     fn execute(&self, command: &str) -> Result<CommandOutput, CommandError>;
@@ -59,33 +53,9 @@ pub trait CommandRunner {
     fn is_command_available(&self, command: &str) -> bool;
 }
 
-// Helper methods to create CommandOutput instances
-impl CommandOutput {
-    /// Create a successful command output
-    pub fn success(stdout: &str, stderr: &str, duration: Duration) -> Self {
-        Self {
-            stdout: stdout.to_string(),
-            stderr: stderr.to_string(),
-            status: 0,
-            success: true,
-            duration,
-        }
-    }
-
-    /// Create a failed command output
-    pub fn failure(stdout: &str, stderr: &str, status: i32, duration: Duration) -> Self {
-        Self {
-            stdout: stdout.to_string(),
-            stderr: stderr.to_string(),
-            status,
-            success: false,
-            duration,
-        }
-    }
-}
-
+#[cfg(test)]
 impl MockCommandRunner {
-    pub fn mock_is_command_available(&mut self, command: &str, result: bool) {
+    pub(crate) fn mock_is_command_available(&mut self, command: &str, result: bool) {
         let command = command.to_string();
 
         self.expect_is_command_available()
@@ -95,7 +65,8 @@ impl MockCommandRunner {
 }
 
 // Helper functions to configure the mock command runner
-pub trait MockCommandRunnerExt {
+#[cfg(test)]
+pub(crate) trait MockCommandRunnerExt {
     fn add_response(&mut self, command: &str, response: Result<CommandOutput, CommandError>);
     fn add_command(&mut self, command: &str);
     fn success_response(&mut self, command: &str, stdout: &str);
@@ -103,6 +74,7 @@ pub trait MockCommandRunnerExt {
     fn timeout_response(&mut self, command: &str, timeout: Duration);
 }
 
+#[cfg(test)]
 impl MockCommandRunnerExt for MockCommandRunner {
     fn add_response(&mut self, command: &str, response: Result<CommandOutput, CommandError>) {
         let cmd = command.to_string();

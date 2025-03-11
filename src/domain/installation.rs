@@ -10,7 +10,7 @@ use super::package::{EnvironmentConfig, Package};
 
 /// Represents the current status of a package installation
 #[derive(Debug, Clone, PartialEq)]
-pub enum InstallationStatus {
+pub(crate) enum InstallationStatus {
     /// Installation has not yet started
     NotStarted,
 
@@ -38,32 +38,29 @@ pub enum InstallationStatus {
 
 /// Represents a package installation
 #[derive(Debug, Clone)]
-pub struct Installation {
+pub(crate) struct Installation {
     /// The package being installed
-    pub package: Package,
+    pub(crate) package: Package,
 
     /// Current installation status
-    pub status: InstallationStatus,
+    pub(crate) status: InstallationStatus,
 
     /// When the installation started
-    pub start_time: Option<Instant>,
+    pub(crate) start_time: Option<Instant>,
 
     /// How long the installation took
-    pub duration: Option<Duration>,
+    pub(crate) duration: Option<Duration>,
 
     /// The environment name for this installation
-    pub environment: String,
+    pub(crate) environment: String,
 
     /// The environment configuration being used
-    pub env_config: EnvironmentConfig,
+    pub(crate) env_config: EnvironmentConfig,
 }
 
 /// Errors that can occur during installation
 #[derive(Error, Debug)]
-pub enum InstallationError {
-    #[error("Package not compatible with environment: {0}")]
-    EnvironmentIncompatible(String),
-
+pub(crate) enum InstallationError {
     #[error("Command execution error: {0}")]
     CommandError(CommandError),
 
@@ -72,30 +69,27 @@ pub enum InstallationError {
 
     #[error("Check command failed: {0}")]
     CheckFailed(String),
-
-    #[error("Installation interrupted")]
-    Interrupted,
 }
 
 /// Represents the result of an installation operation
 #[derive(Debug)]
-pub struct InstallationResult {
+pub(crate) struct InstallationResult {
     /// Name of the installed package
-    pub package_name: String,
+    pub(crate) package_name: String,
 
     /// Final installation status
-    pub status: InstallationStatus,
+    pub(crate) status: InstallationStatus,
 
     /// How long the installation took
-    pub duration: Duration,
+    pub(crate) duration: Duration,
 
     /// Results of dependent package installations
-    pub dependencies: Vec<InstallationResult>,
+    pub(crate) dependencies: Vec<InstallationResult>,
 }
 
 impl Installation {
     /// Create a new installation
-    pub fn new(package: Package, environment: &str, env_config: EnvironmentConfig) -> Self {
+    pub(crate) fn new(package: Package, environment: &str, env_config: EnvironmentConfig) -> Self {
         Self {
             package,
             status: InstallationStatus::NotStarted,
@@ -107,18 +101,18 @@ impl Installation {
     }
 
     /// Update the installation status
-    pub fn update_status(&mut self, status: InstallationStatus) {
+    pub(crate) fn update_status(&mut self, status: InstallationStatus) {
         self.status = status;
     }
 
     /// Start the installation
-    pub fn start(&mut self) {
+    pub(crate) fn start(&mut self) {
         self.start_time = Some(Instant::now());
         self.update_status(InstallationStatus::Checking);
     }
 
     /// Complete the installation with the given status
-    pub fn complete(&mut self, status: InstallationStatus) {
+    pub(crate) fn complete(&mut self, status: InstallationStatus) {
         if let Some(start_time) = self.start_time {
             self.duration = Some(start_time.elapsed());
         }
@@ -126,9 +120,9 @@ impl Installation {
     }
 
     // New helper method to execute commands and handle status updates
-    fn execute_command<R: CommandRunner>(
+    fn execute_command(
         &mut self,
-        runner: &R,
+        runner: &dyn CommandRunner,
         command: &str,
         initial_status: InstallationStatus,
         error_constructor: impl FnOnce(String) -> InstallationError,
@@ -145,9 +139,9 @@ impl Installation {
         }
     }
 
-    pub fn execute_check<R: CommandRunner>(
+    pub(crate) fn execute_check(
         &mut self,
-        runner: &R,
+        runner: &dyn CommandRunner,
     ) -> Result<bool, InstallationError> {
         self.update_status(InstallationStatus::Checking);
 
@@ -176,9 +170,9 @@ impl Installation {
         Ok(installed)
     }
 
-    pub fn execute_install<R: CommandRunner>(
+    pub(crate) fn execute_install(
         &mut self,
-        runner: &R,
+        runner: &dyn CommandRunner,
     ) -> Result<CommandOutput, InstallationError> {
         // Clone the install command to avoid borrowing self.env_config
         let install_cmd = self.env_config.install.clone();
@@ -203,7 +197,7 @@ impl Installation {
 
 impl InstallationResult {
     /// Create a new successful installation result
-    pub fn success(package_name: &str, duration: Duration) -> Self {
+    pub(crate) fn success(package_name: &str, duration: Duration) -> Self {
         Self {
             package_name: package_name.to_string(),
             status: InstallationStatus::Complete,
@@ -213,7 +207,7 @@ impl InstallationResult {
     }
 
     /// Create a result for an already installed package
-    pub fn already_installed(package_name: &str, duration: Duration) -> Self {
+    pub(crate) fn already_installed(package_name: &str, duration: Duration) -> Self {
         Self {
             package_name: package_name.to_string(),
             status: InstallationStatus::AlreadyInstalled,
@@ -223,7 +217,11 @@ impl InstallationResult {
     }
 
     /// Create a result for a failed installation
-    pub fn failed(package_name: &str, status: InstallationStatus, duration: Duration) -> Self {
+    pub(crate) fn failed(
+        package_name: &str,
+        status: InstallationStatus,
+        duration: Duration,
+    ) -> Self {
         Self {
             package_name: package_name.to_string(),
             status,
@@ -233,13 +231,13 @@ impl InstallationResult {
     }
 
     /// Add dependencies to the installation result
-    pub fn with_dependencies(mut self, dependencies: Vec<InstallationResult>) -> Self {
+    pub(crate) fn with_dependencies(mut self, dependencies: Vec<InstallationResult>) -> Self {
         self.dependencies = dependencies;
         self
     }
 
     /// Calculate the total duration including dependencies
-    pub fn total_duration(&self) -> Duration {
+    pub(crate) fn total_duration(&self) -> Duration {
         let mut total = self.duration;
         for dep in &self.dependencies {
             total += dep.duration;
@@ -248,7 +246,7 @@ impl InstallationResult {
     }
 
     /// Calculate the duration of dependency installations
-    pub fn dependency_duration(&self) -> Duration {
+    pub(crate) fn dependency_duration(&self) -> Duration {
         let mut total = Duration::from_secs(0);
         for dep in &self.dependencies {
             total += dep.total_duration();

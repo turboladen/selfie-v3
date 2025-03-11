@@ -5,7 +5,7 @@ use thiserror::Error;
 use crate::domain::package::{Package, PackageParseError};
 
 #[derive(Error, Debug)]
-pub enum PackageRepoError {
+pub(crate) enum PackageRepoError {
     #[error("Package not found: {0}")]
     PackageNotFound(String),
 
@@ -23,8 +23,8 @@ pub enum PackageRepoError {
 }
 
 /// Port for package repository operations
-#[mockall::automock]
-pub trait PackageRepository {
+#[cfg_attr(test, mockall::automock)]
+pub(crate) trait PackageRepository {
     /// Get a package by name
     fn get_package(&self, name: &str) -> Result<Package, PackageRepoError>;
 
@@ -35,8 +35,9 @@ pub trait PackageRepository {
     fn find_package_files(&self, name: &str) -> Result<Vec<PathBuf>, PackageRepoError>;
 }
 
+#[cfg(test)]
 impl MockPackageRepository {
-    pub fn mock_get_package_ok(&mut self, name: &str, result: Package) {
+    pub(crate) fn mock_get_package_ok(&mut self, name: &str, result: Package) {
         let name = name.to_string();
 
         self.expect_get_package()
@@ -44,7 +45,7 @@ impl MockPackageRepository {
             .returning(move |_| Ok(result.clone()));
     }
 
-    pub fn mock_get_package_err(&mut self, name: &str, result: PackageRepoError) {
+    pub(crate) fn mock_get_package_err(&mut self, name: &str, result: PackageRepoError) {
         let name = name.to_string();
 
         self.expect_get_package()

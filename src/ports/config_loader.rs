@@ -29,7 +29,7 @@ pub enum ConfigLoadError {
 }
 
 /// Port for loading configuration from disk
-#[mockall::automock]
+#[cfg_attr(test, mockall::automock)]
 pub trait ConfigLoader {
     /// Load configuration from standard locations
     fn load_config(&self, app_args: &ApplicationArguments) -> Result<AppConfig, ConfigLoadError>;
@@ -41,8 +41,13 @@ pub trait ConfigLoader {
     fn default_config(&self) -> AppConfig;
 }
 
+#[cfg(test)]
 impl MockConfigLoader {
-    pub fn mock_load_config_ok(&mut self, app_args: ApplicationArguments, config: AppConfig) {
+    pub(crate) fn mock_load_config_ok(
+        &mut self,
+        app_args: ApplicationArguments,
+        config: AppConfig,
+    ) {
         let config = config.apply_cli_args(&app_args);
 
         self.expect_load_config()
@@ -50,7 +55,11 @@ impl MockConfigLoader {
             .returning(move |_| Ok(config.clone()));
     }
 
-    pub fn mock_load_config_err(&mut self, app_args: ApplicationArguments, error: ConfigLoadError) {
+    pub(crate) fn mock_load_config_err(
+        &mut self,
+        app_args: ApplicationArguments,
+        error: ConfigLoadError,
+    ) {
         self.expect_load_config()
             .with(mockall::predicate::eq(app_args))
             .return_once(|_| Err(error));

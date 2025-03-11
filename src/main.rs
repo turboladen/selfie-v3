@@ -9,15 +9,16 @@ use selfie::{
         progress::ProgressManager,
     },
     domain::errors::ErrorContext,
-    ports::application::{ApplicationCommandRouter, ArgumentParser},
+    ports::{
+        application::{ApplicationCommandRouter, ArgumentParser},
+        config_loader::ConfigLoader,
+    },
     services::application_command_service::ApplicationCommandService,
 };
 
-fn main() {
+fn main() -> Result<(), anyhow::Error> {
     // Set up file system and command runner
     let fs = RealFileSystem;
-    let runner = ShellCommandRunner::new("/bin/sh", Duration::from_secs(60));
-    let config_loader = YamlConfigLoader::new(&fs);
 
     // Parse the command line arguments
     let args = match ClapArguments::parse_arguments() {
@@ -27,6 +28,10 @@ fn main() {
             process::exit(1);
         }
     };
+
+    let config_loader = YamlConfigLoader::new(&fs);
+    let app_config = config_loader.load_config(&args)?;
+    let runner = ShellCommandRunner::new("/bin/sh", app_config.command_timeout());
 
     // Create the command service to route and execute the command
     let cmd_service = ApplicationCommandService::new(&fs, &runner, &config_loader);
@@ -40,7 +45,7 @@ fn main() {
         Err(err) => {
             // Create context for the error
             let context =
-                ErrorContext::new().with_message("Error occurred while processing command");
+                ErrorContext::default().with_message("Error occurred while processing command");
 
             // Format and print the error
             eprintln!("Error: {}", err);

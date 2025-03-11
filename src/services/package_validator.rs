@@ -17,7 +17,7 @@ use crate::{
 };
 
 #[derive(Error, Debug)]
-pub enum PackageValidatorError {
+pub(crate) enum PackageValidatorError {
     #[error("Package not found: {0}")]
     PackageNotFound(String),
 
@@ -41,16 +41,21 @@ pub enum PackageValidatorError {
 }
 
 /// Validates package files with detailed error reporting and command validation
-pub struct PackageValidator<'a, F: FileSystem, R: CommandRunner, P: PackageRepository> {
-    fs: &'a F,
-    runner: &'a R,
+pub(crate) struct PackageValidator<'a> {
+    fs: &'a dyn FileSystem,
+    runner: &'a dyn CommandRunner,
     config: &'a AppConfig,
-    package_repo: &'a P,
+    package_repo: &'a dyn PackageRepository,
 }
 
-impl<'a, F: FileSystem, R: CommandRunner, P: PackageRepository> PackageValidator<'a, F, R, P> {
+impl<'a> PackageValidator<'a> {
     /// Create a new package validator
-    pub fn new(fs: &'a F, runner: &'a R, config: &'a AppConfig, package_repo: &'a P) -> Self {
+    pub(crate) fn new(
+        fs: &'a dyn FileSystem,
+        runner: &'a dyn CommandRunner,
+        config: &'a AppConfig,
+        package_repo: &'a dyn PackageRepository,
+    ) -> Self {
         Self {
             fs,
             runner,
@@ -60,7 +65,7 @@ impl<'a, F: FileSystem, R: CommandRunner, P: PackageRepository> PackageValidator
     }
 
     /// Validate a package by name
-    pub fn validate_package_by_name(
+    pub(crate) fn validate_package_by_name(
         &self,
         package_name: &str,
     ) -> Result<ValidationResult, PackageValidatorError> {
@@ -87,7 +92,7 @@ impl<'a, F: FileSystem, R: CommandRunner, P: PackageRepository> PackageValidator
     }
 
     /// Validate a specific package file
-    pub fn validate_package_file(
+    pub(crate) fn validate_package_file(
         &self,
         package_path: &Path,
     ) -> Result<ValidationResult, PackageValidatorError> {
@@ -343,7 +348,7 @@ impl<'a, F: FileSystem, R: CommandRunner, P: PackageRepository> PackageValidator
     }
 
     /// Extract the base command from a command string
-    pub fn extract_base_command(command: &str) -> Option<&str> {
+    pub(crate) fn extract_base_command(command: &str) -> Option<&str> {
         // Simple extraction of the first word before a space, pipe, etc.
         command.split_whitespace().next()
     }
@@ -432,7 +437,7 @@ mod tests {
     use std::path::Path;
 
     use crate::{
-        adapters::package_repo::yaml::YamlPackageRepository,
+        adapters::{package_repo::yaml::YamlPackageRepository, progress::ProgressManager},
         domain::config::AppConfigBuilder,
         ports::{
             command::MockCommandRunner, filesystem::MockFileSystem,
@@ -490,7 +495,9 @@ environments:
         runner.mock_is_command_available("brew", true);
         runner.mock_is_command_available("which", true);
 
-        let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
+        let progress_manager = ProgressManager::default();
+        let package_repo =
+            YamlPackageRepository::new(&fs, config.expanded_package_directory(), &progress_manager);
         let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
         let result = validator.validate_package_by_name("test-package").unwrap();
 
@@ -516,7 +523,9 @@ environments:
 
         runner.mock_is_command_available("brew", true);
 
-        let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
+        let progress_manager = ProgressManager::default();
+        let package_repo =
+            YamlPackageRepository::new(&fs, config.expanded_package_directory(), &progress_manager);
         let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
         let result = validator
             .validate_package_file(Path::new("/test/packages/incomplete.yaml"))
@@ -554,7 +563,9 @@ environments:
 
         runner.mock_is_command_available("brew", true);
 
-        let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
+        let progress_manager = ProgressManager::default();
+        let package_repo =
+            YamlPackageRepository::new(&fs, config.expanded_package_directory(), &progress_manager);
         let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
         let result = validator
             .validate_package_file(Path::new("/test/packages/invalid-url.yaml"))
@@ -584,7 +595,9 @@ environments:
         runner.mock_is_command_available("brew", true);
         runner.mock_is_command_available("echo", true);
 
-        let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
+        let progress_manager = ProgressManager::default();
+        let package_repo =
+            YamlPackageRepository::new(&fs, config.expanded_package_directory(), &progress_manager);
         let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
         let result = validator
             .validate_package_file(Path::new("/test/packages/bad-commands.yaml"))
@@ -619,7 +632,9 @@ environments:
 
         runner.mock_is_command_available("brew", true);
 
-        let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
+        let progress_manager = ProgressManager::default();
+        let package_repo =
+            YamlPackageRepository::new(&fs, config.expanded_package_directory(), &progress_manager);
         let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
         let result = validator
             .validate_package_file(Path::new("/test/packages/bad-version.yaml"))
@@ -646,7 +661,9 @@ environments:
 "#;
         fs.mock_read_file("/test/packages/missing-env.yaml", yaml);
 
-        let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
+        let progress_manager = ProgressManager::default();
+        let package_repo =
+            YamlPackageRepository::new(&fs, config.expanded_package_directory(), &progress_manager);
         let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
         let result = validator
             .validate_package_file(Path::new("/test/packages/missing-env.yaml"))
@@ -671,7 +688,9 @@ environments:
             false,
         );
 
-        let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
+        let progress_manager = ProgressManager::default();
+        let package_repo =
+            YamlPackageRepository::new(&fs, config.expanded_package_directory(), &progress_manager);
         let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
         let result = validator.validate_package_by_name("nonexistent");
 
@@ -689,7 +708,9 @@ environments:
         fs.mock_path_exists("/test/packages/duplicate.yaml", true);
         fs.mock_path_exists("/test/packages/duplicate.yml", true);
 
-        let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
+        let progress_manager = ProgressManager::default();
+        let package_repo =
+            YamlPackageRepository::new(&fs, config.expanded_package_directory(), &progress_manager);
         let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
         let result = validator.validate_package_by_name("duplicate");
 

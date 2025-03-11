@@ -30,18 +30,6 @@ impl ShellCommandRunner {
         }
     }
 
-    /// Set environment variables for commands
-    pub fn with_environment(mut self, env: HashMap<String, String>) -> Self {
-        self.environment = env;
-        self
-    }
-
-    /// Add an environment variable
-    pub fn with_env_var(mut self, key: &str, value: &str) -> Self {
-        self.environment.insert(key.to_string(), value.to_string());
-        self
-    }
-
     /// Process command output into a CommandOutput
     fn process_output(&self, output: Output, duration: Duration) -> CommandOutput {
         let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
@@ -144,17 +132,6 @@ mod tests {
         // A random string should not be a valid command
         let random_cmd = "xyzabc123notarealcommand";
         assert!(!runner.is_command_available(random_cmd));
-    }
-
-    #[test]
-    fn test_environment_variables() {
-        let runner = ShellCommandRunner::new("/bin/sh", Duration::from_secs(10))
-            .with_env_var("TEST_VAR", "test_value");
-
-        let result = runner.execute("echo $TEST_VAR");
-        assert!(result.is_ok());
-        let output = result.unwrap();
-        assert!(output.stdout.contains("test_value"));
     }
 
     // This test relies on timing and could be flaky

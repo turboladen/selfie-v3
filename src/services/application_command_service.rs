@@ -18,14 +18,18 @@ use super::{
     validation_command::{ValidationCommand, ValidationCommandResult},
 };
 
-pub struct ApplicationCommandService<'a, F: FileSystem, R: CommandRunner, C: ConfigLoader> {
-    fs: &'a F,
-    runner: &'a R,
-    config_loader: &'a C,
+pub struct ApplicationCommandService<'a> {
+    fs: &'a dyn FileSystem,
+    runner: &'a dyn CommandRunner,
+    config_loader: &'a dyn ConfigLoader,
 }
 
-impl<'a, F: FileSystem, R: CommandRunner, C: ConfigLoader> ApplicationCommandService<'a, F, R, C> {
-    pub fn new(fs: &'a F, runner: &'a R, config_loader: &'a C) -> Self {
+impl<'a> ApplicationCommandService<'a> {
+    pub fn new(
+        fs: &'a dyn FileSystem,
+        runner: &'a dyn CommandRunner,
+        config_loader: &'a dyn ConfigLoader,
+    ) -> Self {
         Self {
             fs,
             runner,
@@ -56,9 +60,7 @@ impl<'a, F: FileSystem, R: CommandRunner, C: ConfigLoader> ApplicationCommandSer
     }
 }
 
-impl<F: FileSystem, R: CommandRunner, C: ConfigLoader> ApplicationCommandRouter
-    for ApplicationCommandService<'_, F, R, C>
-{
+impl ApplicationCommandRouter for ApplicationCommandService<'_> {
     fn process_command(&self, args: ApplicationArguments) -> Result<i32, ApplicationError> {
         // Build the AppConfig first - this consolidates settings from config file and CLI args
         let app_config = self.build_config(&args, true)?;
@@ -89,11 +91,11 @@ impl<F: FileSystem, R: CommandRunner, C: ConfigLoader> ApplicationCommandRouter
                             Err(err) => {
                                 if let PackageInstallerError::EnhancedError(msg) = &err {
                                     // Print the enhanced error message directly
-                                    println!("{}", msg);
+                                    progress_manager.print_error(msg);
                                 } else {
                                     // For other errors, use the standard error formatting
                                     progress_manager
-                                        .error(&format!("Installation failed: {}", err));
+                                        .print_error(format!("Installation failed: {}", err));
                                 }
                                 1
                             }
@@ -104,6 +106,7 @@ impl<F: FileSystem, R: CommandRunner, C: ConfigLoader> ApplicationCommandRouter
                         let package_repo = YamlPackageRepository::new(
                             self.fs,
                             app_config.expanded_package_directory(),
+                            &progress_manager,
                         );
 
                         let list_cmd = PackageListService::new(
@@ -116,25 +119,25 @@ impl<F: FileSystem, R: CommandRunner, C: ConfigLoader> ApplicationCommandRouter
                         match list_cmd.execute() {
                             PackageListResult::Success(output) => {
                                 // Just print the package list
-                                println!("{}", output);
+                                progress_manager.print_progress(output);
                                 0
                             }
                             PackageListResult::Error(error) => {
                                 // Print the detailed error
-                                eprintln!("{}", error);
+                                progress_manager.print_error(error);
                                 1
                             }
                         }
                     }
                     PackageCommand::Info { package_name } => {
-                        progress_manager.info(&format!(
+                        progress_manager.print_warning(format!(
                             "Package info for '{}' not implemented yet",
                             package_name
                         ));
                         0
                     }
                     PackageCommand::Create { package_name } => {
-                        progress_manager.info(&format!(
+                        progress_manager.print_warning(format!(
                             "Package creation for '{}' not implemented yet",
                             package_name
                         ));
@@ -150,15 +153,15 @@ impl<F: FileSystem, R: CommandRunner, C: ConfigLoader> ApplicationCommandRouter
 
                         match validate_cmd.execute(pkg_cmd) {
                             ValidationCommandResult::Valid(output) => {
-                                println!("{}", output);
+                                progress_manager.print_success(output);
                                 0
                             }
                             ValidationCommandResult::Invalid(output) => {
-                                println!("{}", output);
+                                progress_manager.print_warning(output);
                                 1
                             }
                             ValidationCommandResult::Error(error) => {
-                                eprintln!("{}", error);
+                                progress_manager.print_error(error);
                                 1
                             }
                         }

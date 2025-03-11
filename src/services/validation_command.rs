@@ -8,7 +8,7 @@ use crate::{
 
 /// Result of running the validate command
 #[derive(Debug)]
-pub enum ValidationCommandResult {
+pub(crate) enum ValidationCommandResult {
     /// Package validation successful (may include warnings)
     Valid(String),
     /// Package validation failed with errors
@@ -18,18 +18,18 @@ pub enum ValidationCommandResult {
 }
 
 /// Handles the 'package validate' command
-pub struct ValidationCommand<'a, F: FileSystem, R: CommandRunner> {
-    fs: &'a F,
-    runner: &'a R,
+pub(crate) struct ValidationCommand<'a> {
+    fs: &'a dyn FileSystem,
+    runner: &'a dyn CommandRunner,
     config: &'a AppConfig,
     progress_manager: &'a ProgressManager,
 }
 
-impl<'a, F: FileSystem, R: CommandRunner> ValidationCommand<'a, F, R> {
+impl<'a> ValidationCommand<'a> {
     /// Create a new validate command handler
-    pub fn new(
-        fs: &'a F,
-        runner: &'a R,
+    pub(crate) fn new(
+        fs: &'a dyn FileSystem,
+        runner: &'a dyn CommandRunner,
         config: &'a AppConfig,
         progress_manager: &'a ProgressManager,
     ) -> Self {
@@ -42,7 +42,7 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidationCommand<'a, F, R> {
     }
 
     /// Execute the validate command
-    pub fn execute(&self, cmd: &PackageCommand) -> ValidationCommandResult {
+    pub(crate) fn execute(&self, cmd: &PackageCommand) -> ValidationCommandResult {
         match cmd {
             PackageCommand::Validate {
                 package_name,
@@ -52,8 +52,11 @@ impl<'a, F: FileSystem, R: CommandRunner> ValidationCommand<'a, F, R> {
                     .print_progress(&format!("Validating package '{}'", package_name));
 
                 // Create package repository
-                let package_repo =
-                    YamlPackageRepository::new(self.fs, self.config.expanded_package_directory());
+                let package_repo = YamlPackageRepository::new(
+                    self.fs,
+                    self.config.expanded_package_directory(),
+                    self.progress_manager,
+                );
 
                 // Create the enhanced validator
                 let validator =
@@ -159,6 +162,115 @@ mod tests {
                 // Expected for this simple test
             }
             _ => panic!("Expected error result due to lack of mocking"),
+        }
+    }
+
+    #[test]
+    fn test_validation_integration() {
+        // Set up test environment
+        let mut fs = MockFileSystem::default();
+        let mut runner = MockCommandRunner::new();
+
+        // Create config
+        let config = AppConfigBuilder::default()
+            .environment("test-env")
+            .package_directory("/test/packages")
+            .build();
+
+        // Set up package directory
+        let package_dir = Path::new("/test/packages");
+        fs.mock_path_exists(&package_dir, true);
+
+        // Create a valid package file
+        let valid_yaml = r#"
+        name: valid-package
+        version: 1.0.0
+        homepage: https://example.com
+        description: A valid test package
+        environments:
+          test-env:
+            install: echo test
+            check: which test
+    "#;
+
+        let valid_path = package_dir.join("valid-package.yaml");
+        fs.mock_path_exists(&valid_path, true);
+        fs.mock_path_exists(package_dir.join("valid-package.yml"), false);
+        fs.mock_read_file(&valid_path, valid_yaml);
+
+        // Create an invalid package file
+        let invalid_yaml = r#"
+        name: ""
+        version: ""
+        homepage: invalid-url
+        environments:
+          other-env:
+            install: ""
+    "#;
+
+        let invalid_path = package_dir.join("invalid-package.yaml");
+        fs.mock_path_exists(&invalid_path, true);
+        fs.mock_path_exists(package_dir.join("invalid-package.yml"), false);
+        fs.mock_read_file(&invalid_path, invalid_yaml);
+
+        // Set up command runner
+        runner.mock_is_command_available("echo", true);
+
+        runner.mock_is_command_available("which", true);
+
+        // Set up package repository for file finding
+        // let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
+
+        // Create progress manager
+        let progress_manager = ProgressManager::default();
+
+        // Create validation command
+        let command = ValidationCommand::new(&fs, &runner, &config, &progress_manager);
+
+        // Test validation on valid package
+        let valid_cmd = crate::domain::application::commands::PackageCommand::Validate {
+            package_name: "valid-package".to_string(),
+            package_path: None,
+        };
+
+        let result = command.execute(&valid_cmd);
+        match result {
+            ValidationCommandResult::Valid(output) => {
+                assert!(output.contains("valid-package"));
+                assert!(output.contains("is valid"));
+            }
+            _ => panic!("Expected Valid result"),
+        }
+
+        // Test validation on invalid package
+        let invalid_cmd = crate::domain::application::commands::PackageCommand::Validate {
+            package_name: "invalid-package".to_string(),
+            package_path: None,
+        };
+
+        let result = command.execute(&invalid_cmd);
+        match result {
+            ValidationCommandResult::Invalid(output) => {
+                assert!(output.contains("invalid-package"));
+                assert!(output.contains("Validation failed"));
+                assert!(output.contains("Required field errors"));
+                assert!(output.contains("URL format errors"));
+            }
+            _ => panic!("Expected Invalid result"),
+        }
+
+        // Test validation with path parameter
+        let path_cmd = crate::domain::application::commands::PackageCommand::Validate {
+            package_name: "any-name".to_string(),
+            package_path: Some(valid_path),
+        };
+
+        let result = command.execute(&path_cmd);
+        match result {
+            ValidationCommandResult::Valid(_) => {
+                // Expected result
+            }
+            _ => panic!("Expected Valid result for path validation"),
         }
     }
 }

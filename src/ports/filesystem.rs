@@ -22,7 +22,7 @@ pub enum FileSystemError {
 }
 
 /// Port for file system operations
-#[mockall::automock]
+#[cfg_attr(test, mockall::automock)]
 pub trait FileSystem {
     /// Read a file and return its contents as a string
     fn read_file(&self, path: &Path) -> Result<String, FileSystemError>;
@@ -69,8 +69,9 @@ impl<T: FileSystem + ?Sized> FileSystem for &T {
     }
 }
 
+#[cfg(test)]
 impl MockFileSystem {
-    pub fn mock_read_file<P, S>(&mut self, path: P, content: S)
+    pub(crate) fn mock_read_file<P, S>(&mut self, path: P, content: S)
     where
         PathBuf: From<P>,
         S: ToString,
@@ -82,7 +83,7 @@ impl MockFileSystem {
             .returning(move |_| Ok(content_string.clone()));
     }
 
-    pub fn mock_list_directory<P>(&mut self, path: P, entries: &[P])
+    pub(crate) fn mock_list_directory<P>(&mut self, path: P, entries: &[P])
     where
         PathBuf: From<P>,
         P: Clone + Sync,
@@ -95,7 +96,7 @@ impl MockFileSystem {
             .returning(move |_| Ok(paths.clone()));
     }
 
-    pub fn mock_path_exists<P>(&mut self, path: P, exists: bool)
+    pub(crate) fn mock_path_exists<P>(&mut self, path: P, exists: bool)
     where
         PathBuf: From<P>,
     {
@@ -104,7 +105,7 @@ impl MockFileSystem {
             .returning(move |_| exists);
     }
 
-    pub fn mock_config_dir<P>(&mut self, path: P)
+    pub(crate) fn mock_config_dir<P>(&mut self, path: P)
     where
         PathBuf: From<P>,
     {
@@ -112,7 +113,7 @@ impl MockFileSystem {
         self.expect_config_dir().return_once(|| Ok(p));
     }
 
-    pub fn mock_expand_path<P>(&mut self, input: P, output: P)
+    pub(crate) fn mock_expand_path<P>(&mut self, input: P, output: P)
     where
         PathBuf: From<P>,
     {

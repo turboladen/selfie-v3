@@ -25,7 +25,7 @@ use crate::{
 };
 
 #[derive(Error, Debug)]
-pub enum PackageInstallerError {
+pub(crate) enum PackageInstallerError {
     #[error("Package not found: {0}")]
     PackageNotFound(String),
 
@@ -103,16 +103,20 @@ impl From<EnhancedDependencyError> for PackageInstallerError {
 }
 
 #[derive(Debug)]
-pub struct InstallationResult {
-    pub package_name: String,
-    pub status: InstallationStatus,
-    pub duration: Duration,
-    pub command_output: Option<CommandOutput>,
-    pub dependencies: Vec<InstallationResult>,
+pub(crate) struct InstallationResult {
+    pub(crate) package_name: String,
+    pub(crate) status: InstallationStatus,
+    pub(crate) duration: Duration,
+    pub(crate) command_output: Option<CommandOutput>,
+    pub(crate) dependencies: Vec<InstallationResult>,
 }
 
 impl InstallationResult {
-    pub fn success(package_name: &str, duration: Duration, output: Option<CommandOutput>) -> Self {
+    pub(crate) fn success(
+        package_name: &str,
+        duration: Duration,
+        output: Option<CommandOutput>,
+    ) -> Self {
         Self {
             package_name: package_name.to_string(),
             status: InstallationStatus::Complete,
@@ -122,7 +126,7 @@ impl InstallationResult {
         }
     }
 
-    pub fn already_installed(package_name: &str, duration: Duration) -> Self {
+    pub(crate) fn already_installed(package_name: &str, duration: Duration) -> Self {
         Self {
             package_name: package_name.to_string(),
             status: InstallationStatus::AlreadyInstalled,
@@ -132,7 +136,11 @@ impl InstallationResult {
         }
     }
 
-    pub fn failed(package_name: &str, status: InstallationStatus, duration: Duration) -> Self {
+    pub(crate) fn failed(
+        package_name: &str,
+        status: InstallationStatus,
+        duration: Duration,
+    ) -> Self {
         Self {
             package_name: package_name.to_string(),
             status,
@@ -142,12 +150,12 @@ impl InstallationResult {
         }
     }
 
-    pub fn with_dependencies(mut self, dependencies: Vec<InstallationResult>) -> Self {
+    pub(crate) fn with_dependencies(mut self, dependencies: Vec<InstallationResult>) -> Self {
         self.dependencies = dependencies;
         self
     }
 
-    pub fn total_duration(&self) -> Duration {
+    pub(crate) fn total_duration(&self) -> Duration {
         let mut total = self.duration;
         for dep in &self.dependencies {
             total += dep.duration;
@@ -155,7 +163,7 @@ impl InstallationResult {
         total
     }
 
-    pub fn dependency_duration(&self) -> Duration {
+    pub(crate) fn dependency_duration(&self) -> Duration {
         let mut total = Duration::from_secs(0);
         for dep in &self.dependencies {
             total += dep.total_duration();
@@ -164,18 +172,18 @@ impl InstallationResult {
     }
 }
 
-pub struct PackageInstaller<'a, F: FileSystem, R: CommandRunner> {
-    fs: &'a F,
-    runner: &'a R,
+pub(crate) struct PackageInstaller<'a> {
+    fs: &'a dyn FileSystem,
+    runner: &'a dyn CommandRunner,
     config: &'a AppConfig,
     progress_manager: &'a ProgressManager,
     check_commands: bool,
 }
 
-impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
-    pub fn new(
-        fs: &'a F,
-        runner: &'a R,
+impl<'a> PackageInstaller<'a> {
+    pub(crate) fn new(
+        fs: &'a dyn FileSystem,
+        runner: &'a dyn CommandRunner,
         config: &'a AppConfig,
         progress_manager: &'a ProgressManager,
         check_commands: bool,
@@ -190,13 +198,16 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
     }
 
     /// Install a package by name with enhanced progress reporting and dependency handling
-    pub fn install_package(
+    pub(crate) fn install_package(
         &self,
         package_name: &str,
     ) -> Result<InstallationResult, PackageInstallerError> {
         // Create package repository
-        let package_repo =
-            YamlPackageRepository::new(self.fs, self.config.expanded_package_directory());
+        let package_repo = YamlPackageRepository::new(
+            self.fs,
+            self.config.expanded_package_directory(),
+            self.progress_manager,
+        );
 
         // Create error handler if needed
         let error_handler =
@@ -212,7 +223,7 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
                 PackageRepoError::PackageNotFound(name) => {
                     // Use enhanced error handling for not found errors
                     let error_msg = error_handler.handle_package_not_found(&name);
-                    PackageInstallerError::EnhancedError(error_msg)
+                    PackageInstallerError::PackageNotFound(error_msg)
                 }
                 PackageRepoError::MultiplePackagesFound(name) => {
                     PackageInstallerError::MultiplePackagesFound(name)
@@ -245,9 +256,12 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
                 main_package.name, main_package.version, package_path
             )
         };
-        println!("{}", header);
 
-        // Resolve dependencies without any progress bars
+        self.progress_manager.print_info(header);
+
+        // ╭──────────────────────╮
+        // │ Resolve dependencies │
+        // ╰──────────────────────╯
         let packages = match self.resolve_dependencies(package_name, &package_repo) {
             Ok(packages) => packages,
             Err(err) => {
@@ -255,12 +269,13 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
                 if let PackageInstallerError::CircularDependency(cycle_str) = &err {
                     if let Some(cycle) = self.parse_cycle_string(cycle_str) {
                         let error_msg = error_handler.handle_circular_dependency(&cycle);
-                        println!("{}", error_msg);
+                        self.progress_manager.print_error(&error_msg);
                         return Err(PackageInstallerError::EnhancedError(error_msg));
                     }
                 }
 
-                println!("Dependency resolution failed: {}", err);
+                self.progress_manager
+                    .print_error(format!("Dependency resolution failed: {}", err));
                 return Err(err);
             }
         };
@@ -277,7 +292,7 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
 
         // Show dependency section if we have dependencies
         if packages.len() > 1 {
-            println!("  Dependencies:");
+            self.progress_manager.print_info("  Dependencies:");
 
             // All packages except the last one are dependencies
             for package in packages.iter().take(packages.len() - 1) {
@@ -305,18 +320,38 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
                         package.name, package.version, package_path
                     )
                 };
-                println!("{}", dependency_header);
+                self.progress_manager.print_info(dependency_header);
+
+                // Make sure the dep has info for this environment
+                if !package.environments.contains_key(self.config.environment()) {
+                    dependency_results.push(InstallationResult {
+                        package_name: package.name.clone(),
+                        status: InstallationStatus::Skipped(format!(
+                            "Package `{}` does not support current environment (`{}` section)",
+                            &package_name,
+                            self.config.environment()
+                        )),
+                        duration: start_time.elapsed(),
+                        dependencies: vec![],
+                        command_output: None,
+                    });
+
+                    continue;
+                }
 
                 // Install the dependency
                 match self.install_single_package(package, 6) {
                     Ok(result) => {
                         // Only continue if installation was successful or package was already installed
                         match result.status {
-                            InstallationStatus::Complete | InstallationStatus::AlreadyInstalled => {
+                            InstallationStatus::Complete
+                            | InstallationStatus::AlreadyInstalled
+                            | InstallationStatus::Skipped(_) => {
                                 dependency_results.push(result);
                             }
                             _ => {
-                                println!("      ✗ Dependency installation failed");
+                                self.progress_manager
+                                    .print_error("      ✗ Dependency installation failed");
                                 return Err(PackageInstallerError::InstallationError(
                                     InstallationError::InstallationFailed(format!(
                                         "Dependency '{}' installation failed: {:?}",
@@ -327,10 +362,10 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
                         }
                     }
                     Err(err) => {
-                        println!(
+                        self.progress_manager.print_error(format!(
                             "      ✗ Failed to install dependency '{}': {}",
-                            package.name, err
-                        );
+                            package.name, err,
+                        ));
                         return Err(err);
                     }
                 }
@@ -349,20 +384,23 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
         final_result.duration = total_duration;
 
         // Print summary
-        println!();
+        self.progress_manager.print_progress("\n");
         self.report_final_status(&final_result);
 
         Ok(final_result)
     }
 
     /// Check if a package can be installed in the current environment
-    pub fn check_package_installable(
+    pub(crate) fn check_package_installable(
         &self,
         package_name: &str,
     ) -> Result<bool, PackageInstallerError> {
         // Create a package repository
-        let package_repo =
-            YamlPackageRepository::new(self.fs, self.config.expanded_package_directory());
+        let package_repo = YamlPackageRepository::new(
+            self.fs,
+            self.config.expanded_package_directory(),
+            self.progress_manager,
+        );
 
         // Create error handler if needed
         let error_handler =
@@ -460,7 +498,7 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
         // Resolve environment configuration with enhanced error context
         let env_config = self.config.resolve_environment(package).map_err(|e| {
             // Create an enhanced error with context
-            let context = ErrorContext::new()
+            let context = ErrorContext::default()
                 .with_package(&package.name)
                 .with_environment(self.config.environment())
                 .with_message(&format!("Original error: {}", e)); // Add the original error message
@@ -500,7 +538,7 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
                 "{}✓ Checking installation status: Already installed ({:.1?})",
                 indent, check_duration
             );
-            println!("{}", status_message);
+            self.progress_manager.print_success(status_message);
 
             return Ok(InstallationResult::already_installed(
                 &package.name,
@@ -508,15 +546,16 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
             ));
         } else {
             // Print "Not installed" with duration
-            let status_message = format!(
-                "{}✓ Checking installation status: Not installed ({:.1?})",
-                indent, check_duration
-            );
-            println!("{}", status_message);
+            self.progress_manager
+                .print_progress(self.progress_manager.with_duration(
+                    format!("{}✓ Checking installation status: Not installed", indent),
+                    Some(check_duration),
+                ));
         }
 
         // Print installing message
-        println!("{}⌛ Installing...", indent);
+        self.progress_manager
+            .print_progress(format!("{}⌛ Installing...", indent));
 
         // Execute installation with enhanced error handling
         let result = match installation.execute_install(self.runner) {
@@ -527,12 +566,13 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
                 // Print completion message with duration
                 let complete_message =
                     format!("{}✓ Installation complete ({:.1?})", indent, duration);
-                println!("{}", complete_message);
+                self.progress_manager.print_success(complete_message);
 
                 InstallationResult::success(&package.name, duration, Some(output))
             }
             Err(err) => {
                 let duration = start_time.elapsed();
+
                 installation.update_status(InstallationStatus::Failed(format!(
                     "Installation error: {}",
                     err
@@ -549,6 +589,7 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
                     let package_repo = YamlPackageRepository::new(
                         self.fs,
                         self.config.expanded_package_directory(),
+                        self.progress_manager,
                     );
                     let error_handler =
                         EnhancedErrorHandler::new(self.fs, &package_repo, self.progress_manager);
@@ -564,7 +605,7 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
                             e,   // Error message as stderr
                         );
 
-                        println!("{}", error_message);
+                        self.progress_manager.print_verbose(&error_message);
                         return Err(PackageInstallerError::EnhancedError(error_message));
                     }
                 }
@@ -574,7 +615,7 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
                     "{}✗ Installation failed: {} ({:.1?})",
                     indent, err, duration
                 );
-                println!("{}", error_message);
+                self.progress_manager.print_error(error_message);
 
                 return Err(PackageInstallerError::InstallationError(err));
             }
@@ -591,11 +632,15 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
 
         // Display timing information according to spec
         if !result.dependencies.is_empty() {
-            println!("Total time: {:.1?}", total_duration);
-            println!("Dependencies: {:.1?}", dep_duration);
-            println!("Package: {:.1?}", package_duration);
+            self.progress_manager
+                .print_with_duration("Total time", Some(total_duration));
+            self.progress_manager
+                .print_with_duration("Dependencies:", Some(dep_duration));
+            self.progress_manager
+                .print_with_duration("Package:", Some(package_duration));
         } else {
-            println!("Total time: {:.1?}", total_duration);
+            self.progress_manager
+                .print_with_duration("Total time:", Some(total_duration));
         }
     }
 
@@ -625,6 +670,8 @@ impl<'a, F: FileSystem, R: CommandRunner> PackageInstaller<'a, F, R> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
     use crate::{
         domain::{config::AppConfigBuilder, package::PackageBuilder},
@@ -765,5 +812,253 @@ mod tests {
         // Test empty string
         let empty = manager.parse_cycle_string("");
         assert!(empty.is_none() || empty.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_package_install_end_to_end() {
+        // Create mock environment
+        let mut fs = MockFileSystem::default();
+        let mut runner = MockCommandRunner::new();
+
+        // Create config
+        let config = AppConfigBuilder::default()
+            .environment("test-env")
+            .package_directory("/test/packages")
+            .build();
+
+        // Set up package files in the filesystem
+        let package_yaml = r#"
+        name: ripgrep
+        version: 1.0.0
+        environments:
+          test-env:
+            install: rg install
+            check: rg check
+    "#;
+
+        let package_dir = Path::new("/test/packages");
+        fs.mock_path_exists(&package_dir, true);
+
+        let ripgrep = package_dir.join("ripgrep.yaml");
+        fs.mock_path_exists(&ripgrep, true);
+        fs.mock_path_exists(package_dir.join("ripgrep.yml"), false);
+        fs.mock_read_file(&ripgrep, package_yaml);
+
+        // Set up mock command responses
+        runner.error_response("rg check", "Not found", 1); // Not installed
+        runner.success_response("rg install", "Installed successfully");
+
+        let progress_manager = ProgressManager::new(false, true);
+
+        // Create package installer (using the new consolidated version)
+        let installer = PackageInstaller::new(&fs, &runner, &config, &progress_manager, false);
+
+        // Run the installation
+        let result = installer.install_package("ripgrep");
+
+        // Verify the result
+        assert!(result.is_ok());
+        let install_result = result.unwrap();
+        assert_eq!(install_result.package_name, "ripgrep");
+    }
+
+    #[test]
+    fn test_package_install_with_dependencies() {
+        // Create mock environment
+        let mut fs = MockFileSystem::default();
+        let mut runner = MockCommandRunner::new();
+
+        // Create config
+        let config = AppConfigBuilder::default()
+            .environment("test-env")
+            .package_directory("/test/packages")
+            .build();
+
+        // Set up package files in the filesystem
+        let package_yaml = r#"
+        name: ripgrep
+        version: 1.0.0
+        environments:
+          test-env:
+            install: rg install
+            check: rg check
+            dependencies:
+              - rust
+    "#;
+
+        let dependency_yaml = r#"
+        name: rust
+        version: 1.0.0
+        environments:
+          test-env:
+            install: rust install
+            check: rust check
+    "#;
+
+        let package_dir = Path::new("/test/packages");
+        fs.mock_path_exists(&package_dir, true);
+
+        let ripgrep = package_dir.join("ripgrep.yaml");
+        fs.mock_path_exists(&ripgrep, true);
+        fs.mock_path_exists(package_dir.join("ripgrep.yml"), false);
+        fs.mock_read_file(&ripgrep, package_yaml);
+
+        let rust = package_dir.join("rust.yaml");
+        fs.mock_path_exists(&rust, true);
+        fs.mock_path_exists(package_dir.join("rust.yml"), false);
+        fs.mock_read_file(&rust, dependency_yaml);
+
+        // Set up mock command responses
+        runner.error_response("rg check", "Not found", 1); // Not installed
+        runner.success_response("rg install", "Installed successfully");
+        runner.error_response("rust check", "Not found", 1); // Not installed
+        runner.success_response("rust install", "Installed successfully");
+
+        let progress_manager = ProgressManager::new(false, true);
+
+        // Create package installer
+        let installer = PackageInstaller::new(&fs, &runner, &config, &progress_manager, false);
+
+        // Run the installation
+        let result = installer.install_package("ripgrep");
+
+        // Verify the result
+        assert!(result.is_ok());
+        let install_result = result.unwrap();
+        assert_eq!(install_result.package_name, "ripgrep");
+        assert_eq!(install_result.dependencies.len(), 1);
+        assert_eq!(install_result.dependencies[0].package_name, "rust");
+    }
+
+    // Update the test in tests/integration_test.rs to test dependency resolution
+
+    #[test]
+    fn test_package_install_with_complex_dependencies() {
+        // Create mock environment
+        let mut fs = MockFileSystem::default();
+        let mut runner = MockCommandRunner::new();
+
+        // Create config
+        let config = AppConfigBuilder::default()
+            .environment("test-env")
+            .package_directory("/test/packages")
+            .build();
+
+        // Set up package files with a dependency chain
+        let main_pkg_yaml = r#"
+        name: main-pkg
+        version: 1.0.0
+        environments:
+          test-env:
+            install: main-install
+            check: main-check
+            dependencies:
+              - dep1
+              - dep2
+    "#;
+
+        let dep1_yaml = r#"
+        name: dep1
+        version: 1.0.0
+        environments:
+          test-env:
+            install: dep1-install
+            check: dep1-check
+            dependencies:
+              - dep3
+    "#;
+
+        let dep2_yaml = r#"
+        name: dep2
+        version: 1.0.0
+        environments:
+          test-env:
+            install: dep2-install
+            check: dep2-check
+    "#;
+
+        let dep3_yaml = r#"
+        name: dep3
+        version: 1.0.0
+        environments:
+          test-env:
+            install: dep3-install
+            check: dep3-check
+    "#;
+
+        let package_dir = Path::new("/test/packages");
+        fs.mock_path_exists(&package_dir, true);
+
+        let main_pkg = package_dir.join("main-pkg.yaml");
+        fs.mock_path_exists(&main_pkg, true);
+        fs.mock_path_exists(package_dir.join("main-pkg.yml"), false);
+        fs.mock_read_file(&main_pkg, main_pkg_yaml);
+
+        let dep1 = package_dir.join("dep1.yaml");
+        fs.mock_path_exists(&dep1, true);
+        fs.mock_path_exists(package_dir.join("dep1.yml"), false);
+        fs.mock_read_file(&dep1, dep1_yaml);
+
+        let dep2 = package_dir.join("dep2.yaml");
+        fs.mock_path_exists(&dep2, true);
+        fs.mock_path_exists(package_dir.join("dep2.yml"), false);
+        fs.mock_read_file(&dep2, dep2_yaml);
+
+        let dep3 = package_dir.join("dep3.yaml");
+        fs.mock_path_exists(&dep3, true);
+        fs.mock_path_exists(package_dir.join("dep3.yml"), false);
+        fs.mock_read_file(&dep3, dep3_yaml);
+
+        // Set up mock command responses - all need to be installed
+        runner.error_response("main-check", "Not found", 1);
+        runner.success_response("main-install", "Installed successfully");
+        runner.error_response("dep1-check", "Not found", 1);
+        runner.success_response("dep1-install", "Installed successfully");
+        runner.error_response("dep2-check", "Not found", 1);
+        runner.success_response("dep2-install", "Installed successfully");
+        runner.error_response("dep3-check", "Not found", 1);
+        runner.success_response("dep3-install", "Installed successfully");
+
+        let progress_manager = ProgressManager::new(false, true);
+
+        // Create package installer
+        let installer = PackageInstaller::new(&fs, &runner, &config, &progress_manager, false);
+
+        // Run the installation
+        let result = installer.install_package("main-pkg");
+
+        // Verify the result
+        assert!(result.is_ok());
+        let install_result = result.unwrap();
+
+        // Correct dependencies were installed
+        assert_eq!(install_result.package_name, "main-pkg");
+        assert_eq!(install_result.status, InstallationStatus::Complete);
+
+        // All dependencies were installed (3 of them)
+        assert_eq!(install_result.dependencies.len(), 3);
+
+        // dep3 should be first (deepest dependency)
+        let dep3_result = install_result
+            .dependencies
+            .iter()
+            .find(|d| d.package_name == "dep3")
+            .unwrap();
+        assert_eq!(dep3_result.status, InstallationStatus::Complete);
+
+        // dep1 and dep2 should both be present
+        let dep1_result = install_result
+            .dependencies
+            .iter()
+            .find(|d| d.package_name == "dep1")
+            .unwrap();
+        assert_eq!(dep1_result.status, InstallationStatus::Complete);
+
+        let dep2_result = install_result
+            .dependencies
+            .iter()
+            .find(|d| d.package_name == "dep2")
+            .unwrap();
+        assert_eq!(dep2_result.status, InstallationStatus::Complete);
     }
 }

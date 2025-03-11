@@ -28,11 +28,6 @@ pub struct ErrorContext {
 }
 
 impl ErrorContext {
-    /// Create a new empty context
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Add a path to the context
     pub fn with_path<P: AsRef<Path>>(mut self, path: P) -> Self {
         self.path = Some(PathBuf::from(path.as_ref()));
@@ -156,7 +151,7 @@ impl EnhancedFileSystemError {
     pub fn path_not_found<P: AsRef<Path>>(path: P) -> Self {
         Self::PathNotFound {
             path: PathBuf::from(path.as_ref()),
-            context: ErrorContext::new(),
+            context: ErrorContext::default(),
         }
     }
 
@@ -164,7 +159,7 @@ impl EnhancedFileSystemError {
     pub fn permission_denied<P: AsRef<Path>>(path: P) -> Self {
         Self::PermissionDenied {
             path: PathBuf::from(path.as_ref()),
-            context: ErrorContext::new(),
+            context: ErrorContext::default(),
         }
     }
 
@@ -173,7 +168,7 @@ impl EnhancedFileSystemError {
         Self::IoError {
             message: error.to_string(),
             source: error,
-            context: ErrorContext::new(),
+            context: ErrorContext::default(),
         }
     }
 
@@ -181,7 +176,7 @@ impl EnhancedFileSystemError {
     pub fn invalid_path<P: AsRef<Path>>(path: P) -> Self {
         Self::InvalidPath {
             path: PathBuf::from(path.as_ref()),
-            context: ErrorContext::new(),
+            context: ErrorContext::default(),
         }
     }
 
@@ -246,7 +241,7 @@ impl EnhancedPackageError {
     pub fn package_not_found(name: &str) -> Self {
         Self::PackageNotFound {
             name: name.to_string(),
-            context: ErrorContext::new(),
+            context: ErrorContext::default(),
         }
     }
 
@@ -254,7 +249,7 @@ impl EnhancedPackageError {
     pub fn multiple_packages_found(name: &str) -> Self {
         Self::MultiplePackagesFound {
             name: name.to_string(),
-            context: ErrorContext::new(),
+            context: ErrorContext::default(),
         }
     }
 
@@ -262,7 +257,7 @@ impl EnhancedPackageError {
     pub fn validation_error(message: &str) -> Self {
         Self::ValidationError {
             message: message.to_string(),
-            context: ErrorContext::new(),
+            context: ErrorContext::default(),
         }
     }
 
@@ -270,7 +265,7 @@ impl EnhancedPackageError {
     pub fn parse_error(message: &str) -> Self {
         Self::ParseError {
             message: message.to_string(),
-            context: ErrorContext::new(),
+            context: ErrorContext::default(),
         }
     }
 
@@ -279,7 +274,7 @@ impl EnhancedPackageError {
         Self::EnvironmentNotSupported {
             environment: environment.to_string(),
             package: package.to_string(),
-            context: ErrorContext::new(),
+            context: ErrorContext::default(),
         }
     }
 
@@ -362,7 +357,7 @@ impl EnhancedCommandError {
             exit_code,
             stdout: stdout.to_string(),
             stderr: stderr.to_string(),
-            context: ErrorContext::new(),
+            context: ErrorContext::default(),
         }
     }
 
@@ -371,7 +366,7 @@ impl EnhancedCommandError {
         Self::Timeout {
             command: command.to_string(),
             timeout,
-            context: ErrorContext::new(),
+            context: ErrorContext::default(),
         }
     }
 
@@ -379,7 +374,7 @@ impl EnhancedCommandError {
     pub fn interrupted(command: &str) -> Self {
         Self::Interrupted {
             command: command.to_string(),
-            context: ErrorContext::new(),
+            context: ErrorContext::default(),
         }
     }
 
@@ -387,7 +382,7 @@ impl EnhancedCommandError {
     pub fn permission_denied(command: &str) -> Self {
         Self::PermissionDenied {
             command: command.to_string(),
-            context: ErrorContext::new(),
+            context: ErrorContext::default(),
         }
     }
 
@@ -395,7 +390,7 @@ impl EnhancedCommandError {
     pub fn command_not_found(command: &str) -> Self {
         Self::CommandNotFound {
             command: command.to_string(),
-            context: ErrorContext::new(),
+            context: ErrorContext::default(),
         }
     }
 
@@ -469,7 +464,7 @@ impl EnhancedDependencyError {
         Self::CircularDependency {
             cycle,
             path,
-            context: ErrorContext::new(),
+            context: ErrorContext::default(),
         }
     }
 
@@ -477,7 +472,7 @@ impl EnhancedDependencyError {
     pub fn missing_dependency(name: &str) -> Self {
         Self::MissingDependency {
             name: name.to_string(),
-            context: ErrorContext::new(),
+            context: ErrorContext::default(),
         }
     }
 
@@ -487,7 +482,7 @@ impl EnhancedDependencyError {
             dependency: dependency.to_string(),
             package: package.to_string(),
             environment: environment.to_string(),
-            context: ErrorContext::new(),
+            context: ErrorContext::default(),
         }
     }
 
@@ -606,7 +601,7 @@ mod tests {
 
     #[test]
     fn test_error_context() {
-        let context = ErrorContext::new()
+        let context = ErrorContext::default()
             .with_path("/test/path")
             .with_command("test command")
             .with_environment("test-env")
@@ -629,7 +624,7 @@ mod tests {
         let error = EnhancedFileSystemError::path_not_found("/test/path");
         assert!(error.to_string().contains("Path not found"));
 
-        let context = ErrorContext::new().with_package("test-package");
+        let context = ErrorContext::default().with_package("test-package");
         let error = error.with_context(context);
 
         match &error {
@@ -645,7 +640,7 @@ mod tests {
         let error = EnhancedPackageError::package_not_found("test-package");
         assert!(error.to_string().contains("Package not found"));
 
-        let context = ErrorContext::new().with_environment("test-env");
+        let context = ErrorContext::default().with_environment("test-env");
         let error = error.with_context(context);
 
         match &error {
@@ -661,7 +656,7 @@ mod tests {
         let error = EnhancedCommandError::execution_failed("test command", 1, "stdout", "stderr");
         assert!(error.to_string().contains("Command execution failed"));
 
-        let context = ErrorContext::new().with_environment("test-env");
+        let context = ErrorContext::default().with_environment("test-env");
         let error = error.with_context(context);
 
         match &error {
@@ -682,7 +677,7 @@ mod tests {
         let error = EnhancedDependencyError::circular_dependency(path.clone());
         assert!(error.to_string().contains("Circular dependency detected"));
 
-        let context = ErrorContext::new().with_environment("test-env");
+        let context = ErrorContext::default().with_environment("test-env");
         let error = error.with_context(context);
 
         match &error {
@@ -706,7 +701,8 @@ mod tests {
         let mock_result: Result<(), EnhancedFileSystemError> =
             Err(EnhancedFileSystemError::path_not_found("/test/path"));
 
-        let result = mock_result.with_context(|| ErrorContext::new().with_package("test-package"));
+        let result =
+            mock_result.with_context(|| ErrorContext::default().with_package("test-package"));
 
         match result {
             Err(EnhancedFileSystemError::PathNotFound { context, .. }) => {
