@@ -11,7 +11,7 @@ use crate::{
 /// Selfie - A package manager and dotfile manager
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
-pub struct ClapArguments {
+pub struct ClapCli {
     /// Override the environment from config
     #[clap(long, short = 'e', global = true)]
     pub(crate) environment: Option<String>,
@@ -95,7 +95,7 @@ pub(crate) enum ConfigSubcommands {
     Validate,
 }
 
-impl ArgumentParser for ClapArguments {
+impl ArgumentParser for ClapCli {
     fn parse_arguments() -> Result<ApplicationArguments, ApplicationError> {
         let clap_args = Self::parse();
 
@@ -104,8 +104,8 @@ impl ArgumentParser for ClapArguments {
     }
 }
 
-impl From<ClapArguments> for ApplicationArguments {
-    fn from(value: ClapArguments) -> Self {
+impl From<ClapCli> for ApplicationArguments {
+    fn from(value: ClapCli) -> Self {
         Self {
             environment: value.environment,
             package_directory: value.package_directory,

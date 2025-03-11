@@ -4,8 +4,8 @@ use std::process;
 
 use selfie::{
     adapters::{
-        cli::clap_adapter::ClapArguments, command::shell::ShellCommandRunner, config_loader,
-        filesystem::RealFileSystem, progress::ProgressManager,
+        command::shell::ShellCommandRunner, config_loader, filesystem::RealFileSystem,
+        progress::ProgressManager, user_interface::ClapCli,
     },
     domain::errors::ErrorContext,
     ports::{
@@ -20,7 +20,7 @@ fn main() -> Result<(), anyhow::Error> {
     let fs = RealFileSystem;
 
     // Parse the command line arguments
-    let args = match ClapArguments::parse_arguments() {
+    let args = match ClapCli::parse_arguments() {
         Ok(args) => args,
         Err(err) => {
             eprintln!("Error: {}", err);
