@@ -76,7 +76,7 @@ pub(crate) enum PackageValidationError {
 #[derive(Error, Debug)]
 pub(crate) enum PackageParseError {
     #[error("YAML parsing error: {0}")]
-    YamlError(#[from] serde_yaml::Error),
+    YamlParse(#[from] serde_yaml::Error),
 
     #[error("I/O error: {0}")]
     IoError(#[from] std::io::Error),

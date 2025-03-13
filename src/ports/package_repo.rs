@@ -24,7 +24,7 @@ pub(crate) enum PackageRepoError {
 
 /// Port for package repository operations
 #[cfg_attr(test, mockall::automock)]
-pub(crate) trait PackageRepository {
+pub(crate) trait PackageRepository: Send + Sync {
     /// Get a package by name
     fn get_package(&self, name: &str) -> Result<Package, PackageRepoError>;
 

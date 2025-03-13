@@ -15,7 +15,8 @@ use selfie::{
     services::application_command_service::ApplicationCommandService,
 };
 
-fn main() -> Result<(), anyhow::Error> {
+#[tokio::main]
+async fn main() -> Result<(), anyhow::Error> {
     // Set up file system and command runner
     let fs = RealFileSystem;
 
@@ -39,7 +40,7 @@ fn main() -> Result<(), anyhow::Error> {
     let progress_manager = ProgressManager::new(!args.no_color, args.verbose);
 
     // Process the command and get an exit code
-    let exit_code = match cmd_service.process_command(args) {
+    let exit_code = match cmd_service.process_command(args).await {
         Ok(code) => code,
         Err(err) => {
             // Create context for the error

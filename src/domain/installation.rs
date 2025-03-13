@@ -92,7 +92,7 @@ impl Installation {
     }
 
     // New helper method to execute commands and handle status updates
-    fn execute_command(
+    async fn execute_command(
         &mut self,
         runner: &dyn CommandRunner,
         command: &str,
@@ -101,7 +101,7 @@ impl Installation {
     ) -> Result<CommandOutput, InstallationError> {
         self.update_status(initial_status);
 
-        match runner.execute(command) {
+        match runner.execute(command).await {
             Ok(output) => Ok(output),
             Err(e) => {
                 let error_msg = e.to_string();
@@ -111,7 +111,7 @@ impl Installation {
         }
     }
 
-    pub(crate) fn execute_check(
+    pub(crate) async fn execute_check(
         &mut self,
         runner: &dyn CommandRunner,
     ) -> Result<bool, InstallationError> {
@@ -127,10 +127,11 @@ impl Installation {
         };
 
         // Now execute_command can mutably borrow self
-        let output =
-            self.execute_command(runner, &check_cmd, InstallationStatus::Checking, |e| {
+        let output = self
+            .execute_command(runner, &check_cmd, InstallationStatus::Checking, |e| {
                 InstallationError::CheckFailed(e)
-            })?;
+            })
+            .await?;
 
         let installed = output.success;
         if installed {
@@ -142,7 +143,7 @@ impl Installation {
         Ok(installed)
     }
 
-    pub(crate) fn execute_install(
+    pub(crate) async fn execute_install(
         &mut self,
         runner: &dyn CommandRunner,
     ) -> Result<CommandOutput, InstallationError> {
@@ -150,10 +151,11 @@ impl Installation {
         let install_cmd = self.env_config.install.clone();
 
         // Now execute_command can mutably borrow self
-        let output =
-            self.execute_command(runner, &install_cmd, InstallationStatus::Installing, |e| {
+        let output = self
+            .execute_command(runner, &install_cmd, InstallationStatus::Installing, |e| {
                 InstallationError::CommandError(CommandError::ExecutionError(e))
-            })?;
+            })
+            .await?;
 
         if output.success {
             self.update_status(InstallationStatus::Complete);
@@ -317,8 +319,8 @@ mod tests {
         assert!(installation.duration.is_some());
     }
 
-    #[test]
-    fn test_execute_check_no_check_command() {
+    #[tokio::test]
+    async fn test_execute_check_no_check_command() {
         let package = PackageBuilder::default()
             .name("test-package")
             .version("1.0.0")
@@ -330,14 +332,14 @@ mod tests {
 
         let runner = MockCommandRunner::new();
 
-        let result = installation.execute_check(&runner);
+        let result = installation.execute_check(&runner).await;
         assert!(result.is_ok());
         assert!(!result.unwrap());
         assert_eq!(installation.status, InstallationStatus::NotInstalled);
     }
 
-    #[test]
-    fn test_execute_check_installed() {
+    #[tokio::test]
+    async fn test_execute_check_installed() {
         let package = create_test_package();
         let env_config = package.environments.get("test-env").unwrap().clone();
         let mut installation = Installation::new(package, "test-env", env_config);
@@ -345,14 +347,14 @@ mod tests {
         let mut runner = MockCommandRunner::new();
         runner.success_response("test check", "Package found");
 
-        let result = installation.execute_check(&runner);
+        let result = installation.execute_check(&runner).await;
         assert!(result.is_ok());
         assert!(result.unwrap());
         assert_eq!(installation.status, InstallationStatus::AlreadyInstalled);
     }
 
-    #[test]
-    fn test_execute_check_not_installed() {
+    #[tokio::test]
+    async fn test_execute_check_not_installed() {
         let package = create_test_package();
         let env_config = package.environments.get("test-env").unwrap().clone();
         let mut installation = Installation::new(package, "test-env", env_config);
@@ -360,14 +362,14 @@ mod tests {
         let mut runner = MockCommandRunner::new();
         runner.error_response("test check", "Not found", 1);
 
-        let result = installation.execute_check(&runner);
+        let result = installation.execute_check(&runner).await;
         assert!(result.is_ok());
         assert!(!result.unwrap());
         assert_eq!(installation.status, InstallationStatus::NotInstalled);
     }
 
-    #[test]
-    fn test_execute_check_error() {
+    #[tokio::test]
+    async fn test_execute_check_error() {
         let package = create_test_package();
         let env_config = package.environments.get("test-env").unwrap().clone();
         let mut installation = Installation::new(package, "test-env", env_config);
@@ -378,7 +380,7 @@ mod tests {
             Err(CommandError::ExecutionError("Command failed".to_string())),
         );
 
-        let result = installation.execute_check(&runner);
+        let result = installation.execute_check(&runner).await;
         assert!(result.is_err());
         assert_eq!(
             installation.status,
@@ -386,8 +388,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_execute_install_success() {
+    #[tokio::test]
+    async fn test_execute_install_success() {
         let package = create_test_package();
         let env_config = package.environments.get("test-env").unwrap().clone();
         let mut installation = Installation::new(package, "test-env", env_config);
@@ -395,13 +397,13 @@ mod tests {
         let mut runner = MockCommandRunner::new();
         runner.success_response("test install", "Installed successfully");
 
-        let result = installation.execute_install(&runner);
+        let result = installation.execute_install(&runner).await;
         assert!(result.is_ok());
         assert_eq!(installation.status, InstallationStatus::Complete);
     }
 
-    #[test]
-    fn test_execute_install_failure() {
+    #[tokio::test]
+    async fn test_execute_install_failure() {
         let package = create_test_package();
         let env_config = package.environments.get("test-env").unwrap().clone();
         let mut installation = Installation::new(package, "test-env", env_config);
@@ -409,13 +411,13 @@ mod tests {
         let mut runner = MockCommandRunner::new();
         runner.error_response("test install", "Installation failed", 1);
 
-        let result = installation.execute_install(&runner);
+        let result = installation.execute_install(&runner).await;
         assert!(result.is_err());
         assert!(matches!(installation.status, InstallationStatus::Failed(_)));
     }
 
-    #[test]
-    fn test_execute_install_error() {
+    #[tokio::test]
+    async fn test_execute_install_error() {
         let package = create_test_package();
         let env_config = package.environments.get("test-env").unwrap().clone();
         let mut installation = Installation::new(package, "test-env", env_config);
@@ -426,7 +428,7 @@ mod tests {
             Err(CommandError::ExecutionError("Command failed".to_string())),
         );
 
-        let result = installation.execute_install(&runner);
+        let result = installation.execute_install(&runner).await;
         assert!(result.is_err());
         assert!(matches!(installation.status, InstallationStatus::Failed(_)));
     }

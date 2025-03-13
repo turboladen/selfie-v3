@@ -59,7 +59,7 @@ impl<'a> CommandValidator<'a> {
     }
 
     /// Validate a command in a package environment configuration
-    pub(crate) fn validate_environment_commands(
+    pub(crate) async fn validate_environment_commands(
         &self,
         env_name: &str,
         env_config: &EnvironmentConfig,
@@ -78,7 +78,7 @@ impl<'a> CommandValidator<'a> {
 
         // If validation enabled AND we have a shell command, check if basic shell commands are available
         if let Some(command) = Self::extract_base_command(&env_config.install) {
-            let avail_result = self.check_command_availability(env_name, command);
+            let avail_result = self.check_command_availability(env_name, command).await;
             results.push(avail_result);
         }
 
@@ -148,12 +148,12 @@ impl<'a> CommandValidator<'a> {
     }
 
     /// Check if a command is available in the current environment
-    pub(crate) fn check_command_availability(
+    pub(crate) async fn check_command_availability(
         &self,
         env_name: &str,
         command: &str,
     ) -> CommandValidationResult {
-        let is_available = self.runner.is_command_available(command);
+        let is_available = self.runner.is_command_available(command).await;
 
         // Generate more environment-aware message
         let error_message = if !is_available {
@@ -327,8 +327,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_check_command_availability() {
+    #[tokio::test]
+    async fn test_check_command_availability() {
         let mut runner = MockCommandRunner::new();
         runner
             .expect_is_command_available()
@@ -341,13 +341,17 @@ mod tests {
 
         let validator = CommandValidator::new(&runner);
 
-        let result = validator.check_command_availability("mac-env", "echo");
+        let result = validator
+            .check_command_availability("mac-env", "echo")
+            .await;
         assert!(result.is_valid);
         assert!(result.is_available);
         assert!(result.error.is_none());
         assert_eq!(result.environment, "mac-env");
 
-        let result = validator.check_command_availability("mac-env", "nonexistent");
+        let result = validator
+            .check_command_availability("mac-env", "nonexistent")
+            .await;
         assert!(result.is_valid); // The command syntax is valid even if not available
         assert!(!result.is_available);
         assert!(result.error.unwrap().contains("not found"));
@@ -387,8 +391,8 @@ mod tests {
         assert!(!validator.might_download_content("echo hello"));
     }
 
-    #[test]
-    fn test_validate_environment_commands() {
+    #[tokio::test]
+    async fn test_validate_environment_commands() {
         let mut runner = MockCommandRunner::new();
         runner
             .expect_is_command_available()
@@ -404,7 +408,9 @@ mod tests {
             dependencies: vec![],
         };
 
-        let results = validator.validate_environment_commands("mac-env", &env_config);
+        let results = validator
+            .validate_environment_commands("mac-env", &env_config)
+            .await;
 
         // Should have 3 results: install syntax, check syntax, and command availability
         assert_eq!(results.len(), 3);

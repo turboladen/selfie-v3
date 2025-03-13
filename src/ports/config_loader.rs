@@ -30,7 +30,8 @@ pub enum ConfigLoadError {
 
 /// Port for loading configuration from disk
 #[cfg_attr(test, mockall::automock)]
-pub trait ConfigLoader {
+#[async_trait::async_trait]
+pub trait ConfigLoader: Send + Sync {
     /// Load configuration from standard locations
     fn load_config(&self, app_args: &ApplicationArguments) -> Result<AppConfig, ConfigLoadError>;
 

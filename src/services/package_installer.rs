@@ -129,7 +129,7 @@ impl<'a> PackageInstaller<'a> {
     }
 
     /// Install a package by name with enhanced progress reporting and dependency handling
-    pub(crate) fn install_package(
+    pub(crate) async fn install_package(
         &self,
         package_name: &str,
     ) -> Result<InstallationResult, PackageInstallerError> {
@@ -212,7 +212,7 @@ impl<'a> PackageInstaller<'a> {
         };
 
         // Pre-flight check: check if all required commands are available
-        if self.check_commands && !self.verify_commands(&packages)? {
+        if self.check_commands && !self.verify_commands(&packages).await? {
             return Err(PackageInstallerError::CommandNotAvailable(
                 "Required commands not available".to_string(),
             ));
@@ -271,7 +271,7 @@ impl<'a> PackageInstaller<'a> {
                 }
 
                 // Install the dependency
-                match self.install_single_package(package, 6) {
+                match self.install_single_package(package, 6).await {
                     Ok(result) => {
                         // Only continue if installation was successful or package was already installed
                         match result.status {
@@ -305,7 +305,7 @@ impl<'a> PackageInstaller<'a> {
 
         // Now install the main package
         let main_package = packages.last().unwrap();
-        let main_result = self.install_single_package(main_package, 2)?;
+        let main_result = self.install_single_package(main_package, 2).await?;
 
         // Get the total installation time and create the final result
         let total_duration = start_time.elapsed();
@@ -322,7 +322,7 @@ impl<'a> PackageInstaller<'a> {
     }
 
     /// Check if a package can be installed in the current environment
-    pub(crate) fn check_package_installable(
+    pub(crate) async fn check_package_installable(
         &self,
         package_name: &str,
     ) -> Result<bool, PackageInstallerError> {
@@ -361,7 +361,7 @@ impl<'a> PackageInstaller<'a> {
         if self.check_commands {
             if let Some(env_config) = package.environments.get(self.config.environment()) {
                 if let Some(base_cmd) = Self::extract_base_command(&env_config.install) {
-                    if !self.runner.is_command_available(base_cmd) {
+                    if !self.runner.is_command_available(base_cmd).await {
                         return Ok(false);
                     }
                 }
@@ -387,7 +387,7 @@ impl<'a> PackageInstaller<'a> {
     }
 
     /// Verify that all required commands are available
-    fn verify_commands(&self, packages: &[Package]) -> Result<bool, PackageInstallerError> {
+    async fn verify_commands(&self, packages: &[Package]) -> Result<bool, PackageInstallerError> {
         // Check commands for each package
         let mut missing_commands = Vec::new();
 
@@ -395,7 +395,7 @@ impl<'a> PackageInstaller<'a> {
             if let Some(env_config) = package.environments.get(self.config.environment()) {
                 // Extract and check base command
                 if let Some(base_cmd) = Self::extract_base_command(&env_config.install) {
-                    if !self.runner.is_command_available(base_cmd) {
+                    if !self.runner.is_command_available(base_cmd).await {
                         missing_commands.push((package.name.clone(), base_cmd.to_string()));
                     }
                 }
@@ -418,7 +418,7 @@ impl<'a> PackageInstaller<'a> {
     }
 
     /// Install a single package (no dependency handling) with progress reporting
-    fn install_single_package(
+    async fn install_single_package(
         &self,
         package: &Package,
         indent_level: usize,
@@ -456,6 +456,7 @@ impl<'a> PackageInstaller<'a> {
         // Check if already installed
         let already_installed = installation
             .execute_check(self.runner)
+            .await
             .map_err(PackageInstallerError::InstallationError)?;
 
         let check_duration = start_time.elapsed();
@@ -489,7 +490,7 @@ impl<'a> PackageInstaller<'a> {
             .print_progress(format!("{}⌛ Installing...", indent));
 
         // Execute installation with enhanced error handling
-        let result = match installation.execute_install(self.runner) {
+        let result = match installation.execute_install(self.runner).await {
             Ok(output) => {
                 let duration = start_time.elapsed();
                 installation.complete(InstallationStatus::Complete);
@@ -654,8 +655,8 @@ mod tests {
         )
     }
 
-    #[test]
-    fn test_installation_manager_install_success() {
+    #[tokio::test]
+    async fn test_installation_manager_install_success() {
         let package = create_test_package();
         let config = create_test_config();
         let (mut fs, mut runner, progress_manager) = create_installer_deps();
@@ -670,15 +671,15 @@ mod tests {
         runner.mock_is_command_available("test", true);
 
         let manager = PackageInstaller::new(&fs, &runner, &config, &progress_manager, true);
-        let result = manager.install_package(&package.name);
+        let result = manager.install_package(&package.name).await;
 
         assert!(result.is_ok());
         let installation = result.unwrap();
         assert_eq!(installation.status, InstallationStatus::Complete);
     }
 
-    #[test]
-    fn test_installation_manager_already_installed() {
+    #[tokio::test]
+    async fn test_installation_manager_already_installed() {
         let package = create_test_package();
         let config = create_test_config();
         let (mut fs, mut runner, progress_manager) = create_installer_deps();
@@ -692,15 +693,15 @@ mod tests {
         runner.mock_is_command_available("test", true);
 
         let manager = PackageInstaller::new(&fs, &runner, &config, &progress_manager, true);
-        let result = manager.install_package(&package.name);
+        let result = manager.install_package(&package.name).await;
 
         assert!(result.is_ok());
         let installation = result.unwrap();
         assert_eq!(installation.status, InstallationStatus::AlreadyInstalled);
     }
 
-    #[test]
-    fn test_installation_manager_install_failure() {
+    #[tokio::test]
+    async fn test_installation_manager_install_failure() {
         let package = create_test_package();
         let config = create_test_config();
         let (mut fs, mut runner, progress_manager) = create_installer_deps();
@@ -715,13 +716,13 @@ mod tests {
         runner.mock_is_command_available("test", true);
 
         let manager = PackageInstaller::new(&fs, &runner, &config, &progress_manager, true);
-        let result = manager.install_package(&package.name);
+        let result = manager.install_package(&package.name).await;
 
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_installation_manager_environment_incompatible() {
+    #[tokio::test]
+    async fn test_installation_manager_environment_incompatible() {
         let package = create_test_package();
         let config = AppConfigBuilder::default()
             .environment("different-env")
@@ -735,7 +736,7 @@ mod tests {
         fs.mock_read_file("/test/path/test-package.yaml", package.to_yaml().unwrap());
 
         let manager = PackageInstaller::new(&fs, &runner, &config, &progress_manager, true);
-        let result = manager.install_package(&package.name);
+        let result = manager.install_package(&package.name).await;
 
         assert!(result.is_err());
     }
@@ -764,8 +765,8 @@ mod tests {
         assert!(empty.is_none() || empty.unwrap().is_empty());
     }
 
-    #[test]
-    fn test_package_install_end_to_end() {
+    #[tokio::test]
+    async fn test_package_install_end_to_end() {
         // Create mock environment
         let mut fs = MockFileSystem::default();
         let mut runner = MockCommandRunner::new();
@@ -804,7 +805,7 @@ mod tests {
         let installer = PackageInstaller::new(&fs, &runner, &config, &progress_manager, false);
 
         // Run the installation
-        let result = installer.install_package("ripgrep");
+        let result = installer.install_package("ripgrep").await;
 
         // Verify the result
         assert!(result.is_ok());
@@ -812,8 +813,8 @@ mod tests {
         assert_eq!(install_result.package_name, "ripgrep");
     }
 
-    #[test]
-    fn test_package_install_with_dependencies() {
+    #[tokio::test]
+    async fn test_package_install_with_dependencies() {
         // Create mock environment
         let mut fs = MockFileSystem::default();
         let mut runner = MockCommandRunner::new();
@@ -870,7 +871,7 @@ mod tests {
         let installer = PackageInstaller::new(&fs, &runner, &config, &progress_manager, false);
 
         // Run the installation
-        let result = installer.install_package("ripgrep");
+        let result = installer.install_package("ripgrep").await;
 
         // Verify the result
         assert!(result.is_ok());
@@ -882,8 +883,8 @@ mod tests {
 
     // Update the test in tests/integration_test.rs to test dependency resolution
 
-    #[test]
-    fn test_package_install_with_complex_dependencies() {
+    #[tokio::test]
+    async fn test_package_install_with_complex_dependencies() {
         // Create mock environment
         let mut fs = MockFileSystem::default();
         let mut runner = MockCommandRunner::new();
@@ -975,7 +976,7 @@ mod tests {
         let installer = PackageInstaller::new(&fs, &runner, &config, &progress_manager, false);
 
         // Run the installation
-        let result = installer.install_package("main-pkg");
+        let result = installer.install_package("main-pkg").await;
 
         // Verify the result
         assert!(result.is_ok());

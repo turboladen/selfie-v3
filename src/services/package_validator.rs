@@ -158,12 +158,16 @@ impl<'a> PackageValidator<'a> {
     }
 
     /// Validate command availability
-    fn validate_command_availability(&self, package: &Package, result: &mut ValidationResult) {
+    async fn validate_command_availability(
+        &self,
+        package: &Package,
+        result: &mut ValidationResult,
+    ) {
         // We only check commands for the current environment
         if let Some(env_config) = package.environments.get(self.config.environment()) {
             // Extract base command from install command
             if let Some(base_cmd) = Self::extract_base_command(&env_config.install) {
-                let is_available = self.runner.is_command_available(base_cmd);
+                let is_available = self.runner.is_command_available(base_cmd).await;
 
                 if !is_available {
                     result.add_issue(ValidationIssue::warning(
@@ -183,7 +187,7 @@ impl<'a> PackageValidator<'a> {
             // Check command if present
             if let Some(check_cmd) = &env_config.check {
                 if let Some(base_cmd) = Self::extract_base_command(check_cmd) {
-                    let is_available = self.runner.is_command_available(base_cmd);
+                    let is_available = self.runner.is_command_available(base_cmd).await;
 
                     if !is_available {
                         result.add_issue(ValidationIssue::warning(

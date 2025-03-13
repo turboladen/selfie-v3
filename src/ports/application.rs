@@ -87,9 +87,10 @@ pub trait ArgumentParser {
     fn parse_arguments() -> Result<ApplicationArguments, ApplicationError>;
 }
 
+#[async_trait::async_trait]
 pub trait ApplicationCommandRouter {
     /// Process an application command and return an exit code
-    fn process_command(&self, args: ApplicationArguments) -> Result<i32, ApplicationError>;
+    async fn process_command(&self, args: ApplicationArguments) -> Result<i32, ApplicationError>;
 
     /// Get a human-readable description of a command
     fn get_command_description(&self, command: &ApplicationCommand) -> String;

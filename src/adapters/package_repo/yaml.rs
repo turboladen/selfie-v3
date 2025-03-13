@@ -6,6 +6,7 @@ use crate::domain::package::Package;
 use crate::ports::filesystem::FileSystem;
 use crate::ports::package_repo::{PackageRepoError, PackageRepository};
 
+#[derive(Clone)]
 pub(crate) struct YamlPackageRepository<'a> {
     fs: &'a dyn FileSystem,
     package_dir: PathBuf,

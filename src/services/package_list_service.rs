@@ -44,9 +44,9 @@ impl<'a> PackageListService<'a> {
     }
 
     /// Execute the list command
-    pub(crate) fn execute(&self) -> PackageListResult {
+    pub(crate) async fn execute(&self) -> PackageListResult {
         // Get list of packages
-        match self.list_packages() {
+        match self.list_packages().await {
             Ok(output) => PackageListResult::Success(output),
             Err(err) => {
                 self.progress_manager.print_error("Failed");
@@ -56,7 +56,7 @@ impl<'a> PackageListService<'a> {
     }
 
     /// List packages with compatibility information and command availability
-    fn list_packages(&self) -> Result<String, PackageRepoError> {
+    async fn list_packages(&self) -> Result<String, PackageRepoError> {
         let packages = self.package_repo.list_packages()?;
 
         if packages.is_empty() {
@@ -117,7 +117,7 @@ impl<'a> PackageListService<'a> {
                     if let Some(base_cmd) =
                         CommandValidator::extract_base_command(&env_config.install)
                     {
-                        let cmd_available = self.runner.is_command_available(base_cmd);
+                        let cmd_available = self.runner.is_command_available(base_cmd).await;
 
                         let status = if cmd_available {
                             if self.config.use_colors() {
@@ -395,8 +395,8 @@ mod tests {
     };
     use std::path::Path;
 
-    #[test]
-    fn test_list_empty_directory() {
+    #[tokio::test]
+    async fn test_list_empty_directory() {
         let mut fs = MockFileSystem::default();
         let package_dir = Path::new("/test/packages");
 
@@ -416,13 +416,13 @@ mod tests {
 
         let cmd = PackageListService::new(&runner, &config, &manager, &repo);
 
-        let result = cmd.list_packages();
+        let result = cmd.list_packages().await;
         assert!(result.is_ok());
         assert!(result.unwrap().contains("No packages found"));
     }
 
-    #[test]
-    fn test_list_packages() {
+    #[tokio::test]
+    async fn test_list_packages() {
         let mut fs = MockFileSystem::default();
         let config = AppConfigBuilder::default()
             .environment("test-env")
@@ -470,7 +470,7 @@ mod tests {
         let cmd = PackageListService::new(&runner, &config, &manager, &repo);
 
         // Test the list_packages function with our repo
-        let result = cmd.list_packages();
+        let result = cmd.list_packages().await;
         assert!(result.is_ok());
         let output = result.unwrap();
 
@@ -483,8 +483,8 @@ mod tests {
         assert!(output.contains("Not compatible with current environment"));
     }
 
-    #[test]
-    fn test_list_packages_verbose() {
+    #[tokio::test]
+    async fn test_list_packages_verbose() {
         let mut fs = MockFileSystem::default();
         let config = AppConfigBuilder::default()
             .environment("test-env")
@@ -529,7 +529,7 @@ mod tests {
         let cmd = PackageListService::new(&runner, &config, &manager, &repo);
 
         // Test the list_packages function with our repo
-        let result = cmd.list_packages();
+        let result = cmd.list_packages().await;
         assert!(result.is_ok());
         let output = result.unwrap();
 

@@ -23,7 +23,8 @@ pub enum FileSystemError {
 
 /// Port for file system operations
 #[cfg_attr(test, mockall::automock)]
-pub trait FileSystem {
+#[async_trait::async_trait]
+pub trait FileSystem: Send + Sync {
     /// Read a file and return its contents as a string
     fn read_file(&self, path: &Path) -> Result<String, FileSystemError>;
 

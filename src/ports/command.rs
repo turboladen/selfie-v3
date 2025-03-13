@@ -1,7 +1,8 @@
 // src/ports/command.rs
 // Command execution port (interface)
-
 use std::time::Duration;
+
+use async_trait::async_trait;
 use thiserror::Error;
 
 /// Result of executing a command
@@ -32,25 +33,32 @@ pub enum CommandError {
     #[error("Command timed out after {0:?}")]
     Timeout(Duration),
 
-    #[error("IO error: {0}")]
+    #[error("IO Error: {0}")]
     IoError(String),
+}
+
+impl From<std::io::Error> for CommandError {
+    fn from(value: std::io::Error) -> Self {
+        Self::IoError(value.to_string())
+    }
 }
 
 /// Port for command execution
 #[cfg_attr(test, mockall::automock)]
-pub trait CommandRunner {
+#[async_trait]
+pub trait CommandRunner: Send + Sync {
     /// Execute a command and return its output
-    fn execute(&self, command: &str) -> Result<CommandOutput, CommandError>;
+    async fn execute(&self, command: &str) -> Result<CommandOutput, CommandError>;
 
     /// Execute a command with a timeout and return its output
-    fn execute_with_timeout(
+    async fn execute_with_timeout(
         &self,
         command: &str,
         timeout: Duration,
     ) -> Result<CommandOutput, CommandError>;
 
     /// Check if a command is available in the current environment
-    fn is_command_available(&self, command: &str) -> bool;
+    async fn is_command_available(&self, command: &str) -> bool;
 }
 
 #[cfg(test)]
@@ -135,50 +143,50 @@ impl MockCommandRunnerExt for MockCommandRunner {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_mock_command_runner_success() {
+    #[tokio::test]
+    async fn test_mock_command_runner_success() {
         let mut runner = MockCommandRunner::new();
         runner.success_response("echo hello", "hello");
 
-        let output = runner.execute("echo hello").unwrap();
+        let output = runner.execute("echo hello").await.unwrap();
         assert_eq!(output.stdout, "hello");
         assert_eq!(output.stderr, "");
         assert_eq!(output.status, 0);
         assert!(output.success);
     }
 
-    #[test]
-    fn test_mock_command_runner_error() {
+    #[tokio::test]
+    async fn test_mock_command_runner_error() {
         let mut runner = MockCommandRunner::new();
         runner.error_response("invalid command", "command not found", 127);
 
-        let output = runner.execute("invalid command").unwrap();
+        let output = runner.execute("invalid command").await.unwrap();
         assert_eq!(output.stdout, "");
         assert_eq!(output.stderr, "command not found");
         assert_eq!(output.status, 127);
         assert!(!output.success);
     }
 
-    #[test]
-    fn test_mock_command_runner_timeout() {
+    #[tokio::test]
+    async fn test_mock_command_runner_timeout() {
         let mut runner = MockCommandRunner::new();
         let timeout = Duration::from_secs(30);
         runner.timeout_response("slow command", timeout);
 
-        let result = runner.execute("slow command");
+        let result = runner.execute("slow command").await;
         assert!(matches!(result, Err(CommandError::Timeout(_))));
         if let Err(CommandError::Timeout(duration)) = result {
             assert_eq!(duration, timeout);
         }
     }
 
-    #[test]
-    fn test_mock_command_availability() {
+    #[tokio::test]
+    async fn test_mock_command_availability() {
         let mut runner = MockCommandRunner::new();
         runner.mock_is_command_available("available", true);
         runner.mock_is_command_available("not_available", false);
 
-        assert!(runner.is_command_available("available"));
-        assert!(!runner.is_command_available("not_available"));
+        assert!(runner.is_command_available("available").await);
+        assert!(!runner.is_command_available("not_available").await);
     }
 }

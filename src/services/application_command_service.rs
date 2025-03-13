@@ -60,8 +60,9 @@ impl<'a> ApplicationCommandService<'a> {
     }
 }
 
+#[async_trait::async_trait]
 impl ApplicationCommandRouter for ApplicationCommandService<'_> {
-    fn process_command(&self, args: ApplicationArguments) -> Result<i32, ApplicationError> {
+    async fn process_command(&self, args: ApplicationArguments) -> Result<i32, ApplicationError> {
         // Build the AppConfig first - this consolidates settings from config file and CLI args
         let app_config = self.build_config(&args, true)?;
 
@@ -86,7 +87,7 @@ impl ApplicationCommandRouter for ApplicationCommandService<'_> {
                             true, // Enable command checking
                         );
 
-                        match installer.install_package(package_name) {
+                        match installer.install_package(package_name).await {
                             Ok(result) => {
                                 if app_config.verbose() {
                                     if let Some(output) = &result.command_output {
@@ -127,7 +128,7 @@ impl ApplicationCommandRouter for ApplicationCommandService<'_> {
                             &package_repo,
                         );
 
-                        match list_cmd.execute() {
+                        match list_cmd.execute().await {
                             PackageListResult::Success(output) => {
                                 // Just print the package list
                                 progress_manager.print_progress(output);
