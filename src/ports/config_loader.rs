@@ -7,27 +7,6 @@ use crate::domain::config::AppConfig;
 
 use super::application::ApplicationArguments;
 
-#[derive(Error, Debug)]
-pub enum ConfigLoadError {
-    #[error("Failed to read configuration file: {0}")]
-    ReadError(String),
-
-    #[error("Failed to parse configuration file: {0}")]
-    ParseError(String),
-
-    #[error("No configuration file found in standard locations")]
-    NotFound,
-
-    #[error("Multiple configuration files found: {0}")]
-    MultipleFound(String),
-
-    #[error("Invalid configuration: {0}")]
-    ValidationError(String),
-
-    #[error(transparent)]
-    ConfigError(#[from] config::ConfigError),
-}
-
 /// Port for loading configuration from disk
 #[cfg_attr(test, mockall::automock)]
 #[async_trait::async_trait]
@@ -65,4 +44,25 @@ impl MockConfigLoader {
             .with(mockall::predicate::eq(app_args))
             .return_once(|_| Err(error));
     }
+}
+
+#[derive(Error, Debug)]
+pub enum ConfigLoadError {
+    #[error("Failed to read configuration file: {0}")]
+    ReadError(String),
+
+    #[error("Failed to parse configuration file: {0}")]
+    ParseError(String),
+
+    #[error("No configuration file found in standard locations")]
+    NotFound,
+
+    #[error("Multiple configuration files found: {0}")]
+    MultipleFound(String),
+
+    #[error("Invalid configuration: {0}")]
+    ValidationError(String),
+
+    #[error(transparent)]
+    ConfigError(#[from] config::ConfigError),
 }

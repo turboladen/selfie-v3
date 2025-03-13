@@ -1,25 +1,12 @@
 // src/ports/filesystem.rs
 // File system port (interface)
 
-use std::io;
-use std::path::{Path, PathBuf};
+use std::{
+    io,
+    path::{Path, PathBuf},
+};
+
 use thiserror::Error;
-
-/// Errors that can occur during file system operations
-#[derive(Error, Debug)]
-pub enum FileSystemError {
-    #[error("IO error: {0}")]
-    IoError(#[from] io::Error),
-
-    #[error("Path not found: {0}")]
-    PathNotFound(String),
-
-    #[error("Invalid path: {0}")]
-    InvalidPath(String),
-
-    #[error("Permission denied: {0}")]
-    PermissionDenied(String),
-}
 
 /// Port for file system operations
 #[cfg_attr(test, mockall::automock)]
@@ -43,31 +30,20 @@ pub trait FileSystem: Send + Sync {
     fn config_dir(&self) -> Result<PathBuf, FileSystemError>;
 }
 
-// Implement FileSystem for references to implement FileSystem
-impl<T: FileSystem + ?Sized> FileSystem for &T {
-    fn read_file(&self, path: &Path) -> Result<String, FileSystemError> {
-        (*self).read_file(path)
-    }
+/// Errors that can occur during file system operations
+#[derive(Error, Debug)]
+pub enum FileSystemError {
+    #[error("IO error: {0}")]
+    IoError(#[from] io::Error),
 
-    fn path_exists(&self, path: &Path) -> bool {
-        (*self).path_exists(path)
-    }
+    #[error("Path not found: {0}")]
+    PathNotFound(String),
 
-    fn expand_path(&self, path: &Path) -> Result<PathBuf, FileSystemError> {
-        (*self).expand_path(path)
-    }
+    #[error("Invalid path: {0}")]
+    InvalidPath(String),
 
-    fn list_directory(&self, path: &Path) -> Result<Vec<PathBuf>, FileSystemError> {
-        (*self).list_directory(path)
-    }
-
-    fn canonicalize(&self, path: &Path) -> Result<PathBuf, FileSystemError> {
-        (*self).canonicalize(path)
-    }
-
-    fn config_dir(&self) -> Result<PathBuf, FileSystemError> {
-        (*self).config_dir()
-    }
+    #[error("Permission denied: {0}")]
+    PermissionDenied(String),
 }
 
 #[cfg(test)]

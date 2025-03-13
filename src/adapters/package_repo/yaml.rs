@@ -62,7 +62,7 @@ impl PackageRepository for YamlPackageRepository<'_> {
         }
 
         let package_file = &package_files[0];
-        let package = Package::from_file(&self.fs, package_file)?;
+        let package = Package::from_file(self.fs, package_file)?;
 
         Ok(package)
     }
