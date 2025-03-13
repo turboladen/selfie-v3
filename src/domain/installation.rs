@@ -7,7 +7,7 @@ use thiserror::Error;
 
 use crate::ports::command::{CommandError, CommandOutput, CommandRunner};
 
-use super::package::{EnvironmentConfig, Package};
+use super::package::EnvironmentConfig;
 
 /// Represents the current status of a package installation
 #[derive(Debug, Clone, PartialEq)]
@@ -40,9 +40,6 @@ pub(crate) enum InstallationStatus {
 /// Represents a package installation
 #[derive(Debug, Clone)]
 pub(crate) struct Installation {
-    /// The package being installed
-    pub(crate) package: Package,
-
     /// Current installation status
     pub(crate) status: InstallationStatus,
 
@@ -52,22 +49,17 @@ pub(crate) struct Installation {
     /// How long the installation took
     pub(crate) duration: Option<Duration>,
 
-    /// The environment name for this installation
-    pub(crate) environment: String,
-
     /// The environment configuration being used
     pub(crate) env_config: EnvironmentConfig,
 }
 
 impl Installation {
     /// Create a new installation
-    pub(crate) fn new(package: Package, environment: &str, env_config: EnvironmentConfig) -> Self {
+    pub(crate) fn new(env_config: EnvironmentConfig) -> Self {
         Self {
-            package,
             status: InstallationStatus::NotStarted,
             start_time: None,
             duration: None,
-            environment: environment.to_string(),
             env_config,
         }
     }
@@ -271,7 +263,10 @@ impl InstallationResult {
 mod tests {
     use super::*;
 
-    use crate::{domain::package::PackageBuilder, ports::command::MockCommandRunner};
+    use crate::{
+        domain::package::{Package, PackageBuilder},
+        ports::command::MockCommandRunner,
+    };
 
     fn create_test_package() -> Package {
         PackageBuilder::default()
@@ -286,7 +281,7 @@ mod tests {
         let package = create_test_package();
         let env_config = package.environments.get("test-env").unwrap().clone();
 
-        let mut installation = Installation::new(package, "test-env", env_config);
+        let mut installation = Installation::new(env_config);
         assert_eq!(installation.status, InstallationStatus::NotStarted);
 
         installation.update_status(InstallationStatus::Checking);
@@ -304,7 +299,7 @@ mod tests {
         let package = create_test_package();
         let env_config = package.environments.get("test-env").unwrap().clone();
 
-        let mut installation = Installation::new(package, "test-env", env_config);
+        let mut installation = Installation::new(env_config);
         assert!(installation.start_time.is_none());
         assert!(installation.duration.is_none());
 
@@ -325,7 +320,7 @@ mod tests {
             .build();
 
         let env_config = package.environments.get("test-env").unwrap().clone();
-        let mut installation = Installation::new(package, "test-env", env_config);
+        let mut installation = Installation::new(env_config);
 
         let runner = MockCommandRunner::new();
 
@@ -339,7 +334,7 @@ mod tests {
     async fn test_execute_check_installed() {
         let package = create_test_package();
         let env_config = package.environments.get("test-env").unwrap().clone();
-        let mut installation = Installation::new(package, "test-env", env_config);
+        let mut installation = Installation::new(env_config);
 
         let mut runner = MockCommandRunner::new();
         runner.mock_execute_success_0("test check", "Package found");
@@ -354,7 +349,7 @@ mod tests {
     async fn test_execute_check_not_installed() {
         let package = create_test_package();
         let env_config = package.environments.get("test-env").unwrap().clone();
-        let mut installation = Installation::new(package, "test-env", env_config);
+        let mut installation = Installation::new(env_config);
 
         let mut runner = MockCommandRunner::new();
         runner.mock_execute_success_1("test check", "Not found");
@@ -369,7 +364,7 @@ mod tests {
     async fn test_execute_check_error() {
         let package = create_test_package();
         let env_config = package.environments.get("test-env").unwrap().clone();
-        let mut installation = Installation::new(package, "test-env", env_config);
+        let mut installation = Installation::new(env_config);
 
         let mut runner = MockCommandRunner::new();
         runner.mock_execute_err(
@@ -389,7 +384,7 @@ mod tests {
     async fn test_execute_install_success() {
         let package = create_test_package();
         let env_config = package.environments.get("test-env").unwrap().clone();
-        let mut installation = Installation::new(package, "test-env", env_config);
+        let mut installation = Installation::new(env_config);
 
         let mut runner = MockCommandRunner::new();
         runner.mock_execute_success_0("test install", "Installed successfully");
@@ -403,7 +398,7 @@ mod tests {
     async fn test_execute_install_failure() {
         let package = create_test_package();
         let env_config = package.environments.get("test-env").unwrap().clone();
-        let mut installation = Installation::new(package, "test-env", env_config);
+        let mut installation = Installation::new(env_config);
 
         let mut runner = MockCommandRunner::new();
         runner.mock_execute_success_1("test install", "Installation failed");
@@ -417,7 +412,7 @@ mod tests {
     async fn test_execute_install_error() {
         let package = create_test_package();
         let env_config = package.environments.get("test-env").unwrap().clone();
-        let mut installation = Installation::new(package, "test-env", env_config);
+        let mut installation = Installation::new(env_config);
 
         let mut runner = MockCommandRunner::new();
         runner.mock_execute_err(

@@ -444,11 +444,7 @@ impl<'a> PackageInstaller<'a> {
         })?;
 
         // Create installation instance
-        let mut installation = Installation::new(
-            package.clone(),
-            self.config.environment(),
-            env_config.clone(),
-        );
+        let mut installation = Installation::new(env_config.clone());
 
         // Start the installation process
         installation.start();
