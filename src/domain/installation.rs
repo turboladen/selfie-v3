@@ -271,10 +271,7 @@ impl InstallationResult {
 mod tests {
     use super::*;
 
-    use crate::{
-        domain::package::PackageBuilder,
-        ports::command::{MockCommandRunner, MockCommandRunnerExt},
-    };
+    use crate::{domain::package::PackageBuilder, ports::command::MockCommandRunner};
 
     fn create_test_package() -> Package {
         PackageBuilder::default()
@@ -345,7 +342,7 @@ mod tests {
         let mut installation = Installation::new(package, "test-env", env_config);
 
         let mut runner = MockCommandRunner::new();
-        runner.success_response("test check", "Package found");
+        runner.mock_execute_success_0("test check", "Package found");
 
         let result = installation.execute_check(&runner).await;
         assert!(result.is_ok());
@@ -360,7 +357,7 @@ mod tests {
         let mut installation = Installation::new(package, "test-env", env_config);
 
         let mut runner = MockCommandRunner::new();
-        runner.error_response("test check", "Not found", 1);
+        runner.mock_execute_success_1("test check", "Not found");
 
         let result = installation.execute_check(&runner).await;
         assert!(result.is_ok());
@@ -375,9 +372,9 @@ mod tests {
         let mut installation = Installation::new(package, "test-env", env_config);
 
         let mut runner = MockCommandRunner::new();
-        runner.add_response(
+        runner.mock_execute_err(
             "test check",
-            Err(CommandError::ExecutionError("Command failed".to_string())),
+            CommandError::ExecutionError("Command failed".to_string()),
         );
 
         let result = installation.execute_check(&runner).await;
@@ -395,7 +392,7 @@ mod tests {
         let mut installation = Installation::new(package, "test-env", env_config);
 
         let mut runner = MockCommandRunner::new();
-        runner.success_response("test install", "Installed successfully");
+        runner.mock_execute_success_0("test install", "Installed successfully");
 
         let result = installation.execute_install(&runner).await;
         assert!(result.is_ok());
@@ -409,7 +406,7 @@ mod tests {
         let mut installation = Installation::new(package, "test-env", env_config);
 
         let mut runner = MockCommandRunner::new();
-        runner.error_response("test install", "Installation failed", 1);
+        runner.mock_execute_success_1("test install", "Installation failed");
 
         let result = installation.execute_install(&runner).await;
         assert!(result.is_err());
@@ -423,9 +420,9 @@ mod tests {
         let mut installation = Installation::new(package, "test-env", env_config);
 
         let mut runner = MockCommandRunner::new();
-        runner.add_response(
+        runner.mock_execute_err(
             "test install",
-            Err(CommandError::ExecutionError("Command failed".to_string())),
+            CommandError::ExecutionError("Command failed".to_string()),
         );
 
         let result = installation.execute_install(&runner).await;

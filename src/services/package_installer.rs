@@ -626,10 +626,7 @@ mod tests {
     use super::*;
     use crate::{
         domain::{config::AppConfigBuilder, package::PackageBuilder},
-        ports::{
-            command::{MockCommandRunner, MockCommandRunnerExt},
-            filesystem::MockFileSystem,
-        },
+        ports::{command::MockCommandRunner, filesystem::MockFileSystem},
     };
 
     fn create_test_package() -> Package {
@@ -666,8 +663,8 @@ mod tests {
         fs.mock_path_exists("/test/path/test-package.yml", false);
         fs.mock_read_file("/test/path/test-package.yaml", package.to_yaml().unwrap());
 
-        runner.error_response("test check", "Not found", 1); // Not installed
-        runner.success_response("test install", "Installed successfully");
+        runner.mock_execute_success_1("test check", "Not found");
+        runner.mock_execute_success_0("test install", "Installed successfully");
         runner.mock_is_command_available("test", true);
 
         let manager = PackageInstaller::new(&fs, &runner, &config, &progress_manager, true);
@@ -689,7 +686,7 @@ mod tests {
         fs.mock_path_exists("/test/path/test-package.yml", false);
         fs.mock_read_file("/test/path/test-package.yaml", package.to_yaml().unwrap());
 
-        runner.success_response("test check", "Found"); // Already installed
+        runner.mock_execute_success_0("test check", "Found"); // Already installed
         runner.mock_is_command_available("test", true);
 
         let manager = PackageInstaller::new(&fs, &runner, &config, &progress_manager, true);
@@ -711,8 +708,8 @@ mod tests {
         fs.mock_path_exists("/test/path/test-package.yml", false);
         fs.mock_read_file("/test/path/test-package.yaml", package.to_yaml().unwrap());
 
-        runner.error_response("test check", "Not found", 1); // Not installed
-        runner.error_response("test install", "Installation failed", 1);
+        runner.mock_execute_success_1("test check", "Not found");
+        runner.mock_execute_success_1("test install", "Installation failed");
         runner.mock_is_command_available("test", true);
 
         let manager = PackageInstaller::new(&fs, &runner, &config, &progress_manager, true);
@@ -796,8 +793,8 @@ mod tests {
         fs.mock_read_file(&ripgrep, package_yaml);
 
         // Set up mock command responses
-        runner.error_response("rg check", "Not found", 1); // Not installed
-        runner.success_response("rg install", "Installed successfully");
+        runner.mock_execute_success_1("rg check", "Not found");
+        runner.mock_execute_success_0("rg install", "Installed successfully");
 
         let progress_manager = ProgressManager::new(false, true);
 
@@ -860,10 +857,10 @@ mod tests {
         fs.mock_read_file(&rust, dependency_yaml);
 
         // Set up mock command responses
-        runner.error_response("rg check", "Not found", 1); // Not installed
-        runner.success_response("rg install", "Installed successfully");
-        runner.error_response("rust check", "Not found", 1); // Not installed
-        runner.success_response("rust install", "Installed successfully");
+        runner.mock_execute_success_1("rg check", "Not found");
+        runner.mock_execute_success_0("rg install", "Installed successfully");
+        runner.mock_execute_success_1("rust check", "Not found");
+        runner.mock_execute_success_0("rust install", "Installed successfully");
 
         let progress_manager = ProgressManager::new(false, true);
 
@@ -961,14 +958,14 @@ mod tests {
         fs.mock_read_file(&dep3, dep3_yaml);
 
         // Set up mock command responses - all need to be installed
-        runner.error_response("main-check", "Not found", 1);
-        runner.success_response("main-install", "Installed successfully");
-        runner.error_response("dep1-check", "Not found", 1);
-        runner.success_response("dep1-install", "Installed successfully");
-        runner.error_response("dep2-check", "Not found", 1);
-        runner.success_response("dep2-install", "Installed successfully");
-        runner.error_response("dep3-check", "Not found", 1);
-        runner.success_response("dep3-install", "Installed successfully");
+        runner.mock_execute_success_1("main-check", "Not found");
+        runner.mock_execute_success_0("main-install", "Installed successfully");
+        runner.mock_execute_success_1("dep1-check", "Not found");
+        runner.mock_execute_success_0("dep1-install", "Installed successfully");
+        runner.mock_execute_success_1("dep2-check", "Not found");
+        runner.mock_execute_success_0("dep2-install", "Installed successfully");
+        runner.mock_execute_success_1("dep3-check", "Not found");
+        runner.mock_execute_success_0("dep3-install", "Installed successfully");
 
         let progress_manager = ProgressManager::new(false, true);
 
