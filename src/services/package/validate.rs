@@ -10,7 +10,6 @@ use crate::{
         validation::{ValidationErrorCategory, ValidationIssue, ValidationResult},
     },
     ports::{
-        command::CommandRunner,
         filesystem::{FileSystem, FileSystemError},
         package_repo::{PackageRepoError, PackageRepository},
     },
@@ -44,26 +43,21 @@ pub(crate) enum PackageValidatorError {
 /// Validates package files with detailed error reporting and command validation
 pub(crate) struct PackageValidator<'a> {
     fs: &'a dyn FileSystem,
-    runner: &'a dyn CommandRunner,
     config: &'a AppConfig,
     package_repo: &'a dyn PackageRepository,
-    command_validator: CommandValidator<'a>, // Add CommandValidator
+    command_validator: &'a CommandValidator<'a>,
 }
 
 impl<'a> PackageValidator<'a> {
     /// Create a new package validator
     pub(crate) fn new(
         fs: &'a dyn FileSystem,
-        runner: &'a dyn CommandRunner,
         config: &'a AppConfig,
         package_repo: &'a dyn PackageRepository,
+        command_validator: &'a CommandValidator<'a>,
     ) -> Self {
-        // Create a CommandValidator instance
-        let command_validator = CommandValidator::new(runner);
-
         Self {
             fs,
-            runner,
             config,
             package_repo,
             command_validator,
@@ -381,7 +375,8 @@ environments:
         let progress_manager = ProgressManager::default();
         let package_repo =
             YamlPackageRepository::new(&fs, config.expanded_package_directory(), &progress_manager);
-        let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
+        let command_validator = CommandValidator::new(&runner);
+        let validator = PackageValidator::new(&fs, &config, &package_repo, &command_validator);
         let result = validator
             .validate_package_by_name("test-package")
             .await
@@ -416,7 +411,8 @@ environments:
         let progress_manager = ProgressManager::default();
         let package_repo =
             YamlPackageRepository::new(&fs, config.expanded_package_directory(), &progress_manager);
-        let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
+        let command_validator = CommandValidator::new(&runner);
+        let validator = PackageValidator::new(&fs, &config, &package_repo, &command_validator);
         let result = validator
             .validate_package_file(Path::new("/test/packages/incomplete.yaml"))
             .await
@@ -457,7 +453,8 @@ environments:
         let progress_manager = ProgressManager::default();
         let package_repo =
             YamlPackageRepository::new(&fs, config.expanded_package_directory(), &progress_manager);
-        let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
+        let command_validator = CommandValidator::new(&runner);
+        let validator = PackageValidator::new(&fs, &config, &package_repo, &command_validator);
         let result = validator
             .validate_package_file(Path::new("/test/packages/invalid-url.yaml"))
             .await
@@ -490,7 +487,8 @@ environments:
         let progress_manager = ProgressManager::default();
         let package_repo =
             YamlPackageRepository::new(&fs, config.expanded_package_directory(), &progress_manager);
-        let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
+        let command_validator = CommandValidator::new(&runner);
+        let validator = PackageValidator::new(&fs, &config, &package_repo, &command_validator);
         let result = validator
             .validate_package_file(Path::new("/test/packages/bad-commands.yaml"))
             .await

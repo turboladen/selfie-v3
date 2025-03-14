@@ -87,6 +87,7 @@ pub(crate) enum PackageParseError {
 
 impl Package {
     /// Create a new package with the specified attributes
+    #[cfg(test)]
     pub(crate) fn new(
         name: String,
         version: String,
@@ -145,6 +146,7 @@ impl Package {
     }
 
     // Serialize to YAML
+    #[cfg(test)]
     pub(crate) fn to_yaml(&self) -> Result<String, serde_yaml::Error> {
         serde_yaml::to_string(self)
     }

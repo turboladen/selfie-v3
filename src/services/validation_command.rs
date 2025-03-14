@@ -2,9 +2,11 @@
 use crate::{
     adapters::{package_repo::yaml::YamlPackageRepository, progress::ProgressManager},
     domain::{application::commands::PackageCommand, config::AppConfig},
-    ports::{command::CommandRunner, filesystem::FileSystem},
+    ports::filesystem::FileSystem,
     services::package::validate::PackageValidator,
 };
+
+use super::command_validator::CommandValidator;
 
 /// Result of running the validate command
 #[derive(Debug)]
@@ -20,24 +22,24 @@ pub(crate) enum ValidationCommandResult {
 /// Handles the 'package validate' command
 pub(crate) struct ValidationCommand<'a> {
     fs: &'a dyn FileSystem,
-    runner: &'a dyn CommandRunner,
     config: &'a AppConfig,
     progress_manager: &'a ProgressManager,
+    command_validator: &'a CommandValidator<'a>,
 }
 
 impl<'a> ValidationCommand<'a> {
     /// Create a new validate command handler
     pub(crate) fn new(
         fs: &'a dyn FileSystem,
-        runner: &'a dyn CommandRunner,
         config: &'a AppConfig,
         progress_manager: &'a ProgressManager,
+        command_validator: &'a CommandValidator,
     ) -> Self {
         Self {
             fs,
-            runner,
             config,
             progress_manager,
+            command_validator,
         }
     }
 
@@ -59,8 +61,12 @@ impl<'a> ValidationCommand<'a> {
                 );
 
                 // Create the enhanced validator
-                let validator =
-                    PackageValidator::new(self.fs, self.runner, self.config, &package_repo);
+                let validator = PackageValidator::new(
+                    self.fs,
+                    self.config,
+                    &package_repo,
+                    self.command_validator,
+                );
 
                 // Validate package
                 let result = if let Some(path) = package_path {
@@ -112,6 +118,7 @@ mod tests {
     use crate::{
         domain::{application::commands::PackageCommand, config::AppConfigBuilder},
         ports::{command::MockCommandRunner, filesystem::MockFileSystem},
+        services::command_validator,
     };
 
     #[tokio::test]
@@ -145,8 +152,9 @@ mod tests {
             .build();
 
         let progress_manager = ProgressManager::from(&config);
+        let command_validator = CommandValidator::new(&runner);
 
-        let cmd = ValidationCommand::new(&fs, &runner, &config, &progress_manager);
+        let cmd = ValidationCommand::new(&fs, &config, &progress_manager, &command_validator);
 
         let package_cmd = PackageCommand::Validate {
             package_name: "test-package".to_string(),
@@ -218,14 +226,9 @@ mod tests {
 
         runner.mock_is_command_available("which", true);
 
-        // Set up package repository for file finding
-        // let package_repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
-
-        // Create progress manager
         let progress_manager = ProgressManager::default();
-
-        // Create validation command
-        let command = ValidationCommand::new(&fs, &runner, &config, &progress_manager);
+        let command_validator = CommandValidator::new(&runner);
+        let command = ValidationCommand::new(&fs, &config, &progress_manager, &command_validator);
 
         // Test validation on valid package
         let valid_cmd = crate::domain::application::commands::PackageCommand::Validate {

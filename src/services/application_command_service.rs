@@ -12,8 +12,11 @@ use crate::{
 };
 
 use super::{
-    package::install::{PackageInstaller, PackageInstallerError},
-    package::list::{PackageListResult, PackageListService},
+    command_validator::CommandValidator,
+    package::{
+        install::{PackageInstaller, PackageInstallerError},
+        list::{PackageListResult, PackageListService},
+    },
     validation_command::{ValidationCommand, ValidationCommandResult},
 };
 
@@ -157,12 +160,13 @@ impl ApplicationCommandRouter for ApplicationCommandService<'_> {
                         // Don't propagate the error; let the ?command run through even if the
                         // config is bad.
                         let _ = self.validate_config(true);
+                        let command_validator = CommandValidator::new(&*self.runner);
 
                         let validate_cmd = ValidationCommand::new(
                             self.fs,
-                            &*self.runner,
                             self.app_config,
                             &progress_manager,
+                            &command_validator,
                         );
 
                         match validate_cmd.execute(pkg_cmd).await {
@@ -219,107 +223,4 @@ impl ApplicationCommandRouter for ApplicationCommandService<'_> {
             },
         }
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    use crate::{
-        domain::{application::commands::ApplicationCommand, config::AppConfig},
-        ports::{
-            application::ApplicationArguments,
-            command::MockCommandRunner,
-            config_loader::{ConfigLoadError, MockConfigLoader},
-            filesystem::MockFileSystem,
-        },
-    };
-
-    fn setup_service_with_config(
-        app_config: Option<AppConfig>,
-        app_args: Option<ApplicationArguments>,
-    ) -> (MockFileSystem, MockCommandRunner, MockConfigLoader) {
-        let fs = MockFileSystem::default();
-        let runner = MockCommandRunner::new();
-        let mut config_loader = MockConfigLoader::new();
-
-        match (app_config, app_args) {
-            (Some(config), Some(app_args)) => {
-                config_loader.mock_load_config_ok(app_args, config);
-            }
-            (None, Some(app_args)) => {
-                config_loader.mock_load_config_err(app_args, ConfigLoadError::NotFound);
-            }
-            (Some(config), None) => {
-                config_loader.mock_load_config_ok(ApplicationArguments::default(), config);
-            }
-            (None, None) => {
-                config_loader.mock_load_config_err(
-                    ApplicationArguments::default(),
-                    ConfigLoadError::NotFound,
-                );
-            }
-        }
-
-        (fs, runner, config_loader)
-    }
-
-    // #[test]
-    // fn test_build_app_config() {
-    //     // Setup mock config loader to return a test config
-    //     let app_config = AppConfig::new("file-env".to_string(), PathBuf::from("/file/path"));
-    //
-    //     // Create arguments with CLI overrides
-    //     let args = ApplicationArguments {
-    //         environment: Some("cli-env".to_string()),
-    //         package_directory: Some(PathBuf::from("/cli/path")),
-    //         verbose: true,
-    //         no_color: true,
-    //         command: ApplicationCommand::Package(PackageCommand::List),
-    //     };
-    //
-    //     let (fs, runner, config_loader) =
-    //         setup_service_with_config(Some(app_config.clone()), Some(args.clone()));
-    //     let service = ApplicationCommandService::new(&fs, &runner, &app_config);
-    //
-    //     // Build the app config
-    //     let app_config = service.build_config(&args, false).unwrap();
-    //
-    //     // CLI args should take precedence
-    //     assert_eq!(app_config.environment(), "cli-env");
-    //     assert_eq!(app_config.package_directory(), Path::new("/cli/path"));
-    //     assert!(app_config.verbose());
-    //     assert!(!app_config.use_colors());
-    //
-    //     // But other settings should come from file config
-    //     assert_eq!(app_config.command_timeout().as_secs(), 60); // Default value
-    // }
-
-    // #[test]
-    // fn test_build_app_config_no_file() {
-    //     // Setup default config
-    //     let default_config =
-    //         AppConfig::new("default-env".to_string(), PathBuf::from("/default/path"));
-    //     let (fs, runner, config_loader) = setup_service_with_config(Some(default_config), None);
-    //
-    //     let service = ApplicationCommandService::new(&fs, &runner, &config_loader);
-    //
-    //     // Create arguments with no overrides
-    //     let args = ApplicationArguments {
-    //         environment: None,
-    //         package_directory: None,
-    //         verbose: false,
-    //         no_color: false,
-    //         command: ApplicationCommand::Package(PackageCommand::List),
-    //     };
-    //
-    //     // Build the app config
-    //     let app_config = service.build_config(&args, false).unwrap();
-    //
-    //     // Should use default config
-    //     assert_eq!(app_config.environment(), "default-env");
-    //     assert_eq!(app_config.package_directory(), Path::new("/default/path"));
-    //     assert!(!app_config.verbose());
-    //     assert!(app_config.use_colors());
-    // }
 }
