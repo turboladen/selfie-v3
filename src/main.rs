@@ -24,7 +24,8 @@ async fn main() -> Result<(), anyhow::Error> {
     let args = match ClapCli::parse_arguments() {
         Ok(args) => args,
         Err(err) => {
-            eprintln!("Error: {}", err);
+            let progress_manager = ProgressManager::new(false, true);
+            progress_manager.print_error(format!("Error: {}", err));
             process::exit(1);
         }
     };
@@ -40,24 +41,22 @@ async fn main() -> Result<(), anyhow::Error> {
     let progress_manager = ProgressManager::new(!args.no_color, args.verbose);
 
     // Process the command and get an exit code
-    let exit_code = match cmd_service.process_command(args).await {
-        Ok(code) => code,
+    match cmd_service.process_command(args).await {
+        Ok(code) => process::exit(code),
         Err(err) => {
             // Create context for the error
             let context =
                 ErrorContext::default().with_message("Error occurred while processing command");
 
             // Format and print the error
-            eprintln!("Error: {}", err);
+            progress_manager.print_error(format!("Error: {}", err));
 
             // If we have detailed error information and verbose is enabled, print it
             if progress_manager.verbose() {
-                eprintln!("Error context: {}", context);
+                progress_manager.print_info(format!("Error context: {}", context));
             }
 
-            1
+            process::exit(1)
         }
-    };
-
-    process::exit(exit_code);
+    }
 }

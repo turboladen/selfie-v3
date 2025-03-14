@@ -75,7 +75,7 @@ impl ProgressManager {
         self.status_line(MessageType::Success, message)
     }
 
-    /// Format a message with an info indicator
+    /// Formeprintln!at a message with an info indicator
     pub(crate) fn info(&self, message: impl fmt::Display) -> String {
         self.status_line(MessageType::Info, message)
     }
@@ -136,12 +136,12 @@ impl ProgressManager {
     }
 
     /// Print an error message
-    pub(crate) fn print_error(&self, message: impl fmt::Display) {
+    pub fn print_error(&self, message: impl fmt::Display) {
         eprintln!("{}", self.error(message));
     }
 
     /// Print an info message
-    pub(crate) fn print_info(&self, message: impl fmt::Display) {
+    pub fn print_info(&self, message: impl fmt::Display) {
         println!("{}", self.info(message));
     }
 
