@@ -177,7 +177,7 @@ impl AppConfig {
     }
 
     /// Apply CLI arguments to override configuration
-    pub(crate) fn apply_cli_args(mut self, args: &ApplicationArguments) -> Self {
+    pub fn apply_cli_args(mut self, args: &ApplicationArguments) -> Self {
         // Override environment if specified
         if let Some(env) = args.environment.as_ref() {
             self.environment = env.clone();

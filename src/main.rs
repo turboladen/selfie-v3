@@ -30,12 +30,14 @@ async fn main() -> Result<(), anyhow::Error> {
         }
     };
 
-    let config_loader = config_loader::Yaml::new(&fs);
-    let app_config = config_loader.load_config(&args)?;
+    let app_config = config_loader::Yaml::new(&fs)
+        .load_config(&args)?
+        .apply_cli_args(&args);
+
     let runner = ShellCommandRunner::new("/bin/sh", app_config.command_timeout());
 
     // Create the command service to route and execute the command
-    let cmd_service = ApplicationCommandService::new(&fs, &runner, &config_loader);
+    let cmd_service = ApplicationCommandService::new(&fs, &runner, &app_config);
 
     // Create a progress manager for error formatting
     let progress_manager = ProgressManager::new(!args.no_color, args.verbose);
