@@ -65,7 +65,7 @@ impl<'a> PackageValidator<'a> {
     }
 
     /// Validate a package by name
-    pub(crate) fn validate_package_by_name(
+    pub(crate) async fn validate_package_by_name(
         &self,
         package_name: &str,
     ) -> Result<ValidationResult, PackageValidatorError> {
@@ -88,11 +88,11 @@ impl<'a> PackageValidator<'a> {
         }
 
         let package_path = &package_files[0];
-        self.validate_package_file(package_path)
+        self.validate_package_file(package_path).await
     }
 
     /// Validate a specific package file
-    pub(crate) fn validate_package_file(
+    pub(crate) async fn validate_package_file(
         &self,
         package_path: &Path,
     ) -> Result<ValidationResult, PackageValidatorError> {
@@ -125,7 +125,7 @@ impl<'a> PackageValidator<'a> {
                 result.add_issues(domain_issues);
 
                 // Run the enhanced validation which now includes command validation
-                self.enhance_validation(&pkg, &mut result);
+                self.enhance_validation(&pkg, &mut result).await;
 
                 // Set the package
                 result = result.with_package(pkg);
@@ -485,8 +485,8 @@ environments:
         .to_string()
     }
 
-    #[test]
-    fn test_validate_valid_package() {
+    #[tokio::test]
+    async fn test_validate_valid_package() {
         let (mut fs, mut runner, config) = setup_test_environment();
 
         // Add a valid package file
@@ -503,14 +503,17 @@ environments:
         let package_repo =
             YamlPackageRepository::new(&fs, config.expanded_package_directory(), &progress_manager);
         let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
-        let result = validator.validate_package_by_name("test-package").unwrap();
+        let result = validator
+            .validate_package_by_name("test-package")
+            .await
+            .unwrap();
 
         assert!(result.is_valid());
         assert_eq!(result.issues.len(), 0);
     }
 
-    #[test]
-    fn test_validate_missing_required_fields() {
+    #[tokio::test]
+    async fn test_validate_missing_required_fields() {
         let (mut fs, mut runner, config) = setup_test_environment();
 
         // Add an invalid package file with missing fields
@@ -533,6 +536,7 @@ environments:
         let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
         let result = validator
             .validate_package_file(Path::new("/test/packages/incomplete.yaml"))
+            .await
             .unwrap();
 
         assert!(!result.is_valid());
@@ -550,8 +554,8 @@ environments:
         assert!(version_error.is_some());
     }
 
-    #[test]
-    fn test_validate_invalid_url() {
+    #[tokio::test]
+    async fn test_validate_invalid_url() {
         let (mut fs, mut runner, config) = setup_test_environment();
 
         // Add a package with invalid URL
@@ -573,6 +577,7 @@ environments:
         let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
         let result = validator
             .validate_package_file(Path::new("/test/packages/invalid-url.yaml"))
+            .await
             .unwrap();
 
         // Should have a URL format error
@@ -581,8 +586,8 @@ environments:
         assert_eq!(url_errors[0].field, "homepage");
     }
 
-    #[test]
-    fn test_validate_command_syntax() {
+    #[tokio::test]
+    async fn test_validate_command_syntax() {
         let (mut fs, mut runner, config) = setup_test_environment();
 
         // Add a package with command syntax errors
@@ -605,6 +610,7 @@ environments:
         let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
         let result = validator
             .validate_package_file(Path::new("/test/packages/bad-commands.yaml"))
+            .await
             .unwrap();
 
         // Should have command syntax errors
@@ -620,8 +626,8 @@ environments:
             .any(|e| e.message.contains("Invalid pipe usage")));
     }
 
-    #[test]
-    fn test_validate_version_format() {
+    #[tokio::test]
+    async fn test_validate_version_format() {
         let (mut fs, mut runner, config) = setup_test_environment();
 
         // Add a package with non-semver version
@@ -642,6 +648,7 @@ environments:
         let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
         let result = validator
             .validate_package_file(Path::new("/test/packages/bad-version.yaml"))
+            .await
             .unwrap();
 
         // Should have a version format warning (not error)
@@ -651,8 +658,8 @@ environments:
         assert_eq!(version_issues[0].field, "version");
     }
 
-    #[test]
-    fn test_validate_missing_environment() {
+    #[tokio::test]
+    async fn test_validate_missing_environment() {
         let (mut fs, runner, config) = setup_test_environment();
 
         // Add a package without the current environment
@@ -671,6 +678,7 @@ environments:
         let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
         let result = validator
             .validate_package_file(Path::new("/test/packages/missing-env.yaml"))
+            .await
             .unwrap();
 
         // Should have an environment warning
@@ -680,8 +688,8 @@ environments:
         assert!(env_issues[0].message.contains("'test-env'"));
     }
 
-    #[test]
-    fn test_package_not_found() {
+    #[tokio::test]
+    async fn test_package_not_found() {
         let (mut fs, runner, config) = setup_test_environment();
         fs.mock_path_exists(
             config.expanded_package_directory().join("nonexistent.yaml"),
@@ -696,7 +704,7 @@ environments:
         let package_repo =
             YamlPackageRepository::new(&fs, config.expanded_package_directory(), &progress_manager);
         let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
-        let result = validator.validate_package_by_name("nonexistent");
+        let result = validator.validate_package_by_name("nonexistent").await;
 
         assert!(matches!(
             result,
@@ -704,8 +712,8 @@ environments:
         ));
     }
 
-    #[test]
-    fn test_multiple_packages_found() {
+    #[tokio::test]
+    async fn test_multiple_packages_found() {
         let (mut fs, runner, config) = setup_test_environment();
 
         // Add two files for the same package
@@ -716,7 +724,7 @@ environments:
         let package_repo =
             YamlPackageRepository::new(&fs, config.expanded_package_directory(), &progress_manager);
         let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
-        let result = validator.validate_package_by_name("duplicate");
+        let result = validator.validate_package_by_name("duplicate").await;
 
         assert!(matches!(
             result,
@@ -724,8 +732,8 @@ environments:
         ));
     }
 
-    #[test]
-    fn test_validate_package_file() {
+    #[tokio::test]
+    async fn test_validate_package_file() {
         let yaml = r#"
 name: test-package
 version: 1.0.0
@@ -743,7 +751,7 @@ environments:
         let validator = PackageValidator::new(&fs, &runner, &config, &package_repo);
 
         // This is a simplified test that would need more mocking to validate actual functionality
-        let result = validator.validate_package_file(package_path).unwrap();
+        let result = validator.validate_package_file(package_path).await.unwrap();
 
         // Should fail because the file doesn't exist in our mock filesystem
         pretty_assertions::assert_eq!(

@@ -165,7 +165,7 @@ impl ApplicationCommandRouter for ApplicationCommandService<'_> {
                             &progress_manager,
                         );
 
-                        match validate_cmd.execute(pkg_cmd) {
+                        match validate_cmd.execute(pkg_cmd).await {
                             ValidationCommandResult::Valid(output) => {
                                 progress_manager.print_success(output);
                                 0

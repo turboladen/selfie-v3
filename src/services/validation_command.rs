@@ -42,7 +42,7 @@ impl<'a> ValidationCommand<'a> {
     }
 
     /// Execute the validate command
-    pub(crate) fn execute(&self, cmd: &PackageCommand) -> ValidationCommandResult {
+    pub(crate) async fn execute(&self, cmd: &PackageCommand) -> ValidationCommandResult {
         match cmd {
             PackageCommand::Validate {
                 package_name,
@@ -64,9 +64,9 @@ impl<'a> ValidationCommand<'a> {
 
                 // Validate package
                 let result = if let Some(path) = package_path {
-                    validator.validate_package_file(path)
+                    validator.validate_package_file(path).await
                 } else {
-                    validator.validate_package_by_name(package_name)
+                    validator.validate_package_by_name(package_name).await
                 };
 
                 match result {
@@ -114,8 +114,8 @@ mod tests {
         ports::{command::MockCommandRunner, filesystem::MockFileSystem},
     };
 
-    #[test]
-    fn test_execute_validation_command() {
+    #[tokio::test]
+    async fn test_execute_validation_command() {
         let package_dir = Path::new("/test/packages");
 
         let mut fs = MockFileSystem::default();
@@ -155,7 +155,7 @@ mod tests {
 
         // This would need to be more thoroughly mocked to test actual validation
         // For now we're just testing that the command structure works
-        let result = cmd.execute(&package_cmd);
+        let result = cmd.execute(&package_cmd).await;
 
         match result {
             ValidationCommandResult::Invalid(_) => {
@@ -165,8 +165,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_validation_integration() {
+    #[tokio::test]
+    async fn test_validation_integration() {
         // Set up test environment
         let mut fs = MockFileSystem::default();
         let mut runner = MockCommandRunner::new();
@@ -233,7 +233,7 @@ mod tests {
             package_path: None,
         };
 
-        let result = command.execute(&valid_cmd);
+        let result = command.execute(&valid_cmd).await;
         match result {
             ValidationCommandResult::Valid(output) => {
                 assert!(output.contains("valid-package"));
@@ -248,7 +248,7 @@ mod tests {
             package_path: None,
         };
 
-        let result = command.execute(&invalid_cmd);
+        let result = command.execute(&invalid_cmd).await;
         match result {
             ValidationCommandResult::Invalid(output) => {
                 assert!(output.contains("invalid-package"));
@@ -265,7 +265,7 @@ mod tests {
             package_path: Some(valid_path),
         };
 
-        let result = command.execute(&path_cmd);
+        let result = command.execute(&path_cmd).await;
         match result {
             ValidationCommandResult::Valid(_) => {
                 // Expected result
