@@ -1,4 +1,4 @@
-// src/services/package_validator.rs
+// src/services/package/validate.rs
 use std::path::Path;
 
 use thiserror::Error;
@@ -146,9 +146,9 @@ impl<'a> PackageValidator<'a> {
     }
 
     /// Enhanced validation that includes command validation
-    fn enhance_validation(&self, package: &Package, result: &mut ValidationResult) {
+    async fn enhance_validation(&self, package: &Package, result: &mut ValidationResult) {
         // Add command availability checks
-        self.validate_command_availability(package, result);
+        self.validate_command_availability(package, result).await;
 
         // Add command syntax validation
         self.validate_command_syntax(package, result);

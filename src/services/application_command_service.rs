@@ -12,8 +12,8 @@ use crate::{
 };
 
 use super::{
-    package_installer::{PackageInstaller, PackageInstallerError},
-    package_list_service::{PackageListResult, PackageListService},
+    package::install::{PackageInstaller, PackageInstallerError},
+    package::list::{PackageListResult, PackageListService},
     validation_command::{ValidationCommand, ValidationCommandResult},
 };
 
@@ -154,7 +154,7 @@ impl ApplicationCommandRouter for ApplicationCommandService<'_> {
                         0
                     }
                     PackageCommand::Validate { .. } => {
-                        // Don't propagate the error; let the command run through even if the
+                        // Don't propagate the error; let the ?command run through even if the
                         // config is bad.
                         let _ = self.validate_config(true);
 
@@ -223,9 +223,8 @@ impl ApplicationCommandRouter for ApplicationCommandService<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
-
     use super::*;
+
     use crate::{
         domain::{application::commands::ApplicationCommand, config::AppConfig},
         ports::{

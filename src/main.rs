@@ -25,8 +25,7 @@ async fn main() -> Result<(), anyhow::Error> {
         let args = match ClapCli::parse_arguments() {
             Ok(args) => args,
             Err(err) => {
-                let progress_manager = ProgressManager::new(false, true);
-                progress_manager.print_error(format!("Error: {}", err));
+                ProgressManager::new(false, true).print_error(format!("Error: {}", err));
                 process::exit(1);
             }
         };

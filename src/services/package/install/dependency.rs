@@ -1,4 +1,4 @@
-// src/package_installer/dependency.rs
+// src/services/package/installer/dependency.rs
 use thiserror::Error;
 
 use crate::{

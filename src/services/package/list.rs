@@ -1,4 +1,4 @@
-// src/services/package_list_service.rs
+// src/services/package/list.rs
 // Enhanced implementation of the 'selfie package list' command with command availability checking
 
 use console::style;

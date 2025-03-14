@@ -3,7 +3,7 @@ use crate::{
     adapters::{package_repo::yaml::YamlPackageRepository, progress::ProgressManager},
     domain::{application::commands::PackageCommand, config::AppConfig},
     ports::{command::CommandRunner, filesystem::FileSystem},
-    services::package_validator::PackageValidator,
+    services::package::validate::PackageValidator,
 };
 
 /// Result of running the validate command

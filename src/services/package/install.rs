@@ -1,4 +1,4 @@
-// src/services/package_installer.rs
+// src/services/package/installer.rs
 mod dependency;
 
 use std::time::Instant;
