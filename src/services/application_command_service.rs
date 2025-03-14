@@ -56,8 +56,6 @@ impl<'a> ApplicationCommandService<'a> {
 #[async_trait::async_trait]
 impl ApplicationCommandRouter for ApplicationCommandService<'_> {
     async fn process_command(&self, args: ApplicationArguments) -> Result<i32, ApplicationError> {
-        self.validate_config(true)?;
-
         // Create a progress manager using the unified AppConfig
         let progress_manager = ProgressManager::from(self.app_config);
 
@@ -69,6 +67,8 @@ impl ApplicationCommandRouter for ApplicationCommandService<'_> {
             ApplicationCommand::Package(pkg_cmd) => {
                 match &pkg_cmd {
                     PackageCommand::Install { package_name } => {
+                        self.validate_config(true)?;
+
                         // For install commands, we need a fully valid config
                         // Use the consolidated package installer with our unified config
                         let installer = PackageInstaller::new(
@@ -106,6 +106,8 @@ impl ApplicationCommandRouter for ApplicationCommandService<'_> {
                         }
                     }
                     PackageCommand::List => {
+                        self.validate_config(false)?;
+
                         // For list commands, we only need a minimal config validation
                         let package_repo = YamlPackageRepository::new(
                             self.fs,
@@ -134,6 +136,8 @@ impl ApplicationCommandRouter for ApplicationCommandService<'_> {
                         }
                     }
                     PackageCommand::Info { package_name } => {
+                        self.validate_config(false)?;
+
                         progress_manager.print_warning(format!(
                             "Package info for '{}' not implemented yet",
                             package_name
@@ -141,6 +145,8 @@ impl ApplicationCommandRouter for ApplicationCommandService<'_> {
                         0
                     }
                     PackageCommand::Create { package_name } => {
+                        self.validate_config(true)?;
+
                         progress_manager.print_warning(format!(
                             "Package creation for '{}' not implemented yet",
                             package_name
@@ -148,6 +154,10 @@ impl ApplicationCommandRouter for ApplicationCommandService<'_> {
                         0
                     }
                     PackageCommand::Validate { .. } => {
+                        // Don't propagate the error; let the command run through even if the
+                        // config is bad.
+                        let _ = self.validate_config(true);
+
                         let validate_cmd = ValidationCommand::new(
                             self.fs,
                             &*self.runner,
