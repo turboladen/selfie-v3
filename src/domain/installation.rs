@@ -1,5 +1,5 @@
 // src/domain/installation.rs
-// Installation domain model
+// Installation domain model using state machine pattern
 
 use std::time::{Duration, Instant};
 
@@ -8,6 +8,339 @@ use thiserror::Error;
 use crate::ports::command::{CommandError, CommandOutput, CommandRunner};
 
 use super::package::EnvironmentConfig;
+
+/// Represents a package installation as a state machine
+#[derive(Debug, Clone)]
+pub(crate) enum Installation {
+    NotStarted {
+        env_config: EnvironmentConfig,
+    },
+    Checking {
+        env_config: EnvironmentConfig,
+        start_time: Instant,
+    },
+    NotAlreadyInstalled {
+        env_config: EnvironmentConfig,
+        start_time: Instant,
+        check_duration: Duration,
+    },
+    AlreadyInstalled {
+        env_config: EnvironmentConfig,
+        start_time: Instant,
+        check_duration: Duration,
+    },
+    Installing {
+        env_config: EnvironmentConfig,
+        start_time: Instant,
+        check_duration: Duration,
+    },
+    Complete {
+        env_config: EnvironmentConfig,
+        start_time: Instant,
+        duration: Duration,
+        command_output: CommandOutput,
+    },
+    Failed {
+        env_config: EnvironmentConfig,
+        start_time: Instant,
+        duration: Duration,
+        error_message: String,
+    },
+    Skipped {
+        env_config: EnvironmentConfig,
+        start_time: Instant,
+        duration: Duration,
+        reason: String,
+    },
+}
+
+impl Installation {
+    /// Create a new installation in NotStarted state
+    pub(crate) fn new(env_config: EnvironmentConfig) -> Self {
+        Self::NotStarted { env_config }
+    }
+
+    /// Start the installation process
+    pub(crate) fn start(self) -> Self {
+        match self {
+            Self::NotStarted { env_config } => Self::Checking {
+                env_config,
+                start_time: Instant::now(),
+            },
+            other => other, // No-op for other states
+        }
+    }
+
+    /// Mark as not installed after check
+    fn mark_not_already_installed(self) -> Self {
+        match self {
+            Self::Checking {
+                env_config,
+                start_time,
+            } => Self::NotAlreadyInstalled {
+                env_config,
+                start_time,
+                check_duration: start_time.elapsed(),
+            },
+            other => other,
+        }
+    }
+
+    /// Mark as already installed after check
+    fn mark_already_installed(self) -> Self {
+        match self {
+            Self::Checking {
+                env_config,
+                start_time,
+            } => Self::AlreadyInstalled {
+                env_config,
+                start_time,
+                check_duration: start_time.elapsed(),
+            },
+            other => other,
+        }
+    }
+
+    /// Start installing
+    fn start_installing(self) -> Self {
+        match self {
+            Self::NotAlreadyInstalled {
+                env_config,
+                start_time,
+                check_duration,
+            } => Self::Installing {
+                env_config,
+                start_time,
+                check_duration,
+            },
+            other => other,
+        }
+    }
+
+    /// Mark as complete
+    fn complete(self, command_output: CommandOutput) -> Self {
+        match self {
+            Self::Installing {
+                env_config,
+                start_time,
+                ..
+            } => Self::Complete {
+                env_config,
+                start_time,
+                duration: start_time.elapsed(),
+                command_output,
+            },
+            other => other,
+        }
+    }
+
+    /// Mark as failed
+    fn fail(self, error_message: String) -> Self {
+        match self {
+            Self::Checking {
+                env_config,
+                start_time,
+            } => Self::Failed {
+                env_config,
+                start_time,
+                duration: start_time.elapsed(),
+                error_message,
+            },
+            Self::Installing {
+                env_config,
+                start_time,
+                ..
+            } => Self::Failed {
+                env_config,
+                start_time,
+                duration: start_time.elapsed(),
+                error_message,
+            },
+            Self::NotAlreadyInstalled {
+                env_config,
+                start_time,
+                ..
+            } => Self::Failed {
+                env_config,
+                start_time,
+                duration: start_time.elapsed(),
+                error_message,
+            },
+            other => other,
+        }
+    }
+
+    /// Mark as skipped
+    fn skip(self, reason: String) -> Self {
+        match self {
+            Self::NotStarted { env_config } => {
+                let start_time = Instant::now();
+                Self::Skipped {
+                    env_config,
+                    start_time,
+                    duration: Duration::from_secs(0),
+                    reason,
+                }
+            }
+            Self::Checking {
+                env_config,
+                start_time,
+            } => Self::Skipped {
+                env_config,
+                start_time,
+                duration: start_time.elapsed(),
+                reason,
+            },
+            other => other,
+        }
+    }
+
+    /// Execute the check command to see if package is already installed
+    pub(crate) async fn execute_check(
+        self,
+        runner: &dyn CommandRunner,
+    ) -> Result<Self, InstallationError> {
+        match &self {
+            Self::Checking { env_config, .. } => {
+                // If there's no check command, assume not installed
+                if env_config.check.is_none() {
+                    return Ok(self.mark_not_already_installed());
+                }
+
+                let check_cmd = env_config.check.as_ref().unwrap();
+
+                // Execute the check command
+                match runner.execute(check_cmd).await {
+                    Ok(output) => {
+                        if output.success {
+                            Ok(self.mark_already_installed())
+                        } else {
+                            Ok(self.mark_not_already_installed())
+                        }
+                    }
+                    Err(e) => {
+                        let error_message = format!("Check command failed: {}", e);
+                        Ok(self.fail(error_message))
+                    }
+                }
+            }
+            _ => Err(InstallationError::InvalidState(
+                "Can only execute check from Checking state".to_string(),
+            )),
+        }
+    }
+
+    /// Execute the install command
+    pub(crate) async fn execute_install(
+        self,
+        runner: &dyn CommandRunner,
+    ) -> Result<Self, InstallationError> {
+        match &self.clone() {
+            Self::NotAlreadyInstalled { env_config, .. } => {
+                let installing = self.start_installing();
+
+                // Execute the install command
+                match runner.execute(&env_config.install).await {
+                    Ok(output) => {
+                        if output.success {
+                            Ok(installing.complete(output))
+                        } else {
+                            let error_msg =
+                                format!("Install command failed with status {}", output.status);
+                            Ok(installing.fail(error_msg))
+                        }
+                    }
+                    Err(e) => {
+                        let error_msg = format!("Install command error: {}", e);
+                        Ok(installing.fail(error_msg))
+                    }
+                }
+            }
+            _ => Err(InstallationError::InvalidState(
+                "Can only execute install from NotInstalled state".to_string(),
+            )),
+        }
+    }
+
+    /// Get the current state as InstallationStatus
+    pub(crate) fn status(&self) -> InstallationStatus {
+        match self {
+            Self::NotStarted { .. } => InstallationStatus::NotStarted,
+            Self::Checking { .. } => InstallationStatus::Checking,
+            Self::NotAlreadyInstalled { .. } => InstallationStatus::NotInstalled,
+            Self::AlreadyInstalled { .. } => InstallationStatus::AlreadyInstalled,
+            Self::Installing { .. } => InstallationStatus::Installing,
+            Self::Complete { .. } => InstallationStatus::Complete,
+            Self::Failed { error_message, .. } => InstallationStatus::Failed(error_message.clone()),
+            Self::Skipped { reason, .. } => InstallationStatus::Skipped(reason.clone()),
+        }
+    }
+
+    /// Get the installation duration
+    pub(crate) fn duration(&self) -> Option<Duration> {
+        match self {
+            Self::NotStarted { .. } => None,
+            Self::Checking { start_time, .. } => Some(start_time.elapsed()),
+            Self::NotAlreadyInstalled { start_time, .. } => Some(start_time.elapsed()),
+            Self::AlreadyInstalled { start_time, .. } => Some(start_time.elapsed()),
+            Self::Installing { start_time, .. } => Some(start_time.elapsed()),
+            Self::Complete { duration, .. } => Some(*duration),
+            Self::Failed { duration, .. } => Some(*duration),
+            Self::Skipped { duration, .. } => Some(*duration),
+        }
+    }
+
+    /// Convert to InstallationResult
+    pub(crate) fn into_result(
+        self,
+        package_name: String,
+    ) -> Result<InstallationReport, InstallationError> {
+        match self {
+            Self::AlreadyInstalled { check_duration, .. } => Ok(InstallationReport {
+                package_name,
+                status: InstallationStatus::AlreadyInstalled,
+                duration: check_duration,
+                command_output: None,
+                dependencies: Vec::new(),
+            }),
+            Self::Complete {
+                duration,
+                command_output,
+                ..
+            } => Ok(InstallationReport {
+                package_name,
+                status: InstallationStatus::Complete,
+                duration,
+                command_output: Some(command_output),
+                dependencies: Vec::new(),
+            }),
+            Self::Failed { error_message, .. } => {
+                Err(InstallationError::InstallationFailed(error_message))
+            }
+            Self::Skipped {
+                duration, reason, ..
+            } => Ok(InstallationReport {
+                package_name,
+                status: InstallationStatus::Skipped(reason),
+                duration,
+                command_output: None,
+                dependencies: Vec::new(),
+            }),
+            Self::NotStarted { .. } => Err(InstallationError::InvalidState(
+                "Invalid state transition: NotStarted".to_string(),
+            )),
+            Self::NotAlreadyInstalled { .. } => Err(InstallationError::InvalidState(
+                "Invalid state transition: NotInstalled".to_string(),
+            )),
+            Self::Checking { .. } => Err(InstallationError::InvalidState(
+                "Invalid state transition: Checking".to_string(),
+            )),
+            Self::Installing { .. } => Err(InstallationError::InvalidState(
+                "Invalid state transition: Installing".to_string(),
+            )),
+        }
+    }
+}
 
 /// Represents the current status of a package installation
 #[derive(Debug, Clone, PartialEq)]
@@ -37,146 +370,25 @@ pub(crate) enum InstallationStatus {
     Skipped(String),
 }
 
-/// Represents a package installation
-#[derive(Debug, Clone)]
-pub(crate) struct Installation {
-    /// Current installation status
-    pub(crate) status: InstallationStatus,
-
-    /// When the installation started
-    pub(crate) start_time: Option<Instant>,
-
-    /// How long the installation took
-    pub(crate) duration: Option<Duration>,
-
-    /// The environment configuration being used
-    pub(crate) env_config: EnvironmentConfig,
-}
-
-impl Installation {
-    /// Create a new installation
-    pub(crate) fn new(env_config: EnvironmentConfig) -> Self {
-        Self {
-            status: InstallationStatus::NotStarted,
-            start_time: None,
-            duration: None,
-            env_config,
-        }
-    }
-
-    /// Update the installation status
-    pub(crate) fn update_status(&mut self, status: InstallationStatus) {
-        self.status = status;
-    }
-
-    /// Start the installation
-    pub(crate) fn start(&mut self) {
-        self.start_time = Some(Instant::now());
-        self.update_status(InstallationStatus::Checking);
-    }
-
-    /// Complete the installation with the given status
-    pub(crate) fn complete(&mut self, status: InstallationStatus) {
-        if let Some(start_time) = self.start_time {
-            self.duration = Some(start_time.elapsed());
-        }
-        self.update_status(status);
-    }
-
-    // New helper method to execute commands and handle status updates
-    async fn execute_command(
-        &mut self,
-        runner: &dyn CommandRunner,
-        command: &str,
-        initial_status: InstallationStatus,
-        error_constructor: impl FnOnce(String) -> InstallationError,
-    ) -> Result<CommandOutput, InstallationError> {
-        self.update_status(initial_status);
-
-        match runner.execute(command).await {
-            Ok(output) => Ok(output),
-            Err(e) => {
-                let error_msg = e.to_string();
-                self.update_status(InstallationStatus::Failed(error_msg.clone()));
-                Err(error_constructor(error_msg))
-            }
-        }
-    }
-
-    pub(crate) async fn execute_check(
-        &mut self,
-        runner: &dyn CommandRunner,
-    ) -> Result<bool, InstallationError> {
-        self.update_status(InstallationStatus::Checking);
-
-        // Clone the check command if it exists to avoid borrowing self.env_config
-        let check_cmd = match &self.env_config.check {
-            Some(cmd) => cmd.clone(), // Clone the string to end the borrow
-            None => {
-                self.update_status(InstallationStatus::NotInstalled);
-                return Ok(false);
-            }
-        };
-
-        // Now execute_command can mutably borrow self
-        let output = self
-            .execute_command(runner, &check_cmd, InstallationStatus::Checking, |e| {
-                InstallationError::CheckFailed(e)
-            })
-            .await?;
-
-        let installed = output.success;
-        if installed {
-            self.update_status(InstallationStatus::AlreadyInstalled);
-        } else {
-            self.update_status(InstallationStatus::NotInstalled);
-        }
-
-        Ok(installed)
-    }
-
-    pub(crate) async fn execute_install(
-        &mut self,
-        runner: &dyn CommandRunner,
-    ) -> Result<CommandOutput, InstallationError> {
-        // Clone the install command to avoid borrowing self.env_config
-        let install_cmd = self.env_config.install.clone();
-
-        // Now execute_command can mutably borrow self
-        let output = self
-            .execute_command(runner, &install_cmd, InstallationStatus::Installing, |e| {
-                InstallationError::CommandError(CommandError::ExecutionError(e))
-            })
-            .await?;
-
-        if output.success {
-            self.update_status(InstallationStatus::Complete);
-        } else {
-            let error_msg = format!("Install command failed with status {}", output.status);
-            self.update_status(InstallationStatus::Failed(error_msg.clone()));
-            return Err(InstallationError::InstallationFailed(error_msg));
-        }
-
-        Ok(output)
-    }
-}
-
 /// Errors that can occur during installation
 #[derive(Error, Debug)]
 pub(crate) enum InstallationError {
     #[error("Command execution error: {0}")]
-    CommandError(CommandError),
+    CommandError(#[from] CommandError),
 
     #[error("Installation failed: {0}")]
     InstallationFailed(String),
 
     #[error("Check command failed: {0}")]
     CheckFailed(String),
+
+    #[error("Invalid state transition: {0}")]
+    InvalidState(String),
 }
 
 /// Represents the result of an installation operation
 #[derive(Debug)]
-pub(crate) struct InstallationResult {
+pub(crate) struct InstallationReport {
     /// Name of the installed package
     pub(crate) package_name: String,
 
@@ -189,53 +401,12 @@ pub(crate) struct InstallationResult {
     pub(crate) command_output: Option<CommandOutput>,
 
     /// Results of dependent package installations
-    pub(crate) dependencies: Vec<InstallationResult>,
+    pub(crate) dependencies: Vec<InstallationReport>,
 }
 
-impl InstallationResult {
-    /// Create a new successful installation result
-    pub(crate) fn success(
-        package_name: &str,
-        duration: Duration,
-        output: Option<CommandOutput>,
-    ) -> Self {
-        Self {
-            package_name: package_name.to_string(),
-            status: InstallationStatus::Complete,
-            duration,
-            command_output: output,
-            dependencies: Vec::new(),
-        }
-    }
-
-    /// Create a result for an already installed package
-    pub(crate) fn already_installed(package_name: &str, duration: Duration) -> Self {
-        Self {
-            package_name: package_name.to_string(),
-            status: InstallationStatus::AlreadyInstalled,
-            duration,
-            command_output: None,
-            dependencies: Vec::new(),
-        }
-    }
-
-    /// Create a result for a failed installation
-    pub(crate) fn failed(
-        package_name: &str,
-        status: InstallationStatus,
-        duration: Duration,
-    ) -> Self {
-        Self {
-            package_name: package_name.to_string(),
-            status,
-            duration,
-            command_output: None,
-            dependencies: Vec::new(),
-        }
-    }
-
+impl InstallationReport {
     /// Add dependencies to the installation result
-    pub(crate) fn with_dependencies(mut self, dependencies: Vec<InstallationResult>) -> Self {
+    pub(crate) fn with_dependencies(mut self, dependencies: Vec<InstallationReport>) -> Self {
         self.dependencies = dependencies;
         self
     }
@@ -263,165 +434,238 @@ impl InstallationResult {
 mod tests {
     use super::*;
 
-    use crate::{
-        domain::package::{Package, PackageBuilder},
-        ports::command::MockCommandRunner,
-    };
+    use crate::ports::command::MockCommandRunner;
 
-    fn create_test_package() -> Package {
-        PackageBuilder::default()
-            .name("test-package")
-            .version("1.0.0")
-            .environment_with_check("test-env", "test install", "test check")
-            .build()
+    fn create_test_env_config() -> EnvironmentConfig {
+        EnvironmentConfig {
+            install: "test install".to_string(),
+            check: Some("test check".to_string()),
+            dependencies: Vec::new(),
+        }
     }
 
     #[test]
-    fn test_installation_status_updates() {
-        let package = create_test_package();
-        let env_config = package.environments.get("test-env").unwrap().clone();
+    fn test_installation_state_transitions() {
+        let env_config = create_test_env_config();
 
-        let mut installation = Installation::new(env_config);
-        assert_eq!(installation.status, InstallationStatus::NotStarted);
+        // Initial state
+        let installation = Installation::new(env_config.clone());
+        assert!(matches!(installation, Installation::NotStarted { .. }));
 
-        installation.update_status(InstallationStatus::Checking);
-        assert_eq!(installation.status, InstallationStatus::Checking);
+        // Start
+        let installation = installation.start();
+        assert!(matches!(installation, Installation::Checking { .. }));
 
-        installation.update_status(InstallationStatus::Installing);
-        assert_eq!(installation.status, InstallationStatus::Installing);
+        // Mark not installed
+        let installation = installation.mark_not_already_installed();
+        assert!(matches!(
+            installation,
+            Installation::NotAlreadyInstalled { .. }
+        ));
 
-        installation.update_status(InstallationStatus::Complete);
-        assert_eq!(installation.status, InstallationStatus::Complete);
+        // Start installing
+        let installation = installation.start_installing();
+        assert!(matches!(installation, Installation::Installing { .. }));
+
+        // Complete
+        let output = CommandOutput {
+            stdout: "success".to_string(),
+            stderr: String::new(),
+            status: 0,
+            success: true,
+            duration: Duration::from_millis(200),
+        };
+        let installation = installation.complete(output);
+        assert!(matches!(installation, Installation::Complete { .. }));
     }
 
     #[test]
-    fn test_installation_timing() {
-        let package = create_test_package();
-        let env_config = package.environments.get("test-env").unwrap().clone();
+    fn test_failed_state_transition() {
+        let env_config = create_test_env_config();
 
-        let mut installation = Installation::new(env_config);
-        assert!(installation.start_time.is_none());
-        assert!(installation.duration.is_none());
+        // Test failure from checking state
+        let installation = Installation::new(env_config.clone()).start();
+        let failed = installation.fail("Test error".to_string());
+        assert!(matches!(failed, Installation::Failed { .. }));
 
-        installation.start();
-        assert!(installation.start_time.is_some());
-        assert!(installation.duration.is_none());
-
-        installation.complete(InstallationStatus::Complete);
-        assert!(installation.duration.is_some());
+        // Test failure from installing state
+        let installation = Installation::new(env_config.clone())
+            .start()
+            .mark_not_already_installed()
+            .start_installing();
+        let failed = installation.fail("Install error".to_string());
+        assert!(matches!(failed, Installation::Failed { .. }));
     }
 
     #[tokio::test]
     async fn test_execute_check_no_check_command() {
-        let package = PackageBuilder::default()
-            .name("test-package")
-            .version("1.0.0")
-            .environment("test-env", "test install")
-            .build();
+        let env_config = EnvironmentConfig {
+            install: "test install".to_string(),
+            check: None,
+            dependencies: Vec::new(),
+        };
 
-        let env_config = package.environments.get("test-env").unwrap().clone();
-        let mut installation = Installation::new(env_config);
-
+        let installation = Installation::new(env_config).start();
         let runner = MockCommandRunner::new();
 
         let result = installation.execute_check(&runner).await;
         assert!(result.is_ok());
-        assert!(!result.unwrap());
-        assert_eq!(installation.status, InstallationStatus::NotInstalled);
+
+        let state = result.unwrap();
+        assert!(matches!(state, Installation::NotAlreadyInstalled { .. }));
     }
 
     #[tokio::test]
-    async fn test_execute_check_installed() {
-        let package = create_test_package();
-        let env_config = package.environments.get("test-env").unwrap().clone();
-        let mut installation = Installation::new(env_config);
+    async fn test_execute_check_success() {
+        let env_config = create_test_env_config();
+        let installation = Installation::new(env_config).start();
 
         let mut runner = MockCommandRunner::new();
         runner.mock_execute_success_0("test check", "Package found");
 
         let result = installation.execute_check(&runner).await;
         assert!(result.is_ok());
-        assert!(result.unwrap());
-        assert_eq!(installation.status, InstallationStatus::AlreadyInstalled);
+
+        let state = result.unwrap();
+        assert!(matches!(state, Installation::AlreadyInstalled { .. }));
     }
 
     #[tokio::test]
-    async fn test_execute_check_not_installed() {
-        let package = create_test_package();
-        let env_config = package.environments.get("test-env").unwrap().clone();
-        let mut installation = Installation::new(env_config);
+    async fn test_execute_check_not_found() {
+        let env_config = create_test_env_config();
+        let installation = Installation::new(env_config).start();
 
         let mut runner = MockCommandRunner::new();
         runner.mock_execute_success_1("test check", "Not found");
 
         let result = installation.execute_check(&runner).await;
         assert!(result.is_ok());
-        assert!(!result.unwrap());
-        assert_eq!(installation.status, InstallationStatus::NotInstalled);
-    }
 
-    #[tokio::test]
-    async fn test_execute_check_error() {
-        let package = create_test_package();
-        let env_config = package.environments.get("test-env").unwrap().clone();
-        let mut installation = Installation::new(env_config);
-
-        let mut runner = MockCommandRunner::new();
-        runner.mock_execute_err(
-            "test check",
-            CommandError::ExecutionError("Command failed".to_string()),
-        );
-
-        let result = installation.execute_check(&runner).await;
-        assert!(result.is_err());
-        assert_eq!(
-            installation.status,
-            InstallationStatus::Failed("Command execution failed: Command failed".to_string())
-        );
+        let state = result.unwrap();
+        assert!(matches!(state, Installation::NotAlreadyInstalled { .. }));
     }
 
     #[tokio::test]
     async fn test_execute_install_success() {
-        let package = create_test_package();
-        let env_config = package.environments.get("test-env").unwrap().clone();
-        let mut installation = Installation::new(env_config);
+        let env_config = create_test_env_config();
+        let installation = Installation::new(env_config)
+            .start()
+            .mark_not_already_installed();
 
         let mut runner = MockCommandRunner::new();
         runner.mock_execute_success_0("test install", "Installed successfully");
 
         let result = installation.execute_install(&runner).await;
         assert!(result.is_ok());
-        assert_eq!(installation.status, InstallationStatus::Complete);
+
+        let state = result.unwrap();
+        assert!(matches!(state, Installation::Complete { .. }));
     }
 
     #[tokio::test]
     async fn test_execute_install_failure() {
-        let package = create_test_package();
-        let env_config = package.environments.get("test-env").unwrap().clone();
-        let mut installation = Installation::new(env_config);
+        let env_config = create_test_env_config();
+        let installation = Installation::new(env_config)
+            .start()
+            .mark_not_already_installed();
 
         let mut runner = MockCommandRunner::new();
         runner.mock_execute_success_1("test install", "Installation failed");
 
         let result = installation.execute_install(&runner).await;
-        assert!(result.is_err());
-        assert!(matches!(installation.status, InstallationStatus::Failed(_)));
+        assert!(result.is_ok());
+
+        let state = result.unwrap();
+        assert!(matches!(state, Installation::Failed { .. }));
     }
 
-    #[tokio::test]
-    async fn test_execute_install_error() {
-        let package = create_test_package();
-        let env_config = package.environments.get("test-env").unwrap().clone();
-        let mut installation = Installation::new(env_config);
+    #[test]
+    fn test_into_result() {
+        let env_config = create_test_env_config();
 
-        let mut runner = MockCommandRunner::new();
-        runner.mock_execute_err(
-            "test install",
-            CommandError::ExecutionError("Command failed".to_string()),
-        );
+        // Test AlreadyInstalled result
+        let installation = Installation::new(env_config.clone())
+            .start()
+            .mark_already_installed();
 
-        let result = installation.execute_install(&runner).await;
-        assert!(result.is_err());
-        assert!(matches!(installation.status, InstallationStatus::Failed(_)));
+        let result = installation
+            .into_result("test-package".to_string())
+            .unwrap();
+        assert_eq!(result.package_name, "test-package");
+        assert_eq!(result.status, InstallationStatus::AlreadyInstalled);
+
+        // Test Complete result
+        let output = CommandOutput {
+            stdout: "success".to_string(),
+            stderr: String::new(),
+            status: 0,
+            success: true,
+            duration: Duration::from_millis(200),
+        };
+
+        let installation = Installation::new(env_config.clone())
+            .start()
+            .mark_not_already_installed()
+            .start_installing()
+            .complete(output);
+
+        let result = installation
+            .into_result("test-package".to_string())
+            .unwrap();
+        assert_eq!(result.status, InstallationStatus::Complete);
+        assert!(result.command_output.is_some());
+
+        // Test Failed result
+        let installation = Installation::new(env_config)
+            .start()
+            .fail("Test error".to_string());
+
+        let result = installation
+            .into_result("test-package".to_string())
+            .unwrap_err();
+
+        assert!(matches!(result, InstallationError::InstallationFailed(_)));
+    }
+
+    #[test]
+    fn test_installation_result_with_dependencies() {
+        let result = InstallationReport {
+            package_name: "main".to_string(),
+            status: InstallationStatus::Complete,
+            duration: Duration::from_secs(5),
+            command_output: None,
+            dependencies: Vec::new(),
+        };
+
+        let dep1 = InstallationReport {
+            package_name: "dep1".to_string(),
+            status: InstallationStatus::Complete,
+            duration: Duration::from_secs(3),
+            command_output: None,
+            dependencies: Vec::new(),
+        };
+
+        let dep2 = InstallationReport {
+            package_name: "dep2".to_string(),
+            status: InstallationStatus::Complete,
+            duration: Duration::from_secs(2),
+            command_output: None,
+            dependencies: Vec::new(),
+        };
+
+        let result_with_deps = result.with_dependencies(vec![dep1, dep2]);
+
+        // Check that dependencies were added
+        assert_eq!(result_with_deps.dependencies.len(), 2);
+        assert_eq!(result_with_deps.dependencies[0].package_name, "dep1");
+        assert_eq!(result_with_deps.dependencies[1].package_name, "dep2");
+
+        // Check duration calculations
+        assert_eq!(result_with_deps.duration, Duration::from_secs(5));
+        assert_eq!(result_with_deps.total_duration(), Duration::from_secs(10)); // 5 + 3 + 2
+        assert_eq!(
+            result_with_deps.dependency_duration(),
+            Duration::from_secs(5)
+        ); // 3 + 2
     }
 }

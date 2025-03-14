@@ -216,16 +216,14 @@ impl<'a> PackageListService<'a> {
                 }
 
                 // Show file path if available
-                if let Some(path) = &package.path {
-                    let path_text = if self.config.use_colors() {
-                        style(format!("    Path: {}", path.display()))
-                            .dim()
-                            .to_string()
-                    } else {
-                        format!("    Path: {}", path.display())
-                    };
-                    output.push_str(&format!("{}\n", path_text));
-                }
+                let path_text = if self.config.use_colors() {
+                    style(format!("    Path: {}", package.path.display()))
+                        .dim()
+                        .to_string()
+                } else {
+                    format!("    Path: {}", package.path.display())
+                };
+                output.push_str(&format!("{}\n", path_text));
 
                 // Add a separator line between packages
                 output.push('\n');

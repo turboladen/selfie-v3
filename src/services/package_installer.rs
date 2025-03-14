@@ -14,7 +14,7 @@ use crate::{
         errors::{
             EnhancedCommandError, EnhancedDependencyError, EnhancedPackageError, ErrorContext,
         },
-        installation::{Installation, InstallationError, InstallationResult, InstallationStatus},
+        installation::{Installation, InstallationError, InstallationReport, InstallationStatus},
         package::Package,
     },
     ports::{
@@ -132,7 +132,7 @@ impl<'a> PackageInstaller<'a> {
     pub(crate) async fn install_package(
         &self,
         package_name: &str,
-    ) -> Result<InstallationResult, PackageInstallerError> {
+    ) -> Result<InstallationReport, PackageInstallerError> {
         // Create package repository
         let package_repo = YamlPackageRepository::new(
             self.fs,
@@ -162,29 +162,20 @@ impl<'a> PackageInstaller<'a> {
                 _ => PackageInstallerError::PackageRepoError(e),
             })?;
 
-        // Get the package file path to display
-        let package_path = if let Some(path) = &main_package.path {
-            path.to_string_lossy().to_string()
-        } else {
-            format!(
-                "{}/{}.yaml",
-                self.config.expanded_package_directory().display(),
-                package_name
-            )
-        };
-
         // Print initial package info header
         let header = if self.progress_manager.use_colors() {
             format!(
                 "Installing {} (v{}) from {}",
                 style(&main_package.name).magenta().bold(),
                 main_package.version,
-                package_path
+                main_package.path.display()
             )
         } else {
             format!(
                 "Installing {} (v{}) from {}",
-                main_package.name, main_package.version, package_path
+                main_package.name,
+                main_package.version,
+                main_package.path.display()
             )
         };
 
@@ -227,79 +218,8 @@ impl<'a> PackageInstaller<'a> {
 
             // All packages except the last one are dependencies
             for package in packages.iter().take(packages.len() - 1) {
-                let package_path = if let Some(path) = &package.path {
-                    path.to_string_lossy().to_string()
-                } else {
-                    format!(
-                        "{}/{}.yaml",
-                        self.config.expanded_package_directory().display(),
-                        package.name
-                    )
-                };
-
-                // Show dependency name and version
-                let dependency_header = if self.progress_manager.use_colors() {
-                    format!(
-                        "    Installing {} (v{}) from {}",
-                        style(&package.name).magenta(),
-                        package.version,
-                        package_path
-                    )
-                } else {
-                    format!(
-                        "    Installing {} (v{}) from {}",
-                        package.name, package.version, package_path
-                    )
-                };
-                self.progress_manager.print_info(dependency_header);
-
-                // Make sure the dep has info for this environment
-                if !package.environments.contains_key(self.config.environment()) {
-                    dependency_results.push(InstallationResult {
-                        package_name: package.name.clone(),
-                        status: InstallationStatus::Skipped(format!(
-                            "Package `{}` does not support current environment (`{}` section)",
-                            &package_name,
-                            self.config.environment()
-                        )),
-                        duration: start_time.elapsed(),
-                        dependencies: vec![],
-                        command_output: None,
-                    });
-
-                    continue;
-                }
-
-                // Install the dependency
-                match self.install_single_package(package, 6).await {
-                    Ok(result) => {
-                        // Only continue if installation was successful or package was already installed
-                        match result.status {
-                            InstallationStatus::Complete
-                            | InstallationStatus::AlreadyInstalled
-                            | InstallationStatus::Skipped(_) => {
-                                dependency_results.push(result);
-                            }
-                            _ => {
-                                self.progress_manager
-                                    .print_error("      ✗ Dependency installation failed");
-                                return Err(PackageInstallerError::InstallationError(
-                                    InstallationError::InstallationFailed(format!(
-                                        "Dependency '{}' installation failed: {:?}",
-                                        package.name, result.status
-                                    )),
-                                ));
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        self.progress_manager.print_error(format!(
-                            "      ✗ Failed to install dependency '{}': {}",
-                            package.name, err,
-                        ));
-                        return Err(err);
-                    }
-                }
+                self.install_dependency(package, start_time, &mut dependency_results)
+                    .await?
             }
         }
 
@@ -319,6 +239,82 @@ impl<'a> PackageInstaller<'a> {
         self.report_final_status(&final_result);
 
         Ok(final_result)
+    }
+
+    async fn install_dependency(
+        &self,
+        package: &Package,
+        start_time: Instant,
+        dependency_results: &mut Vec<InstallationReport>,
+    ) -> Result<(), PackageInstallerError> {
+        // Show dependency name and version
+        let dependency_header = if self.progress_manager.use_colors() {
+            format!(
+                "    Installing {} (v{}) from {}",
+                style(&package.name).magenta(),
+                package.version,
+                package.path.display()
+            )
+        } else {
+            format!(
+                "    Installing {} (v{}) from {}",
+                package.name,
+                package.version,
+                package.path.display()
+            )
+        };
+        self.progress_manager.print_info(dependency_header);
+
+        // Make sure the dep has info for this environment
+        if !package.environments.contains_key(self.config.environment()) {
+            dependency_results.push(InstallationReport {
+                package_name: package.name.clone(),
+                status: InstallationStatus::Skipped(format!(
+                    "Package `{}` does not support current environment (`{}` section)",
+                    &package.name,
+                    self.config.environment()
+                )),
+                duration: start_time.elapsed(),
+                dependencies: vec![],
+                command_output: None,
+            });
+
+            return Ok(());
+        }
+
+        // Install the dependency
+        match self.install_single_package(package, 6).await {
+            Ok(result) => {
+                // Only continue if installation was successful or package was already installed
+                match result.status {
+                    InstallationStatus::Complete
+                    | InstallationStatus::AlreadyInstalled
+                    | InstallationStatus::Skipped(_) => {
+                        dependency_results.push(result);
+                    }
+                    _ => {
+                        self.progress_manager
+                            .print_error("      ✗ Dependency installation failed");
+
+                        return Err(PackageInstallerError::InstallationError(
+                            InstallationError::InstallationFailed(format!(
+                                "Dependency '{}' installation failed: {:?}",
+                                package.name, result.status
+                            )),
+                        ));
+                    }
+                }
+            }
+            Err(err) => {
+                self.progress_manager.print_error(format!(
+                    "      ✗ Failed to install dependency '{}': {}",
+                    package.name, err,
+                ));
+                return Err(err);
+            }
+        }
+
+        Ok(())
     }
 
     /// Check if a package can be installed in the current environment
@@ -422,8 +418,7 @@ impl<'a> PackageInstaller<'a> {
         &self,
         package: &Package,
         indent_level: usize,
-    ) -> Result<InstallationResult, PackageInstallerError> {
-        let start_time = Instant::now();
+    ) -> Result<InstallationReport, PackageInstallerError> {
         let indent = " ".repeat(indent_level);
 
         // Resolve environment configuration with enhanced error context
@@ -432,7 +427,7 @@ impl<'a> PackageInstaller<'a> {
             let context = ErrorContext::default()
                 .with_package(&package.name)
                 .with_environment(self.config.environment())
-                .with_message(&format!("Original error: {}", e)); // Add the original error message
+                .with_message(&format!("Original error: {}", e));
 
             let enhanced_error = EnhancedPackageError::environment_not_supported(
                 self.config.environment(),
@@ -443,132 +438,118 @@ impl<'a> PackageInstaller<'a> {
             PackageInstallerError::from(enhanced_error)
         })?;
 
-        // Create installation instance
-        let mut installation = Installation::new(env_config.clone());
-
-        // Start the installation process
-        installation.start();
+        // Create installation and start it
+        let installation = Installation::new(env_config.clone()).start();
 
         // Check if already installed
-        let already_installed = installation
-            .execute_check(self.runner)
-            .await
-            .map_err(PackageInstallerError::InstallationError)?;
+        let installation = match installation.execute_check(self.runner).await {
+            Ok(state) => state,
+            Err(err) => return Err(PackageInstallerError::InstallationError(err)),
+        };
 
-        let check_duration = start_time.elapsed();
+        // Handle the result based on the state
+        match &installation {
+            Installation::AlreadyInstalled { check_duration, .. } => {
+                // Print "Already installed" with duration
+                let status_message = format!(
+                    "{}✓ Checking installation status: Already installed ({:.1?})",
+                    indent, check_duration
+                );
+                self.progress_manager.print_success(status_message);
 
-        // Display the result of the check
-        if already_installed {
-            installation.complete(InstallationStatus::AlreadyInstalled);
-
-            // Print "Already installed" with duration
-            let status_message = format!(
-                "{}✓ Checking installation status: Already installed ({:.1?})",
-                indent, check_duration
-            );
-            self.progress_manager.print_success(status_message);
-
-            return Ok(InstallationResult::already_installed(
-                &package.name,
-                check_duration,
-            ));
-        } else {
-            // Print "Not installed" with duration
-            self.progress_manager
-                .print_progress(self.progress_manager.with_duration(
-                    format!("{}✓ Checking installation status: Not installed", indent),
-                    Some(check_duration),
+                // Return the result directly - no need to install
+                return installation
+                    .into_result(package.name.clone())
+                    .map_err(PackageInstallerError::InstallationError);
+            }
+            Installation::NotAlreadyInstalled { check_duration, .. } => {
+                // Print "Not installed" with duration
+                self.progress_manager
+                    .print_progress(self.progress_manager.with_duration(
+                        format!("{}✓ Checking installation status: Not installed", indent),
+                        Some(*check_duration),
+                    ));
+            }
+            Installation::Failed { error_message, .. } => {
+                // Check failed, print error and return
+                self.progress_manager.print_error(format!(
+                    "{}✗ Checking installation status failed: {}",
+                    indent, error_message
                 ));
+                return installation
+                    .into_result(package.name.clone())
+                    .map_err(PackageInstallerError::InstallationError);
+            }
+            _ => {
+                // Shouldn't get here with proper state transitions
+                return Err(PackageInstallerError::InstallationError(
+                    InstallationError::InvalidState(format!(
+                        "Unexpected state after check: {:?}",
+                        installation.status()
+                    )),
+                ));
+            }
         }
 
         // Print installing message
         self.progress_manager
             .print_progress(format!("{}⌛ Installing...", indent));
 
-        // Execute installation with enhanced error handling
-        let result = match installation.execute_install(self.runner).await {
-            Ok(output) => {
-                let duration = start_time.elapsed();
-                installation.complete(InstallationStatus::Complete);
+        // Execute installation
+        let installation = match installation.execute_install(self.runner).await {
+            Ok(state) => state,
+            Err(err) => return Err(PackageInstallerError::InstallationError(err)),
+        };
 
-                // Print completion message with duration
+        // Handle the result based on the final state
+        match &installation {
+            Installation::Complete { duration, .. } => {
+                // Print completion message
                 let complete_message =
                     format!("{}✓ Installation complete ({:.1?})", indent, duration);
                 self.progress_manager.print_success(complete_message);
-
-                InstallationResult::success(&package.name, duration, Some(output))
             }
-            Err(err) => {
-                let duration = start_time.elapsed();
+            Installation::Failed { error_message, .. } => {
+                // Print error message
+                let error_message = format!("{}✗ Installation failed: {}", indent, error_message);
+                self.progress_manager.print_error(error_message);
+            }
+            _ => {
+                // Shouldn't get here with proper state transitions
+                return Err(PackageInstallerError::InstallationError(
+                    InstallationError::InvalidState(format!(
+                        "Unexpected state after install: {:?}",
+                        installation.status()
+                    )),
+                ));
+            }
+        }
 
-                installation.update_status(InstallationStatus::Failed(format!(
-                    "Installation error: {}",
-                    err
-                )));
-
-                // Use enhanced error handler for command errors if available
-                if self.progress_manager.verbose()
-                    && matches!(err, InstallationError::CommandError(_))
-                {
-                    // Get install command string
-                    let cmd = &env_config.install;
-
-                    // Create a package repository
-                    let package_repo = YamlPackageRepository::new(
-                        self.fs,
-                        self.config.expanded_package_directory(),
-                        self.progress_manager,
-                    );
-                    let error_handler =
-                        EnhancedErrorHandler::new(self.fs, &package_repo, self.progress_manager);
-
-                    // Extract command failure details if possible
-                    if let InstallationError::CommandError(CommandError::ExecutionError(e)) = &err {
-                        // Use the error handler to format the command error
-                        // This will provide better formatted details about the command failure
-                        let error_message = error_handler.handle_command_error(
-                            cmd, // Use the command string
-                            1,   // Default exit code
-                            "",  // No stdout available
-                            e,   // Error message as stderr
-                        );
-
-                        self.progress_manager.print_verbose(&error_message);
-                        return Err(PackageInstallerError::EnhancedError(error_message));
-                    }
+        // Print verbose output if enabled
+        if self.progress_manager.verbose() {
+            if let Installation::Complete { command_output, .. } = &installation {
+                self.progress_manager.print_verbose("Command stdout:");
+                for line in command_output.stdout.lines() {
+                    self.progress_manager.print_verbose(format!("  {}", line));
                 }
 
-                // Print error message
-                let error_message = format!(
-                    "{}✗ Installation failed: {} ({:.1?})",
-                    indent, err, duration
-                );
-                self.progress_manager.print_error(error_message);
-
-                return Err(PackageInstallerError::InstallationError(err));
-            }
-        };
-
-        if self.progress_manager.verbose() && result.command_output.is_some() {
-            let output = result.command_output.as_ref().unwrap();
-            self.progress_manager.print_verbose("Command stdout:");
-            for line in output.stdout.lines() {
-                self.progress_manager.print_verbose(format!("  {}", line));
-            }
-
-            if !output.stderr.is_empty() {
-                self.progress_manager.print_verbose("Command stderr:");
-                for line in output.stderr.lines() {
-                    self.progress_manager.print_verbose(format!("  {}", line));
+                if !command_output.stderr.is_empty() {
+                    self.progress_manager.print_verbose("Command stderr:");
+                    for line in command_output.stderr.lines() {
+                        self.progress_manager.print_verbose(format!("  {}", line));
+                    }
                 }
             }
         }
 
-        Ok(result)
+        // Return the final result
+        installation
+            .into_result(package.name.clone())
+            .map_err(PackageInstallerError::InstallationError)
     }
 
     /// Report the final installation status with timing information
-    fn report_final_status(&self, result: &InstallationResult) {
+    fn report_final_status(&self, result: &InstallationReport) {
         let total_duration = result.total_duration();
         let dep_duration = result.dependency_duration();
         let package_duration = result.duration;
@@ -710,6 +691,7 @@ mod tests {
 
         let manager = PackageInstaller::new(&fs, &runner, &config, &progress_manager, true);
         let result = manager.install_package(&package.name).await;
+        dbg!(&result);
 
         assert!(result.is_err());
     }

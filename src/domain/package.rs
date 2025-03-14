@@ -34,8 +34,8 @@ pub(crate) struct Package {
     pub(crate) environments: HashMap<String, EnvironmentConfig>,
 
     /// Path to the package file (not serialized/deserialized)
-    #[serde(skip, default)]
-    pub(crate) path: Option<PathBuf>,
+    #[serde(skip)]
+    pub(crate) path: PathBuf,
 }
 
 /// Configuration for a specific environment
@@ -93,6 +93,7 @@ impl Package {
         homepage: Option<String>,
         description: Option<String>,
         environments: HashMap<String, EnvironmentConfig>,
+        path: PathBuf,
     ) -> Self {
         Self {
             name,
@@ -100,14 +101,8 @@ impl Package {
             homepage,
             description,
             environments,
-            path: None,
+            path,
         }
-    }
-
-    /// Associate the package with a file path
-    pub(crate) fn with_path(mut self, path: PathBuf) -> Self {
-        self.path = Some(path);
-        self
     }
 
     /// Resolve an environment configuration by name
@@ -144,7 +139,7 @@ impl Package {
             .map_err(|e| PackageParseError::FileSystemError(e.to_string()))?;
 
         let mut package = Self::from_yaml(&content)?;
-        package.path = Some(path.to_path_buf());
+        package.path = path.to_path_buf();
 
         Ok(package)
     }
@@ -429,6 +424,7 @@ impl Package {
 }
 
 // Builder pattern for testing
+#[cfg(test)]
 #[derive(Default)]
 pub(crate) struct PackageBuilder {
     name: String,
@@ -436,8 +432,10 @@ pub(crate) struct PackageBuilder {
     homepage: Option<String>,
     description: Option<String>,
     environments: HashMap<String, EnvironmentConfig>,
+    path: PathBuf,
 }
 
+#[cfg(test)]
 impl PackageBuilder {
     pub(crate) fn name(mut self, name: &str) -> Self {
         self.name = name.to_string();
@@ -521,6 +519,7 @@ impl PackageBuilder {
             self.homepage,
             self.description,
             self.environments,
+            self.path,
         )
     }
 }
@@ -817,7 +816,7 @@ mod tests {
         assert_eq!(package.name, "ripgrep");
         assert_eq!(package.version, "0.1.0");
         assert_eq!(package.environments.len(), 2);
-        assert_eq!(package.path, Some(path.to_path_buf()));
+        assert_eq!(package.path, path.to_path_buf());
     }
 
     #[test]
@@ -850,7 +849,14 @@ mod tests {
 
     #[test]
     fn test_validate_required_fields() {
-        let empty_package = Package::new(String::new(), String::new(), None, None, HashMap::new());
+        let empty_package = Package::new(
+            String::new(),
+            String::new(),
+            None,
+            None,
+            HashMap::new(),
+            PathBuf::new(),
+        );
 
         let issues = empty_package.validate_required_fields();
 
