@@ -22,7 +22,7 @@ use crate::{
         filesystem::{FileSystem, FileSystemError},
         package_repo::{PackageRepoError, PackageRepository},
     },
-    services::enhanced_error_handler::EnhancedErrorHandler,
+    services::{command_validator::CommandValidator, enhanced_error_handler::EnhancedErrorHandler},
 };
 
 #[derive(Error, Debug)]
@@ -109,6 +109,7 @@ pub(crate) struct PackageInstaller<'a> {
     config: &'a AppConfig,
     progress_manager: &'a ProgressManager,
     check_commands: bool,
+    command_validator: CommandValidator<'a>, // Add CommandValidator
 }
 
 impl<'a> PackageInstaller<'a> {
@@ -119,12 +120,16 @@ impl<'a> PackageInstaller<'a> {
         progress_manager: &'a ProgressManager,
         check_commands: bool,
     ) -> Self {
+        // Create CommandValidator instance
+        let command_validator = CommandValidator::new(runner);
+
         Self {
             fs,
             runner,
             config,
             progress_manager,
             check_commands,
+            command_validator,
         }
     }
 
@@ -356,8 +361,14 @@ impl<'a> PackageInstaller<'a> {
         // Check if required commands are available
         if self.check_commands {
             if let Some(env_config) = package.environments.get(self.config.environment()) {
-                if let Some(base_cmd) = Self::extract_base_command(&env_config.install) {
-                    if !self.runner.is_command_available(base_cmd).await {
+                if let Some(base_cmd) = CommandValidator::extract_base_command(&env_config.install)
+                {
+                    let availability_result = self
+                        .command_validator
+                        .check_command_availability(self.config.environment(), base_cmd)
+                        .await;
+
+                    if !availability_result.is_available {
                         return Ok(false);
                     }
                 }
@@ -390,8 +401,14 @@ impl<'a> PackageInstaller<'a> {
         for package in packages {
             if let Some(env_config) = package.environments.get(self.config.environment()) {
                 // Extract and check base command
-                if let Some(base_cmd) = Self::extract_base_command(&env_config.install) {
-                    if !self.runner.is_command_available(base_cmd).await {
+                if let Some(base_cmd) = CommandValidator::extract_base_command(&env_config.install)
+                {
+                    let availability_result = self
+                        .command_validator
+                        .check_command_availability(self.config.environment(), base_cmd)
+                        .await;
+
+                    if !availability_result.is_available {
                         missing_commands.push((package.name.clone(), base_cmd.to_string()));
                     }
                 }
@@ -574,7 +591,7 @@ impl<'a> PackageInstaller<'a> {
 
     /// Extract the base command from a command string
     fn extract_base_command(command: &str) -> Option<&str> {
-        command.split_whitespace().next()
+        CommandValidator::extract_base_command(command)
     }
 
     /// Parse a cycle string into a vector of package names
