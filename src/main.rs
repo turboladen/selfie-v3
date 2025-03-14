@@ -20,27 +20,30 @@ async fn main() -> Result<(), anyhow::Error> {
     // Set up file system and command runner
     let fs = RealFileSystem;
 
-    // Parse the command line arguments
-    let args = match ClapCli::parse_arguments() {
-        Ok(args) => args,
-        Err(err) => {
-            let progress_manager = ProgressManager::new(false, true);
-            progress_manager.print_error(format!("Error: {}", err));
-            process::exit(1);
-        }
+    let (app_config, args) = {
+        // Parse the command line arguments
+        let args = match ClapCli::parse_arguments() {
+            Ok(args) => args,
+            Err(err) => {
+                let progress_manager = ProgressManager::new(false, true);
+                progress_manager.print_error(format!("Error: {}", err));
+                process::exit(1);
+            }
+        };
+
+        (
+            config_loader::Yaml::new(&fs)
+                .load_config(&args)?
+                .apply_cli_args(&args),
+            args,
+        )
     };
+    let cmd_service = {
+        let runner = ShellCommandRunner::new("/bin/sh", app_config.command_timeout());
 
-    let app_config = config_loader::Yaml::new(&fs)
-        .load_config(&args)?
-        .apply_cli_args(&args);
-
-    let runner = ShellCommandRunner::new("/bin/sh", app_config.command_timeout());
-
-    // Create the command service to route and execute the command
-    let cmd_service = ApplicationCommandService::new(&fs, &runner, &app_config);
-
-    // Create a progress manager for error formatting
-    let progress_manager = ProgressManager::new(!args.no_color, args.verbose);
+        // Create the command service to route and execute the command
+        ApplicationCommandService::new(&fs, Box::new(runner), &app_config)
+    };
 
     // Process the command and get an exit code
     match cmd_service.process_command(args).await {
@@ -49,6 +52,10 @@ async fn main() -> Result<(), anyhow::Error> {
             // Create context for the error
             let context =
                 ErrorContext::default().with_message("Error occurred while processing command");
+
+            // Create a progress manager for error formatting
+            let progress_manager =
+                ProgressManager::new(app_config.use_colors(), app_config.verbose());
 
             // Format and print the error
             progress_manager.print_error(format!("Error: {}", err));

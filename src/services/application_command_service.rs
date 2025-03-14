@@ -19,14 +19,14 @@ use super::{
 
 pub struct ApplicationCommandService<'a> {
     fs: &'a dyn FileSystem,
-    runner: &'a dyn CommandRunner,
+    runner: Box<dyn CommandRunner>,
     app_config: &'a AppConfig,
 }
 
 impl<'a> ApplicationCommandService<'a> {
     pub fn new(
         fs: &'a dyn FileSystem,
-        runner: &'a dyn CommandRunner,
+        runner: Box<dyn CommandRunner>,
         app_config: &'a AppConfig,
     ) -> Self {
         Self {
@@ -73,7 +73,7 @@ impl ApplicationCommandRouter for ApplicationCommandService<'_> {
                         // Use the consolidated package installer with our unified config
                         let installer = PackageInstaller::new(
                             self.fs,
-                            self.runner,
+                            &*self.runner,
                             self.app_config,
                             &progress_manager,
                             true, // Enable command checking
@@ -114,7 +114,7 @@ impl ApplicationCommandRouter for ApplicationCommandService<'_> {
                         );
 
                         let list_cmd = PackageListService::new(
-                            self.runner,
+                            &*self.runner,
                             self.app_config,
                             &progress_manager,
                             &package_repo,
@@ -150,7 +150,7 @@ impl ApplicationCommandRouter for ApplicationCommandService<'_> {
                     PackageCommand::Validate { .. } => {
                         let validate_cmd = ValidationCommand::new(
                             self.fs,
-                            self.runner,
+                            &*self.runner,
                             self.app_config,
                             &progress_manager,
                         );
