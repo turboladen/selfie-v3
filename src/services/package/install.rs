@@ -1,7 +1,7 @@
 // src/services/package/installer.rs
 mod dependency;
 
-use std::time::Instant;
+use std::{path::Path, time::Instant};
 
 use console::style;
 use dependency::{DependencyResolver, DependencyResolverError};
@@ -339,9 +339,24 @@ impl<'a> PackageInstaller<'a> {
             EnhancedErrorHandler::new(self.fs, &package_repo, self.progress_manager);
 
         // Find the package
-        let package = package_repo
-            .get_package(package_name)
-            .map_err(|e| match e {
+        let package = package_repo.get_package(package_name).map_err(|e| {
+            match e {
+                PackageRepoError::DirectoryNotFound(dir_path) => {
+                    // This is a path not found error
+                    let error_msg = error_handler.handle_path_not_found(Path::new(&dir_path));
+                    PackageInstallerError::EnhancedError(error_msg)
+                }
+                PackageRepoError::IoError(ref io_err) => {
+                    // Check if it's a file not found error
+                    if io_err.kind() == std::io::ErrorKind::NotFound {
+                        // Unfortunately we don't have the specific path here
+                        // We could extract it from the error message
+                        let error_text = io_err.to_string();
+                        PackageInstallerError::EnhancedError(error_text)
+                    } else {
+                        PackageInstallerError::PackageRepoError(e)
+                    }
+                }
                 PackageRepoError::PackageNotFound(name) => {
                     // Use enhanced error handling for not found errors
                     let error_msg = error_handler.handle_package_not_found(&name);
@@ -351,7 +366,8 @@ impl<'a> PackageInstaller<'a> {
                     PackageInstallerError::MultiplePackagesFound(name)
                 }
                 _ => PackageInstallerError::PackageRepoError(e),
-            })?;
+            }
+        })?;
 
         // Check if package supports current environment
         if !package.environments.contains_key(self.config.environment()) {

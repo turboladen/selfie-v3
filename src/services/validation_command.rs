@@ -118,7 +118,6 @@ mod tests {
     use crate::{
         domain::{application::commands::PackageCommand, config::AppConfigBuilder},
         ports::{command::MockCommandRunner, filesystem::MockFileSystem},
-        services::command_validator,
     };
 
     #[tokio::test]

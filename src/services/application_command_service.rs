@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use crate::{
     adapters::{package_repo::yaml::YamlPackageRepository, progress::ProgressManager},
     domain::{
@@ -7,12 +9,13 @@ use crate::{
     ports::{
         application::{ApplicationArguments, ApplicationCommandRouter, ApplicationError},
         command::CommandRunner,
-        filesystem::FileSystem,
+        filesystem::{FileSystem, FileSystemError},
     },
 };
 
 use super::{
     command_validator::CommandValidator,
+    enhanced_error_handler::EnhancedErrorHandler,
     package::{
         install::{PackageInstaller, PackageInstallerError},
         list::{PackageListResult, PackageListService},
@@ -68,6 +71,15 @@ impl ApplicationCommandRouter for ApplicationCommandService<'_> {
 
         let exit_code = match &args.command {
             ApplicationCommand::Package(pkg_cmd) => {
+                // Create error handler for better error presentation
+                let package_repo = YamlPackageRepository::new(
+                    self.fs,
+                    self.app_config.expanded_package_directory(),
+                    &progress_manager,
+                );
+                let error_handler =
+                    EnhancedErrorHandler::new(self.fs, &package_repo, &progress_manager);
+
                 match &pkg_cmd {
                     PackageCommand::Install { package_name } => {
                         self.validate_config(true)?;
@@ -86,23 +98,39 @@ impl ApplicationCommandRouter for ApplicationCommandService<'_> {
                             Ok(result) => {
                                 if self.app_config.verbose() {
                                     if let Some(output) = &result.command_output {
+                                        if !output.stdout.is_empty() {
+                                            progress_manager
+                                                .print_info("\n\nCommand output (stdout):\n");
+                                            progress_manager.print_progress(&output.stdout);
+                                        }
                                         if !output.stderr.is_empty() {
                                             progress_manager
                                                 .print_warning("\n\nCommand output (stderr):\n");
-                                            progress_manager.print_warning(&output.stderr);
+                                            progress_manager.print_progress(&output.stderr);
                                         }
                                     }
                                 }
                                 0
                             }
                             Err(err) => {
-                                if let PackageInstallerError::EnhancedError(msg) = &err {
-                                    // Print the enhanced error message directly
-                                    progress_manager.print_error(msg);
-                                } else {
-                                    // For other errors, use the standard error formatting
-                                    progress_manager
-                                        .print_error(format!("Installation failed: {}", err));
+                                // Check for filesystem errors specifically
+                                match &err {
+                                    PackageInstallerError::FileSystemError(fs_err) => {
+                                        if let FileSystemError::PathNotFound(path_str) = fs_err {
+                                            let error_msg = error_handler
+                                                .handle_path_not_found(Path::new(path_str));
+                                            progress_manager.print_error(&error_msg);
+                                        }
+                                    }
+                                    PackageInstallerError::EnhancedError(msg) => {
+                                        // Print the enhanced error message directly
+                                        progress_manager.print_error(msg);
+                                    }
+                                    // Handle other error variants as needed
+                                    _ => {
+                                        progress_manager
+                                            .print_error(format!("Installation failed: {}", err));
+                                    }
                                 }
                                 1
                             }
@@ -110,13 +138,6 @@ impl ApplicationCommandRouter for ApplicationCommandService<'_> {
                     }
                     PackageCommand::List => {
                         self.validate_config(false)?;
-
-                        // For list commands, we only need a minimal config validation
-                        let package_repo = YamlPackageRepository::new(
-                            self.fs,
-                            self.app_config.expanded_package_directory(),
-                            &progress_manager,
-                        );
 
                         let list_cmd = PackageListService::new(
                             &*self.runner,
