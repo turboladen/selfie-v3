@@ -1,6 +1,7 @@
 // src/services/enhanced_error_handler.rs
 // Combines error formatting and suggestions into a comprehensive error handling system
 
+use std::collections::HashSet;
 use std::error::Error;
 use std::path::Path;
 
@@ -17,6 +18,7 @@ pub(crate) struct EnhancedErrorHandler<'a> {
     progress_manager: &'a ProgressManager,
     formatter: ErrorFormatter<'a>,
     suggestion_provider: SuggestionProvider<'a>,
+    package_repo: &'a dyn PackageRepository,
 }
 
 impl<'a> EnhancedErrorHandler<'a> {
@@ -31,6 +33,7 @@ impl<'a> EnhancedErrorHandler<'a> {
             progress_manager,
             formatter: ErrorFormatter::new(progress_manager),
             suggestion_provider: SuggestionProvider::new(fs, package_repo),
+            package_repo,
         }
     }
 
@@ -163,6 +166,48 @@ impl<'a> EnhancedErrorHandler<'a> {
         }
 
         None
+    }
+
+    // In src/services/enhanced_error_handler.rs
+    pub(crate) fn handle_environment_not_found(
+        &self,
+        env_name: &str,
+        package_name: &str,
+    ) -> String {
+        // Get a list of all environments from the package repository
+        let all_environments = match self.package_repo.list_packages() {
+            Ok(packages) => {
+                // Collect all unique environment names
+                packages
+                    .iter()
+                    .flat_map(|p| p.environments.keys().cloned())
+                    .collect::<HashSet<_>>()
+                    .into_iter()
+                    .collect::<Vec<_>>()
+            }
+            Err(_) => Vec::new(),
+        };
+
+        // Get suggestions for the environment name
+        let suggestions = self
+            .suggestion_provider
+            .suggest_environment(env_name, &all_environments);
+
+        // Format the error message with suggestions
+        let mut message = format!(
+            "Environment '{}' not found for package '{}'",
+            env_name, package_name
+        );
+
+        // Add suggestions if any
+        if !suggestions.is_empty() {
+            message.push_str("\n\nDid you mean:");
+            for suggestion in suggestions {
+                message.push_str(&format!("\n  • {}", suggestion));
+            }
+        }
+
+        message
     }
 }
 

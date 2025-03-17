@@ -223,14 +223,16 @@ impl<'a> PackageInstaller<'a> {
 
             // All packages except the last one are dependencies
             for package in packages.iter().take(packages.len() - 1) {
-                self.install_dependency(package, start_time, &mut dependency_results)
+                self.install_dependency(package, &package_repo, start_time, &mut dependency_results)
                     .await?
             }
         }
 
         // Now install the main package
         let main_package = packages.last().unwrap();
-        let main_result = self.install_single_package(main_package, 2).await?;
+        let main_result = self
+            .install_single_package(main_package, &package_repo, 2)
+            .await?;
 
         // Get the total installation time and create the final result
         let total_duration = start_time.elapsed();
@@ -249,6 +251,7 @@ impl<'a> PackageInstaller<'a> {
     async fn install_dependency(
         &self,
         package: &Package,
+        package_repo: &impl PackageRepository,
         start_time: Instant,
         dependency_results: &mut Vec<InstallationReport>,
     ) -> Result<(), PackageInstallerError> {
@@ -288,7 +291,7 @@ impl<'a> PackageInstaller<'a> {
         }
 
         // Install the dependency
-        match self.install_single_package(package, 6).await {
+        match self.install_single_package(package, package_repo, 6).await {
             Ok(result) => {
                 // Only continue if installation was successful or package was already installed
                 match result.status {
@@ -450,6 +453,7 @@ impl<'a> PackageInstaller<'a> {
     async fn install_single_package(
         &self,
         package: &Package,
+        package_repo: &impl PackageRepository,
         indent_level: usize,
     ) -> Result<InstallationReport, PackageInstallerError> {
         let indent = " ".repeat(indent_level);
@@ -468,7 +472,12 @@ impl<'a> PackageInstaller<'a> {
             )
             .with_context(context);
 
-            PackageInstallerError::from(enhanced_error)
+            let error_handler =
+                EnhancedErrorHandler::new(self.fs, package_repo, self.progress_manager);
+            let user_message = error_handler
+                .handle_environment_not_found(self.config.environment(), &package.name);
+
+            PackageInstallerError::EnhancedError(user_message)
         })?;
 
         // Create installation and start it

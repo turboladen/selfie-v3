@@ -316,10 +316,7 @@ mod tests {
     use crate::{
         adapters::{package_repo::yaml::YamlPackageRepository, progress::ProgressManager},
         domain::config::AppConfigBuilder,
-        ports::{
-            command::MockCommandRunner, filesystem::MockFileSystem,
-            package_repo::MockPackageRepository,
-        },
+        ports::{command::MockCommandRunner, filesystem::MockFileSystem},
     };
 
     // Helper function to create a test environment

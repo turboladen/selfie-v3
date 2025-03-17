@@ -7,12 +7,11 @@ use selfie::{
         command::shell::ShellCommandRunner, config_loader, filesystem::RealFileSystem,
         progress::ProgressManager, user_interface::ClapCli,
     },
-    domain::errors::ErrorContext,
     ports::{
         application::{ApplicationCommandRouter, ArgumentParser},
         config_loader::ConfigLoader,
     },
-    services::application_command_service::ApplicationCommandService,
+    services::command::application::ApplicationCommandService,
 };
 
 #[tokio::main]
@@ -48,10 +47,6 @@ async fn main() -> Result<(), anyhow::Error> {
     match cmd_service.process_command(args).await {
         Ok(code) => process::exit(code),
         Err(err) => {
-            // Create context for the error
-            let context =
-                ErrorContext::default().with_message("Error occurred while processing command");
-
             // Create a progress manager for error formatting
             let progress_manager =
                 ProgressManager::new(app_config.use_colors(), app_config.verbose());
@@ -59,10 +54,14 @@ async fn main() -> Result<(), anyhow::Error> {
             // Format and print the error
             progress_manager.print_error(format!("Error: {}", err));
 
-            // If we have detailed error information and verbose is enabled, print it
-            if progress_manager.verbose() {
-                progress_manager.print_info(format!("Error context: {}", context));
-            }
+            // // If we have detailed error information and verbose is enabled, print it
+            // if progress_manager.verbose() {
+            //     // Create context for the error
+            //     let context =
+            //         ErrorContext::default().with_message("Error occurred while processing command");
+            //
+            //     progress_manager.print_info(format!("Error context: {}", context));
+            // }
 
             process::exit(1)
         }

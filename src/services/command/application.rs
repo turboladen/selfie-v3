@@ -11,16 +11,15 @@ use crate::{
         command::CommandRunner,
         filesystem::{FileSystem, FileSystemError},
     },
-};
-
-use super::{
-    command_validator::CommandValidator,
-    enhanced_error_handler::EnhancedErrorHandler,
-    package::{
-        install::{PackageInstaller, PackageInstallerError},
-        list::{PackageListResult, PackageListService},
+    services::{
+        command_validator::CommandValidator,
+        enhanced_error_handler::EnhancedErrorHandler,
+        package::{
+            install::{PackageInstaller, PackageInstallerError},
+            list::{PackageListResult, PackageListService},
+        },
+        validation_command::{ValidationCommand, ValidationCommandResult},
     },
-    validation_command::{ValidationCommand, ValidationCommandResult},
 };
 
 pub struct ApplicationCommandService<'a> {
