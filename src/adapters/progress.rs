@@ -1,11 +1,11 @@
 // src/adapters/progress.rs
 // Simplified progress reporting without indicatif dependency
 
-use std::time::Duration;
+use std::{fmt, time::Duration};
 
 use console::{style, Emoji};
 
-use crate::domain::{config::AppConfig, installation::InstallationStatus};
+use crate::domain::config::AppConfig;
 
 // Define emojis with fallbacks
 static INFO_EMOJI: Emoji<'_, '_> = Emoji("ℹ️ ", "[i] ");
@@ -15,7 +15,7 @@ static WARNING_EMOJI: Emoji<'_, '_> = Emoji("⚠️ ", "[!] ");
 
 /// Types of status messages
 #[derive(Debug, Clone, PartialEq)]
-pub enum MessageType {
+pub(crate) enum MessageType {
     Info,
     Success,
     Error,
@@ -38,61 +38,12 @@ impl ProgressManager {
         }
     }
 
-    /// Format installation status update
-    pub fn format_status_update(
-        &self,
-        status: &InstallationStatus,
-        duration: Option<Duration>,
-    ) -> String {
-        match status {
-            InstallationStatus::NotStarted => "Waiting to start...".to_string(),
-            InstallationStatus::Checking => "Checking if already installed...".to_string(),
-            InstallationStatus::NotInstalled => {
-                let status_text = if self.use_colors {
-                    style("Not installed").red().to_string()
-                } else {
-                    "Not installed".to_string()
-                };
-                self.with_duration(&status_text, duration)
-            }
-            InstallationStatus::AlreadyInstalled => {
-                let status_text = if self.use_colors {
-                    style("Already installed").green().to_string()
-                } else {
-                    "Already installed".to_string()
-                };
-                self.with_duration(&status_text, duration)
-            }
-            InstallationStatus::Installing => "Installing...".to_string(),
-            InstallationStatus::Complete => {
-                let status_text = if self.use_colors {
-                    style("Installation complete").green().to_string()
-                } else {
-                    "Installation complete".to_string()
-                };
-                self.with_duration(&status_text, duration)
-            }
-            InstallationStatus::Failed(reason) => {
-                let status_text = if self.use_colors {
-                    format!("Installation failed: {}", style(reason).red().bold())
-                } else {
-                    format!("Installation failed: {}", reason)
-                };
-                self.with_duration(&status_text, duration)
-            }
-            InstallationStatus::Skipped(reason) => {
-                let status_text = if self.use_colors {
-                    format!("Installation skipped: {}", style(reason).yellow())
-                } else {
-                    format!("Installation skipped: {}", reason)
-                };
-                self.with_duration(&status_text, duration)
-            }
-        }
-    }
-
     /// Format a status message
-    pub fn status_line(&self, message_type: MessageType, message: &str) -> String {
+    pub(crate) fn status_line(
+        &self,
+        message_type: MessageType,
+        message: impl fmt::Display,
+    ) -> String {
         let prefix = match message_type {
             MessageType::Info => INFO_EMOJI,
             MessageType::Success => SUCCESS_EMOJI,
@@ -115,27 +66,27 @@ impl ProgressManager {
     }
 
     /// Format a message with an error
-    pub fn error(&self, message: &str) -> String {
+    pub(crate) fn error(&self, message: impl fmt::Display) -> String {
         self.status_line(MessageType::Error, message)
     }
 
     /// Format a message with a success indicator
-    pub fn success(&self, message: &str) -> String {
+    pub(crate) fn success(&self, message: impl fmt::Display) -> String {
         self.status_line(MessageType::Success, message)
     }
 
-    /// Format a message with an info indicator
-    pub fn info(&self, message: &str) -> String {
+    /// Formeprintln!at a message with an info indicator
+    pub(crate) fn info(&self, message: impl fmt::Display) -> String {
         self.status_line(MessageType::Info, message)
     }
 
     /// Format a message with a warning indicator
-    pub fn warning(&self, message: &str) -> String {
+    pub(crate) fn warning(&self, message: impl fmt::Display) -> String {
         self.status_line(MessageType::Warning, message)
     }
 
     /// Format a duration as human-readable
-    pub fn format_duration(&self, duration: Duration) -> String {
+    pub(crate) fn format_duration(&self, duration: Duration) -> String {
         let total_seconds = duration.as_secs_f64();
 
         if total_seconds < 0.5 {
@@ -152,7 +103,11 @@ impl ProgressManager {
     }
 
     /// Add a duration to a message
-    fn with_duration(&self, message: &str, duration: Option<Duration>) -> String {
+    pub(crate) fn with_duration(
+        &self,
+        message: impl fmt::Display,
+        duration: Option<Duration>,
+    ) -> String {
         if let Some(duration) = duration {
             format!("{} ({})", message, self.format_duration(duration))
         } else {
@@ -161,7 +116,7 @@ impl ProgressManager {
     }
 
     /// Returns whether colors are enabled
-    pub fn use_colors(&self) -> bool {
+    pub(crate) fn use_colors(&self) -> bool {
         self.use_colors
     }
 
@@ -171,35 +126,43 @@ impl ProgressManager {
     }
 
     /// Print a simple progress message (replacement for progress bars)
-    pub fn print_progress(&self, message: &str) {
+    pub(crate) fn print_progress(&self, message: impl fmt::Display) {
         println!("{}", message);
     }
 
     /// Print a success message
-    pub fn print_success(&self, message: &str) {
+    pub(crate) fn print_success(&self, message: impl fmt::Display) {
         println!("{}", self.success(message));
     }
 
     /// Print an error message
-    pub fn print_error(&self, message: &str) {
-        println!("{}", self.error(message));
+    pub fn print_error(&self, message: impl fmt::Display) {
+        eprintln!("{}", self.error(message));
     }
 
     /// Print an info message
-    pub fn print_info(&self, message: &str) {
+    pub fn print_info(&self, message: impl fmt::Display) {
         println!("{}", self.info(message));
     }
 
     /// Print a warning message
-    pub fn print_warning(&self, message: &str) {
+    pub(crate) fn print_warning(&self, message: impl fmt::Display) {
         println!("{}", self.warning(message));
     }
 
     /// Print verbose output if verbose mode is enabled
-    pub fn print_verbose(&self, message: &str) {
+    pub(crate) fn print_verbose(&self, message: impl fmt::Display) {
         if self.verbose {
             println!("  {}", message);
         }
+    }
+
+    pub(crate) fn print_with_duration(
+        &self,
+        message: impl fmt::Display,
+        duration: Option<Duration>,
+    ) {
+        println!("{}", self.with_duration(message, duration))
     }
 }
 
@@ -224,38 +187,12 @@ mod tests {
             .package_directory("/test/path")
             .verbose(true)
             .use_colors(false)
-            .use_unicode(true)
             .build();
 
         let manager = ProgressManager::from(&config);
 
         assert!(manager.verbose());
         assert!(!manager.use_colors());
-    }
-
-    #[test]
-    fn test_format_status_update() {
-        let manager = ProgressManager::default();
-
-        // Test various status updates
-        let checking = manager.format_status_update(&InstallationStatus::Checking, None);
-        assert_eq!(checking, "Checking if already installed...");
-
-        let not_installed = manager.format_status_update(
-            &InstallationStatus::NotInstalled,
-            Some(Duration::from_millis(200)),
-        );
-        assert_eq!(not_installed, "Not installed (200.0ms)");
-
-        let already_installed = manager.format_status_update(
-            &InstallationStatus::AlreadyInstalled,
-            Some(Duration::from_secs(1)),
-        );
-        assert_eq!(already_installed, "Already installed (1.0s)");
-
-        let failed = manager
-            .format_status_update(&InstallationStatus::Failed("test error".to_string()), None);
-        assert_eq!(failed, "Installation failed: test error");
     }
 
     #[test]

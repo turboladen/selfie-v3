@@ -1,0 +1,13 @@
+---
+name: "typos-cli"
+version: "0.1.0"
+homepage: "https://github.com/crate-ci/typos"
+description: Source code spell checker
+
+environments:
+  macos:
+    install: "cargo binstall typos-cli"
+    check: "command -v typos"
+    dependencies:
+      - rust
+      - cargo-binstall

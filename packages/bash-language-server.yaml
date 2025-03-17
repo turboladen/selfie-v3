@@ -1,0 +1,13 @@
+---
+name: bash-language-server
+version: 0.1.0
+homepage: https://github.com/bash-lsp/bash-language-server
+description: A language server for Bash
+
+environments:
+  macos:
+    install: npm i -g bash-language-server
+    check: command -v bash-language-server
+    dependencies:
+      - shellcheck
+      - nodejs

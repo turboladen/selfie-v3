@@ -8,7 +8,7 @@ use crate::{adapters::progress::ProgressManager, domain::package::Package};
 
 /// Categories of package validation errors
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ValidationErrorCategory {
+pub(crate) enum ValidationErrorCategory {
     /// Missing required fields
     RequiredField,
     /// Invalid field values
@@ -44,24 +44,24 @@ impl fmt::Display for ValidationErrorCategory {
 
 /// A single validation issue (error or warning)
 #[derive(Debug, Clone, PartialEq)]
-pub struct ValidationIssue {
+pub(crate) struct ValidationIssue {
     /// The category of the issue
-    pub category: ValidationErrorCategory,
+    pub(crate) category: ValidationErrorCategory,
     /// The field or context where the issue was found
-    pub field: String,
+    pub(crate) field: String,
     /// Detailed description of the issue
-    pub message: String,
+    pub(crate) message: String,
     /// Line number in the file (if available)
-    pub line: Option<usize>,
+    pub(crate) line: Option<usize>,
     /// Is this a warning (false = error)
-    pub is_warning: bool,
+    pub(crate) is_warning: bool,
     /// Suggested fix for the issue
-    pub suggestion: Option<String>,
+    pub(crate) suggestion: Option<String>,
 }
 
 impl ValidationIssue {
     /// Create a new validation error
-    pub fn error(
+    pub(crate) fn error(
         category: ValidationErrorCategory,
         field: &str,
         message: &str,
@@ -79,7 +79,7 @@ impl ValidationIssue {
     }
 
     /// Create a new validation warning
-    pub fn warning(
+    pub(crate) fn warning(
         category: ValidationErrorCategory,
         field: &str,
         message: &str,
@@ -99,20 +99,20 @@ impl ValidationIssue {
 
 /// Results of a package validation
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct ValidationResult {
+pub(crate) struct ValidationResult {
     /// The package that was validated
-    pub package_name: String,
+    pub(crate) package_name: String,
     /// The package file path
-    pub package_path: Option<PathBuf>,
+    pub(crate) package_path: Option<PathBuf>,
     /// List of validation issues found
-    pub issues: Vec<ValidationIssue>,
+    pub(crate) issues: Vec<ValidationIssue>,
     /// The validated package (if valid)
-    pub package: Option<Package>,
+    pub(crate) package: Option<Package>,
 }
 
 impl ValidationResult {
     /// Create a new ValidationResult
-    pub fn new(package_name: &str) -> Self {
+    pub(crate) fn new(package_name: &str) -> Self {
         Self {
             package_name: package_name.to_string(),
             package_path: None,
@@ -122,39 +122,39 @@ impl ValidationResult {
     }
 
     /// Add an issue to the validation result
-    pub fn add_issue(&mut self, issue: ValidationIssue) {
+    pub(crate) fn add_issue(&mut self, issue: ValidationIssue) {
         self.issues.push(issue);
     }
 
     /// Add multiple issues to the validation result
-    pub fn add_issues(&mut self, issues: Vec<ValidationIssue>) {
+    pub(crate) fn add_issues(&mut self, issues: Vec<ValidationIssue>) {
         self.issues.extend(issues);
     }
 
     /// Set the package file path
-    pub fn with_path(mut self, path: PathBuf) -> Self {
+    pub(crate) fn with_path(mut self, path: PathBuf) -> Self {
         self.package_path = Some(path);
         self
     }
 
     /// Set the validated package
-    pub fn with_package(mut self, package: Package) -> Self {
+    pub(crate) fn with_package(mut self, package: Package) -> Self {
         self.package = Some(package);
         self
     }
 
     /// Returns true if the validation passed (no errors)
-    pub fn is_valid(&self) -> bool {
+    pub(crate) fn is_valid(&self) -> bool {
         !self.has_errors()
     }
 
     /// Returns true if the validation has errors (warnings are okay)
-    pub fn has_errors(&self) -> bool {
+    pub(crate) fn has_errors(&self) -> bool {
         self.issues.iter().any(|issue| !issue.is_warning)
     }
 
     /// Get all errors (not warnings)
-    pub fn errors(&self) -> Vec<&ValidationIssue> {
+    pub(crate) fn errors(&self) -> Vec<&ValidationIssue> {
         self.issues
             .iter()
             .filter(|issue| !issue.is_warning)
@@ -162,7 +162,7 @@ impl ValidationResult {
     }
 
     /// Get all warnings (not errors)
-    pub fn warnings(&self) -> Vec<&ValidationIssue> {
+    pub(crate) fn warnings(&self) -> Vec<&ValidationIssue> {
         self.issues
             .iter()
             .filter(|issue| issue.is_warning)
@@ -170,14 +170,17 @@ impl ValidationResult {
     }
 
     /// Get issues by category
-    pub fn issues_by_category(&self, category: &ValidationErrorCategory) -> Vec<&ValidationIssue> {
+    pub(crate) fn issues_by_category(
+        &self,
+        category: &ValidationErrorCategory,
+    ) -> Vec<&ValidationIssue> {
         self.issues
             .iter()
             .filter(|issue| issue.category == *category)
             .collect()
     }
 
-    pub fn format_validation_result(&self, progress_manager: &ProgressManager) -> String {
+    pub(crate) fn format_validation_result(&self, progress_manager: &ProgressManager) -> String {
         let mut output = String::new();
 
         if self.is_valid() {
@@ -468,7 +471,7 @@ impl ValidationResult {
 
 /// Errors that can occur during validation operations
 #[derive(thiserror::Error, Debug)]
-pub enum ValidationError {
+pub(crate) enum ValidationError {
     #[error("Package not found: {0}")]
     PackageNotFound(String),
 

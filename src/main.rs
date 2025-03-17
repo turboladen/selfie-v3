@@ -1,58 +1,69 @@
 // src/main.rs
 
-use std::{process, time::Duration};
+use std::process;
 
 use selfie::{
     adapters::{
-        cli::clap_adapter::ClapArguments, command::shell::ShellCommandRunner,
-        config::yaml_config_loader::YamlConfigLoader, filesystem::RealFileSystem,
-        progress::ProgressManager,
+        command::shell::ShellCommandRunner, config_loader, filesystem::RealFileSystem,
+        progress::ProgressManager, user_interface::ClapCli,
     },
-    domain::errors::ErrorContext,
-    ports::application::{ApplicationCommandRouter, ArgumentParser},
-    services::application_command_service::ApplicationCommandService,
+    ports::{
+        application::{ApplicationCommandRouter, ArgumentParser},
+        config_loader::ConfigLoader,
+    },
+    services::command::application::ApplicationCommandService,
 };
 
-fn main() {
+#[tokio::main]
+async fn main() -> Result<(), anyhow::Error> {
     // Set up file system and command runner
     let fs = RealFileSystem;
-    let runner = ShellCommandRunner::new("/bin/sh", Duration::from_secs(60));
-    let config_loader = YamlConfigLoader::new(&fs);
 
-    // Parse the command line arguments
-    let args = match ClapArguments::parse_arguments() {
-        Ok(args) => args,
-        Err(err) => {
-            eprintln!("Error: {}", err);
-            process::exit(1);
-        }
+    let (app_config, args) = {
+        // Parse the command line arguments
+        let args = match ClapCli::parse_arguments() {
+            Ok(args) => args,
+            Err(err) => {
+                ProgressManager::new(false, true).print_error(format!("Error: {}", err));
+                process::exit(1);
+            }
+        };
+
+        (
+            config_loader::Yaml::new(&fs)
+                .load_config(&args)?
+                .apply_cli_args(&args),
+            args,
+        )
     };
+    let cmd_service = {
+        let runner = ShellCommandRunner::new("/bin/sh", app_config.command_timeout());
 
-    // Create the command service to route and execute the command
-    let cmd_service = ApplicationCommandService::new(&fs, &runner, &config_loader);
-
-    // Create a progress manager for error formatting
-    let progress_manager = ProgressManager::new(!args.no_color, args.verbose);
+        // Create the command service to route and execute the command
+        ApplicationCommandService::new(&fs, Box::new(runner), &app_config)
+    };
 
     // Process the command and get an exit code
-    let exit_code = match cmd_service.process_command(args) {
-        Ok(code) => code,
+    match cmd_service.process_command(args).await {
+        Ok(code) => process::exit(code),
         Err(err) => {
-            // Create context for the error
-            let context =
-                ErrorContext::new().with_message("Error occurred while processing command");
+            // Create a progress manager for error formatting
+            let progress_manager =
+                ProgressManager::new(app_config.use_colors(), app_config.verbose());
 
             // Format and print the error
-            eprintln!("Error: {}", err);
+            progress_manager.print_error(format!("Error: {}", err));
 
-            // If we have detailed error information and verbose is enabled, print it
-            if progress_manager.verbose() {
-                eprintln!("Error context: {}", context);
-            }
+            // // If we have detailed error information and verbose is enabled, print it
+            // if progress_manager.verbose() {
+            //     // Create context for the error
+            //     let context =
+            //         ErrorContext::default().with_message("Error occurred while processing command");
+            //
+            //     progress_manager.print_info(format!("Error context: {}", context));
+            // }
 
-            1
+            process::exit(1)
         }
-    };
-
-    process::exit(exit_code);
+    }
 }

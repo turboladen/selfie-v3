@@ -2,8 +2,12 @@
 // Shell command runner adapter implementation
 
 use std::collections::HashMap;
-use std::process::{Command, Output, Stdio};
+use std::process::{Output, Stdio};
 use std::time::{Duration, Instant};
+
+use async_trait::async_trait;
+use futures::TryFutureExt;
+use tokio::process::Command;
 
 use crate::ports::command::{CommandError, CommandOutput, CommandRunner};
 
@@ -30,18 +34,6 @@ impl ShellCommandRunner {
         }
     }
 
-    /// Set environment variables for commands
-    pub fn with_environment(mut self, env: HashMap<String, String>) -> Self {
-        self.environment = env;
-        self
-    }
-
-    /// Add an environment variable
-    pub fn with_env_var(mut self, key: &str, value: &str) -> Self {
-        self.environment.insert(key.to_string(), value.to_string());
-        self
-    }
-
     /// Process command output into a CommandOutput
     fn process_output(&self, output: Output, duration: Duration) -> CommandOutput {
         let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
@@ -59,12 +51,14 @@ impl ShellCommandRunner {
     }
 }
 
+#[async_trait]
 impl CommandRunner for ShellCommandRunner {
-    fn execute(&self, command: &str) -> Result<CommandOutput, CommandError> {
+    async fn execute(&self, command: &str) -> Result<CommandOutput, CommandError> {
         self.execute_with_timeout(command, self.default_timeout)
+            .await
     }
 
-    fn execute_with_timeout(
+    async fn execute_with_timeout(
         &self,
         command: &str,
         timeout: Duration,
@@ -72,6 +66,7 @@ impl CommandRunner for ShellCommandRunner {
         let start_time = Instant::now();
 
         let mut cmd = Command::new(&self.shell);
+
         cmd.arg("-c")
             .arg(command)
             .stdin(Stdio::null())
@@ -83,26 +78,20 @@ impl CommandRunner for ShellCommandRunner {
             cmd.env(key, value);
         }
 
-        // Execute the command
-        // TODO: this is a simplified implementation and doesn't truly enforce timeouts
-        // A more robust implementation would involve async processing or threading
-        let output = cmd
-            .output()
-            .map_err(|e| CommandError::IoError(e.to_string()))?;
         let duration = start_time.elapsed();
 
-        // Simple timeout check (after the fact)
-        if duration > timeout {
-            return Err(CommandError::Timeout(timeout));
-        }
+        // Execute the command within the context of a timeout
+        let output = tokio::time::timeout(timeout, cmd.output().map_err(CommandError::from))
+            .await
+            .map_err(|_| CommandError::Timeout(timeout))??;
 
         Ok(self.process_output(output, duration))
     }
 
-    fn is_command_available(&self, command: &str) -> bool {
+    async fn is_command_available(&self, command: &str) -> bool {
         // Shell-agnostic way to check if a command exists
         let check_cmd = format!("command -v {} >/dev/null 2>&1", command);
-        match self.execute(&check_cmd) {
+        match self.execute(&check_cmd).await {
             Ok(output) => output.success,
             Err(_) => false,
         }
@@ -115,58 +104,49 @@ mod tests {
 
     // These tests will actually run commands on the system
     // They could be skipped in CI environments if necessary
-    #[test]
-    fn test_shell_command_runner_basic() {
+    #[tokio::test]
+    async fn test_shell_command_runner_basic() {
         let runner = ShellCommandRunner::new("/bin/sh", Duration::from_secs(10));
 
         // Test a basic echo command
-        let result = runner.execute("echo hello");
+        let result = runner.execute("echo hello").await;
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.stdout.contains("hello"));
         assert!(output.success);
 
         // Test command failure
-        let result = runner.execute("exit 1");
+        let result = runner.execute("exit 1").await;
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(!output.success);
         assert_eq!(output.status, 1);
     }
 
-    #[test]
-    fn test_command_availability() {
+    #[tokio::test]
+    async fn test_command_availability() {
         let runner = ShellCommandRunner::new("/bin/sh", Duration::from_secs(10));
 
         // "echo" should be available in most environments
-        assert!(runner.is_command_available("echo"));
+        assert!(runner.is_command_available("echo").await);
 
         // A random string should not be a valid command
         let random_cmd = "xyzabc123notarealcommand";
-        assert!(!runner.is_command_available(random_cmd));
-    }
-
-    #[test]
-    fn test_environment_variables() {
-        let runner = ShellCommandRunner::new("/bin/sh", Duration::from_secs(10))
-            .with_env_var("TEST_VAR", "test_value");
-
-        let result = runner.execute("echo $TEST_VAR");
-        assert!(result.is_ok());
-        let output = result.unwrap();
-        assert!(output.stdout.contains("test_value"));
+        assert!(!runner.is_command_available(random_cmd).await);
     }
 
     // This test relies on timing and could be flaky
     // Consider skipping or adjusting in CI environments
-    #[test]
-    fn test_timeout() {
+    #[tokio::test]
+    async fn test_timeout() {
         let runner = ShellCommandRunner::new("/bin/sh", Duration::from_millis(100));
 
         // Command that should timeout (sleep for 1s)
         // Note: This is a simple test and may be flaky since timeouts aren't enforced
         // in a separate thread in our implementation
-        let result = runner.execute_with_timeout("sleep 1", Duration::from_millis(10));
+        let result = runner
+            .execute_with_timeout("sleep 1", Duration::from_millis(10))
+            .await;
         assert!(matches!(result, Err(CommandError::Timeout(_))));
     }
 }

@@ -1,6 +1,4 @@
-// src/domain/package.rs
 // Core package entity and related types
-
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -9,52 +7,55 @@ use std::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::domain::validation::{ValidationErrorCategory, ValidationIssue};
+use crate::{
+    domain::validation::{ValidationErrorCategory, ValidationIssue},
+    ports::filesystem::FileSystem,
+};
 
 /// Core package entity representing a package definition
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Package {
+pub(crate) struct Package {
     /// Package name
-    pub name: String,
+    pub(crate) name: String,
 
     /// Package version (for the selfie package file, not the underlying package)
-    pub version: String,
+    pub(crate) version: String,
 
     /// Optional homepage URL
     #[serde(default)]
-    pub homepage: Option<String>,
+    pub(crate) homepage: Option<String>,
 
     /// Optional package description
     #[serde(default)]
-    pub description: Option<String>,
+    pub(crate) description: Option<String>,
 
     /// Map of environment configurations
     #[serde(default)]
-    pub environments: HashMap<String, EnvironmentConfig>,
+    pub(crate) environments: HashMap<String, EnvironmentConfig>,
 
     /// Path to the package file (not serialized/deserialized)
-    #[serde(skip, default)]
-    pub path: Option<PathBuf>,
+    #[serde(skip)]
+    pub(crate) path: PathBuf,
 }
 
 /// Configuration for a specific environment
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct EnvironmentConfig {
+pub(crate) struct EnvironmentConfig {
     /// Command to install the package
-    pub install: String,
+    pub(crate) install: String,
 
     /// Optional command to check if the package is already installed
     #[serde(default)]
-    pub check: Option<String>,
+    pub(crate) check: Option<String>,
 
     /// Dependencies that must be installed before this package
     #[serde(default)]
-    pub dependencies: Vec<String>,
+    pub(crate) dependencies: Vec<String>,
 }
 
 /// Errors related to package validation
 #[derive(Error, Debug, PartialEq)]
-pub enum PackageValidationError {
+pub(crate) enum PackageValidationError {
     #[error("Missing required field: {0}")]
     MissingField(String),
 
@@ -73,9 +74,9 @@ pub enum PackageValidationError {
 
 /// Errors related to package parsing
 #[derive(Error, Debug)]
-pub enum PackageParseError {
+pub(crate) enum PackageParseError {
     #[error("YAML parsing error: {0}")]
-    YamlError(#[from] serde_yaml::Error),
+    YamlParse(#[from] serde_yaml::Error),
 
     #[error("I/O error: {0}")]
     IoError(#[from] std::io::Error),
@@ -86,12 +87,14 @@ pub enum PackageParseError {
 
 impl Package {
     /// Create a new package with the specified attributes
-    pub fn new(
+    #[cfg(test)]
+    pub(crate) fn new(
         name: String,
         version: String,
         homepage: Option<String>,
         description: Option<String>,
         environments: HashMap<String, EnvironmentConfig>,
+        path: PathBuf,
     ) -> Self {
         Self {
             name,
@@ -99,18 +102,12 @@ impl Package {
             homepage,
             description,
             environments,
-            path: None,
+            path,
         }
     }
 
-    /// Associate the package with a file path
-    pub fn with_path(mut self, path: PathBuf) -> Self {
-        self.path = Some(path);
-        self
-    }
-
     /// Resolve an environment configuration by name
-    pub fn resolve_environment(
+    pub(crate) fn resolve_environment(
         &self,
         environment_name: &str,
     ) -> Result<&EnvironmentConfig, PackageValidationError> {
@@ -123,7 +120,7 @@ impl Package {
         })
     }
 
-    pub fn from_yaml(yaml_str: &str) -> Result<Self, PackageParseError> {
+    pub(crate) fn from_yaml(yaml_str: &str) -> Result<Self, PackageParseError> {
         let mut package: Self = serde_yaml::from_str(yaml_str)?;
 
         // Ensure defaults are set
@@ -137,27 +134,25 @@ impl Package {
     }
 
     // Load a Package from a file using the FileSystem trait
-    pub fn from_file<F: crate::ports::filesystem::FileSystem>(
-        fs: &F,
-        path: &Path,
-    ) -> Result<Self, PackageParseError> {
+    pub(crate) fn from_file(fs: &dyn FileSystem, path: &Path) -> Result<Self, PackageParseError> {
         let content = fs
             .read_file(path)
             .map_err(|e| PackageParseError::FileSystemError(e.to_string()))?;
 
         let mut package = Self::from_yaml(&content)?;
-        package.path = Some(path.to_path_buf());
+        package.path = path.to_path_buf();
 
         Ok(package)
     }
 
     // Serialize to YAML
-    pub fn to_yaml(&self) -> Result<String, serde_yaml::Error> {
+    #[cfg(test)]
+    pub(crate) fn to_yaml(&self) -> Result<String, serde_yaml::Error> {
         serde_yaml::to_string(self)
     }
 
     /// Validate required fields for the package
-    pub fn validate_required_fields(&self) -> Vec<ValidationIssue> {
+    pub(crate) fn validate_required_fields(&self) -> Vec<ValidationIssue> {
         let mut issues = Vec::new();
 
         // Check name
@@ -213,7 +208,7 @@ impl Package {
     }
 
     /// Validate URL fields
-    pub fn validate_urls(&self) -> Vec<ValidationIssue> {
+    pub(crate) fn validate_urls(&self) -> Vec<ValidationIssue> {
         let mut issues = Vec::new();
 
         // Check homepage URL if present
@@ -250,7 +245,7 @@ impl Package {
     }
 
     /// Validate environments configuration
-    pub fn validate_environments(&self, current_env: &str) -> Vec<ValidationIssue> {
+    pub(crate) fn validate_environments(&self, current_env: &str) -> Vec<ValidationIssue> {
         let mut issues = Vec::new();
 
         // Already checked if environments is empty in validate_required_fields
@@ -302,7 +297,7 @@ impl Package {
     }
 
     /// Basic command syntax validation that doesn't require external dependencies
-    pub fn validate_command_syntax(&self) -> Vec<ValidationIssue> {
+    pub(crate) fn validate_command_syntax(&self) -> Vec<ValidationIssue> {
         let mut issues = Vec::new();
 
         for (env_name, env_config) in &self.environments {
@@ -418,7 +413,7 @@ impl Package {
     }
 
     /// Perform all basic domain validations
-    pub fn validate(&self, current_env: &str) -> Vec<ValidationIssue> {
+    pub(crate) fn validate(&self, current_env: &str) -> Vec<ValidationIssue> {
         let mut issues = Vec::new();
 
         issues.extend(self.validate_required_fields());
@@ -431,37 +426,40 @@ impl Package {
 }
 
 // Builder pattern for testing
+#[cfg(test)]
 #[derive(Default)]
-pub struct PackageBuilder {
+pub(crate) struct PackageBuilder {
     name: String,
     version: String,
     homepage: Option<String>,
     description: Option<String>,
     environments: HashMap<String, EnvironmentConfig>,
+    path: PathBuf,
 }
 
+#[cfg(test)]
 impl PackageBuilder {
-    pub fn name(mut self, name: &str) -> Self {
+    pub(crate) fn name(mut self, name: &str) -> Self {
         self.name = name.to_string();
         self
     }
 
-    pub fn version(mut self, version: &str) -> Self {
+    pub(crate) fn version(mut self, version: &str) -> Self {
         self.version = version.to_string();
         self
     }
 
-    pub fn homepage(mut self, homepage: &str) -> Self {
+    pub(crate) fn homepage(mut self, homepage: &str) -> Self {
         self.homepage = Some(homepage.to_string());
         self
     }
 
-    pub fn description(mut self, description: &str) -> Self {
+    pub(crate) fn description(mut self, description: &str) -> Self {
         self.description = Some(description.to_string());
         self
     }
 
-    pub fn environment<T>(mut self, name: T, install_command: &str) -> Self
+    pub(crate) fn environment<T>(mut self, name: T, install_command: &str) -> Self
     where
         T: ToString,
     {
@@ -476,7 +474,7 @@ impl PackageBuilder {
         self
     }
 
-    pub fn environment_with_check<T>(
+    pub(crate) fn environment_with_check<T>(
         mut self,
         name: T,
         install_command: &str,
@@ -496,7 +494,7 @@ impl PackageBuilder {
         self
     }
 
-    pub fn environment_with_dependencies<T>(
+    pub(crate) fn environment_with_dependencies<T>(
         mut self,
         name: T,
         install_command: &str,
@@ -516,13 +514,14 @@ impl PackageBuilder {
         self
     }
 
-    pub fn build(self) -> Package {
+    pub(crate) fn build(self) -> Package {
         Package::new(
             self.name,
             self.version,
             self.homepage,
             self.description,
             self.environments,
+            self.path,
         )
     }
 }
@@ -819,7 +818,7 @@ mod tests {
         assert_eq!(package.name, "ripgrep");
         assert_eq!(package.version, "0.1.0");
         assert_eq!(package.environments.len(), 2);
-        assert_eq!(package.path, Some(path.to_path_buf()));
+        assert_eq!(package.path, path.to_path_buf());
     }
 
     #[test]
@@ -852,7 +851,14 @@ mod tests {
 
     #[test]
     fn test_validate_required_fields() {
-        let empty_package = Package::new(String::new(), String::new(), None, None, HashMap::new());
+        let empty_package = Package::new(
+            String::new(),
+            String::new(),
+            None,
+            None,
+            HashMap::new(),
+            PathBuf::new(),
+        );
 
         let issues = empty_package.validate_required_fields();
 

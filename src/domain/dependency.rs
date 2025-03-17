@@ -8,15 +8,12 @@ use super::package::Package;
 
 /// Errors that can occur during dependency operations
 #[derive(Debug, Error)]
-pub enum DependencyGraphError {
+pub(crate) enum DependencyGraphError {
     #[error("Package not found: {0}")]
     PackageNotFound(String),
 
     #[error("Circular dependency detected: {0}")]
     CircularDependency(String, Vec<String>),
-
-    #[error("Duplicate package: {0}")]
-    DuplicatePackage(String),
 
     #[error("Invalid dependency: {0}")]
     InvalidDependency(String),
@@ -24,7 +21,7 @@ pub enum DependencyGraphError {
 
 /// Represents a graph of package dependencies
 #[derive(Debug, Default)]
-pub struct DependencyGraph {
+pub(crate) struct DependencyGraph {
     /// Map of package name to package
     nodes: HashMap<String, Package>,
 
@@ -33,16 +30,8 @@ pub struct DependencyGraph {
 }
 
 impl DependencyGraph {
-    /// Create a new empty dependency graph
-    pub fn new() -> Self {
-        Self {
-            nodes: HashMap::new(),
-            edges: HashMap::new(),
-        }
-    }
-
     /// Add a package node to the graph
-    pub fn add_node(&mut self, package: Package) -> Result<(), DependencyGraphError> {
+    pub(crate) fn add_node(&mut self, package: Package) -> Result<(), DependencyGraphError> {
         let name = package.name.clone();
 
         // If the node already exists, update it
@@ -55,7 +44,7 @@ impl DependencyGraph {
     }
 
     /// Add a dependency relationship between packages
-    pub fn add_dependency(
+    pub(crate) fn add_dependency(
         &mut self,
         package: &str,
         dependency: &str,
@@ -98,7 +87,7 @@ impl DependencyGraph {
     }
 
     /// Check if the graph contains any cycles
-    pub fn has_cycle(&self) -> bool {
+    pub(crate) fn has_cycle(&self) -> bool {
         let mut visited = HashSet::new();
         let mut rec_stack = HashSet::new();
 
@@ -112,7 +101,7 @@ impl DependencyGraph {
     }
 
     /// Get a list of packages in installation order (dependencies first)
-    pub fn installation_order(&self) -> Result<Vec<&Package>, DependencyGraphError> {
+    pub(crate) fn installation_order(&self) -> Result<Vec<&Package>, DependencyGraphError> {
         // Use topological sort to get installation order
         let mut result = Vec::new();
         let mut visited = HashSet::new();
@@ -134,17 +123,19 @@ impl DependencyGraph {
     }
 
     /// Get the number of packages in the graph
-    pub fn len(&self) -> usize {
+    #[allow(dead_code)]
+    pub(crate) fn len(&self) -> usize {
         self.nodes.len()
     }
 
     /// Check if the graph is empty
-    pub fn is_empty(&self) -> bool {
+    #[allow(dead_code)]
+    pub(crate) fn is_empty(&self) -> bool {
         self.nodes.is_empty()
     }
 
     /// Get a list of all package names in the graph
-    pub fn get_package_names(&self) -> Vec<String> {
+    pub(crate) fn get_package_names(&self) -> Vec<String> {
         self.nodes.keys().cloned().collect()
     }
 
@@ -177,7 +168,7 @@ impl DependencyGraph {
     }
 
     /// Find all cycles in the graph
-    pub fn find_cycles(&self) -> Vec<Vec<String>> {
+    pub(crate) fn find_cycles(&self) -> Vec<Vec<String>> {
         let mut cycles = Vec::new();
         let mut visited = HashSet::new();
         let mut path = Vec::new();

@@ -4,47 +4,38 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
 
 use crate::{
-    domain::{self, config::ConfigValidationError},
-    ports::application::{ApplicationArguments, ApplicationError, ArgumentParser},
+    domain,
+    ports::application::{ApplicationArguments, ArgumentParser},
 };
-
-#[derive(Debug, thiserror::Error)]
-pub enum CliError {
-    #[error("Invalid command line arguments: {0}")]
-    InvalidArguments(String),
-
-    #[error("Configuration error: {0}")]
-    ConfigError(#[from] ConfigValidationError),
-}
 
 /// Selfie - A package manager and dotfile manager
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
-pub struct ClapArguments {
+pub struct ClapCli {
     /// Override the environment from config
     #[clap(long, short = 'e', global = true)]
-    pub environment: Option<String>,
+    pub(crate) environment: Option<String>,
 
     /// Override the package directory from config
     #[clap(long, short = 'p', global = true)]
-    pub package_directory: Option<PathBuf>,
+    pub(crate) package_directory: Option<PathBuf>,
 
     /// Show detailed output
     #[clap(long, short = 'v', global = true)]
-    pub verbose: bool,
+    pub(crate) verbose: bool,
 
     /// Disable colored output
     #[clap(long, global = true)]
-    pub no_color: bool,
+    pub(crate) no_color: bool,
 
     /// Subcommand to execute
     #[clap(subcommand)]
-    pub command: ClapCommands,
+    pub(crate) command: ClapCommands,
 }
 
 // Clap-specific command structure definitions here...
 #[derive(Subcommand, Debug, Clone)]
-pub enum ClapCommands {
+pub(crate) enum ClapCommands {
     /// Package management commands
     Package(PackageCommands),
 
@@ -53,13 +44,13 @@ pub enum ClapCommands {
 }
 
 #[derive(Args, Debug, Clone)]
-pub struct PackageCommands {
+pub(crate) struct PackageCommands {
     #[clap(subcommand)]
-    pub command: PackageSubcommands,
+    pub(crate) command: PackageSubcommands,
 }
 
 #[derive(Subcommand, Debug, Clone)]
-pub enum PackageSubcommands {
+pub(crate) enum PackageSubcommands {
     /// Install a package
     Install {
         /// Name of the package to install
@@ -93,19 +84,19 @@ pub enum PackageSubcommands {
 }
 
 #[derive(Args, Debug, Clone)]
-pub struct ConfigCommands {
+pub(crate) struct ConfigCommands {
     #[clap(subcommand)]
-    pub command: ConfigSubcommands,
+    pub(crate) command: ConfigSubcommands,
 }
 
 #[derive(Subcommand, Debug, Clone)]
-pub enum ConfigSubcommands {
+pub(crate) enum ConfigSubcommands {
     /// Validate the selfie configuration
     Validate,
 }
 
-impl ArgumentParser for ClapArguments {
-    fn parse_arguments() -> Result<ApplicationArguments, ApplicationError> {
+impl ArgumentParser for ClapCli {
+    fn parse_arguments() -> Result<ApplicationArguments, anyhow::Error> {
         let clap_args = Self::parse();
 
         // Convert from Clap-specific format to application format
@@ -113,8 +104,8 @@ impl ArgumentParser for ClapArguments {
     }
 }
 
-impl From<ClapArguments> for ApplicationArguments {
-    fn from(value: ClapArguments) -> Self {
+impl From<ClapCli> for ApplicationArguments {
+    fn from(value: ClapCli) -> Self {
         Self {
             environment: value.environment,
             package_directory: value.package_directory,

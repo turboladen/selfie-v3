@@ -1,0 +1,12 @@
+---
+name: shellcheck
+version: 0.1.0
+homepage: https://github.com/koalaman/shellcheck
+description: ShellCheck, a static analysis tool for shell scripts
+
+environments:
+  macos:
+    install: brew install shellcheck
+    check: command -v shellcheck
+    dependencies:
+      - homebrew

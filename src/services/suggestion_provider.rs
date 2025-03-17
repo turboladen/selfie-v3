@@ -7,19 +7,19 @@ use crate::ports::filesystem::FileSystem;
 use crate::ports::package_repo::PackageRepository;
 
 /// Generates suggestions for unknown names or values
-pub struct SuggestionProvider<'a, F: FileSystem, P: PackageRepository> {
-    fs: &'a F,
-    package_repo: &'a P,
+pub(crate) struct SuggestionProvider<'a> {
+    fs: &'a dyn FileSystem,
+    package_repo: &'a dyn PackageRepository,
 }
 
-impl<'a, F: FileSystem, P: PackageRepository> SuggestionProvider<'a, F, P> {
+impl<'a> SuggestionProvider<'a> {
     /// Create a new suggestion provider
-    pub fn new(fs: &'a F, package_repo: &'a P) -> Self {
+    pub(crate) fn new(fs: &'a dyn FileSystem, package_repo: &'a dyn PackageRepository) -> Self {
         Self { fs, package_repo }
     }
 
     /// Get suggestions for a package name
-    pub fn suggest_package(&self, name: &str) -> Vec<String> {
+    pub(crate) fn suggest_package(&self, name: &str) -> Vec<String> {
         // Try to get packages from the repository
         match self.package_repo.list_packages() {
             Ok(packages) => {
@@ -31,7 +31,7 @@ impl<'a, F: FileSystem, P: PackageRepository> SuggestionProvider<'a, F, P> {
     }
 
     /// Get suggestions for a file path
-    pub fn suggest_path(&self, path: &Path) -> Vec<PathBuf> {
+    pub(crate) fn suggest_path(&self, path: &Path) -> Vec<PathBuf> {
         // If the path doesn't exist, suggest similar paths in the parent directory
         if !self.fs.path_exists(path) {
             if let Some(parent) = path.parent() {
@@ -58,12 +58,16 @@ impl<'a, F: FileSystem, P: PackageRepository> SuggestionProvider<'a, F, P> {
     }
 
     /// Get suggestions for an environment name
-    pub fn suggest_environment(&self, name: &str, known_environments: &[String]) -> Vec<String> {
+    pub(crate) fn suggest_environment(
+        &self,
+        name: &str,
+        known_environments: &[String],
+    ) -> Vec<String> {
         self.find_similar_strings(name, known_environments)
     }
 
     /// Get suggestions for known environment variables
-    pub fn suggest_env_var(&self, name: &str) -> Vec<String> {
+    pub(crate) fn suggest_env_var(&self, name: &str) -> Vec<String> {
         // Common environment variables that might be used in package definitions
         let common_vars = [
             "HOME",

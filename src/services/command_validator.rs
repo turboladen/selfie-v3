@@ -13,7 +13,7 @@ use crate::{
 
 /// Errors that can occur during command validation
 #[derive(Error, Debug)]
-pub enum CommandValidationError {
+pub(crate) enum CommandValidationError {
     #[error("Command execution error: {0}")]
     ExecutionError(#[from] CommandError),
 
@@ -32,34 +32,34 @@ pub enum CommandValidationError {
 
 /// Result of a command validation
 #[derive(Debug, Clone)]
-pub struct CommandValidationResult {
+pub(crate) struct CommandValidationResult {
     /// Whether the command is valid
-    pub is_valid: bool,
+    pub(crate) is_valid: bool,
     /// The command that was validated
-    pub command: String,
+    pub(crate) command: String,
     /// Error message (if any)
-    pub error: Option<String>,
+    pub(crate) error: Option<String>,
     /// Whether the command is available in the current environment
-    pub is_available: bool,
+    pub(crate) is_available: bool,
     /// Is this a warning rather than an error
-    pub is_warning: bool,
+    pub(crate) is_warning: bool,
     /// The environment this validation applies to
-    pub environment: String,
+    pub(crate) environment: String,
 }
 
 /// Service for validating shell commands in package definitions
-pub struct CommandValidator<'a, R: CommandRunner> {
-    runner: &'a R,
+pub(crate) struct CommandValidator<'a> {
+    runner: &'a dyn CommandRunner,
 }
 
-impl<'a, R: CommandRunner> CommandValidator<'a, R> {
+impl<'a> CommandValidator<'a> {
     /// Create a new command validator
-    pub fn new(runner: &'a R) -> Self {
+    pub(crate) fn new(runner: &'a dyn CommandRunner) -> Self {
         Self { runner }
     }
 
     /// Validate a command in a package environment configuration
-    pub fn validate_environment_commands(
+    pub(crate) async fn validate_environment_commands(
         &self,
         env_name: &str,
         env_config: &EnvironmentConfig,
@@ -78,7 +78,7 @@ impl<'a, R: CommandRunner> CommandValidator<'a, R> {
 
         // If validation enabled AND we have a shell command, check if basic shell commands are available
         if let Some(command) = Self::extract_base_command(&env_config.install) {
-            let avail_result = self.check_command_availability(env_name, command);
+            let avail_result = self.check_command_availability(env_name, command).await;
             results.push(avail_result);
         }
 
@@ -148,12 +148,12 @@ impl<'a, R: CommandRunner> CommandValidator<'a, R> {
     }
 
     /// Check if a command is available in the current environment
-    pub(crate) fn check_command_availability(
+    pub(crate) async fn check_command_availability(
         &self,
         env_name: &str,
         command: &str,
     ) -> CommandValidationResult {
-        let is_available = self.runner.is_command_available(command);
+        let is_available = self.runner.is_command_available(command).await;
 
         // Generate more environment-aware message
         let error_message = if !is_available {
@@ -176,7 +176,7 @@ impl<'a, R: CommandRunner> CommandValidator<'a, R> {
     }
 
     /// Check if the command might require sudo
-    pub fn might_require_sudo(&self, command: &str) -> bool {
+    pub(crate) fn might_require_sudo(&self, command: &str) -> bool {
         let sudo_indicators = [
             "sudo ",
             "apt ",
@@ -194,7 +194,11 @@ impl<'a, R: CommandRunner> CommandValidator<'a, R> {
     }
 
     /// Enhanced check for commands specific to particular environments
-    pub fn is_command_recommended_for_env(&self, env_name: &str, command: &str) -> Option<String> {
+    pub(crate) fn is_command_recommended_for_env(
+        &self,
+        env_name: &str,
+        command: &str,
+    ) -> Option<String> {
         // Map of environment prefixes to recommended package managers
         let env_recommendations = [
             // macOS environments
@@ -235,12 +239,12 @@ impl<'a, R: CommandRunner> CommandValidator<'a, R> {
     }
 
     /// Check if the command uses backticks (often considered unsafe)
-    pub fn uses_backticks(&self, command: &str) -> bool {
+    pub(crate) fn uses_backticks(&self, command: &str) -> bool {
         command.contains('`')
     }
 
     /// Check if the command might download content from the internet
-    pub fn might_download_content(&self, command: &str) -> bool {
+    pub(crate) fn might_download_content(&self, command: &str) -> bool {
         let download_indicators = [
             "curl ",
             "wget ",
@@ -310,23 +314,21 @@ mod tests {
     #[test]
     fn test_extract_base_command() {
         assert_eq!(
-            CommandValidator::<MockCommandRunner>::extract_base_command("echo hello"),
+            CommandValidator::extract_base_command("echo hello"),
             Some("echo")
         );
         assert_eq!(
-            CommandValidator::<MockCommandRunner>::extract_base_command("brew install ripgrep"),
+            CommandValidator::extract_base_command("brew install ripgrep"),
             Some("brew")
         );
         assert_eq!(
-            CommandValidator::<MockCommandRunner>::extract_base_command(
-                "  apt-get install -y git  "
-            ),
+            CommandValidator::extract_base_command("  apt-get install -y git  "),
             Some("apt-get")
         );
     }
 
-    #[test]
-    fn test_check_command_availability() {
+    #[tokio::test]
+    async fn test_check_command_availability() {
         let mut runner = MockCommandRunner::new();
         runner
             .expect_is_command_available()
@@ -339,13 +341,17 @@ mod tests {
 
         let validator = CommandValidator::new(&runner);
 
-        let result = validator.check_command_availability("mac-env", "echo");
+        let result = validator
+            .check_command_availability("mac-env", "echo")
+            .await;
         assert!(result.is_valid);
         assert!(result.is_available);
         assert!(result.error.is_none());
         assert_eq!(result.environment, "mac-env");
 
-        let result = validator.check_command_availability("mac-env", "nonexistent");
+        let result = validator
+            .check_command_availability("mac-env", "nonexistent")
+            .await;
         assert!(result.is_valid); // The command syntax is valid even if not available
         assert!(!result.is_available);
         assert!(result.error.unwrap().contains("not found"));
@@ -385,8 +391,8 @@ mod tests {
         assert!(!validator.might_download_content("echo hello"));
     }
 
-    #[test]
-    fn test_validate_environment_commands() {
+    #[tokio::test]
+    async fn test_validate_environment_commands() {
         let mut runner = MockCommandRunner::new();
         runner
             .expect_is_command_available()
@@ -402,7 +408,9 @@ mod tests {
             dependencies: vec![],
         };
 
-        let results = validator.validate_environment_commands("mac-env", &env_config);
+        let results = validator
+            .validate_environment_commands("mac-env", &env_config)
+            .await;
 
         // Should have 3 results: install syntax, check syntax, and command availability
         assert_eq!(results.len(), 3);

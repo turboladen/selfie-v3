@@ -7,6 +7,45 @@ use crate::domain::config::AppConfig;
 
 use super::application::ApplicationArguments;
 
+/// Port for loading configuration from disk
+#[cfg_attr(test, mockall::automock)]
+#[async_trait::async_trait]
+pub trait ConfigLoader: Send + Sync {
+    /// Load configuration from standard locations
+    fn load_config(&self, app_args: &ApplicationArguments) -> Result<AppConfig, ConfigLoadError>;
+
+    /// Find possible configuration file paths
+    fn find_config_paths(&self) -> Vec<PathBuf>;
+
+    /// Get the default configuration
+    fn default_config(&self) -> AppConfig;
+}
+
+#[cfg(test)]
+impl MockConfigLoader {
+    pub(crate) fn mock_load_config_ok(
+        &mut self,
+        app_args: ApplicationArguments,
+        config: AppConfig,
+    ) {
+        let config = config.apply_cli_args(&app_args);
+
+        self.expect_load_config()
+            .with(mockall::predicate::eq(app_args))
+            .returning(move |_| Ok(config.clone()));
+    }
+
+    pub(crate) fn mock_load_config_err(
+        &mut self,
+        app_args: ApplicationArguments,
+        error: ConfigLoadError,
+    ) {
+        self.expect_load_config()
+            .with(mockall::predicate::eq(app_args))
+            .return_once(|_| Err(error));
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum ConfigLoadError {
     #[error("Failed to read configuration file: {0}")]
@@ -26,33 +65,4 @@ pub enum ConfigLoadError {
 
     #[error(transparent)]
     ConfigError(#[from] config::ConfigError),
-}
-
-/// Port for loading configuration from disk
-#[mockall::automock]
-pub trait ConfigLoader {
-    /// Load configuration from standard locations
-    fn load_config(&self, app_args: &ApplicationArguments) -> Result<AppConfig, ConfigLoadError>;
-
-    /// Find possible configuration file paths
-    fn find_config_paths(&self) -> Vec<PathBuf>;
-
-    /// Get the default configuration
-    fn default_config(&self) -> AppConfig;
-}
-
-impl MockConfigLoader {
-    pub fn mock_load_config_ok(&mut self, app_args: ApplicationArguments, config: AppConfig) {
-        let config = config.apply_cli_args(&app_args);
-
-        self.expect_load_config()
-            .with(mockall::predicate::eq(app_args))
-            .returning(move |_| Ok(config.clone()));
-    }
-
-    pub fn mock_load_config_err(&mut self, app_args: ApplicationArguments, error: ConfigLoadError) {
-        self.expect_load_config()
-            .with(mockall::predicate::eq(app_args))
-            .return_once(|_| Err(error));
-    }
 }

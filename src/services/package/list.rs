@@ -1,4 +1,4 @@
-// src/services/package_list_service.rs
+// src/services/package/list.rs
 // Enhanced implementation of the 'selfie package list' command with command availability checking
 
 use console::style;
@@ -12,7 +12,7 @@ use crate::{
 };
 
 /// Result of running the list command
-pub enum PackageListResult {
+pub(crate) enum PackageListResult {
     /// Package listing successful
     Success(String),
     /// Command failed to run
@@ -20,20 +20,20 @@ pub enum PackageListResult {
 }
 
 /// Handles the 'package list' command with enhanced command availability checking
-pub struct PackageListService<'a, R: CommandRunner, P: PackageRepository> {
-    runner: &'a R,
+pub(crate) struct PackageListService<'a> {
+    runner: &'a dyn CommandRunner,
     config: &'a AppConfig,
     progress_manager: &'a ProgressManager,
-    package_repo: &'a P,
+    package_repo: &'a dyn PackageRepository,
 }
 
-impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
+impl<'a> PackageListService<'a> {
     /// Create a new list command handler
-    pub fn new(
-        runner: &'a R,
+    pub(crate) fn new(
+        runner: &'a dyn CommandRunner,
         config: &'a AppConfig,
         progress_manager: &'a ProgressManager,
-        package_repo: &'a P,
+        package_repo: &'a dyn PackageRepository,
     ) -> Self {
         Self {
             runner,
@@ -44,9 +44,9 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
     }
 
     /// Execute the list command
-    pub fn execute(&self) -> PackageListResult {
+    pub(crate) async fn execute(&self) -> PackageListResult {
         // Get list of packages
-        match self.list_packages() {
+        match self.list_packages().await {
             Ok(output) => PackageListResult::Success(output),
             Err(err) => {
                 self.progress_manager.print_error("Failed");
@@ -56,7 +56,7 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
     }
 
     /// List packages with compatibility information and command availability
-    fn list_packages(&self) -> Result<String, PackageRepoError> {
+    async fn list_packages(&self) -> Result<String, PackageRepoError> {
         let packages = self.package_repo.list_packages()?;
 
         if packages.is_empty() {
@@ -115,9 +115,9 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
                 if let Some(env_config) = package.environments.get(self.config.environment()) {
                     // Extract base command
                     if let Some(base_cmd) =
-                        CommandValidator::<R>::extract_base_command(&env_config.install)
+                        CommandValidator::extract_base_command(&env_config.install)
                     {
-                        let cmd_available = self.runner.is_command_available(base_cmd);
+                        let cmd_available = self.runner.is_command_available(base_cmd).await;
 
                         let status = if cmd_available {
                             if self.config.use_colors() {
@@ -216,16 +216,14 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
                 }
 
                 // Show file path if available
-                if let Some(path) = &package.path {
-                    let path_text = if self.config.use_colors() {
-                        style(format!("    Path: {}", path.display()))
-                            .dim()
-                            .to_string()
-                    } else {
-                        format!("    Path: {}", path.display())
-                    };
-                    output.push_str(&format!("{}\n", path_text));
-                }
+                let path_text = if self.config.use_colors() {
+                    style(format!("    Path: {}", package.path.display()))
+                        .dim()
+                        .to_string()
+                } else {
+                    format!("    Path: {}", package.path.display())
+                };
+                output.push_str(&format!("{}\n", path_text));
 
                 // Add a separator line between packages
                 output.push('\n');
@@ -236,7 +234,11 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
     }
 
     /// Filter packages by various criteria
-    pub fn filter_packages(&self, packages: &[Package], filter: Option<&str>) -> Vec<Package> {
+    pub(crate) fn filter_packages(
+        &self,
+        packages: &[Package],
+        filter: Option<&str>,
+    ) -> Vec<Package> {
         // If no filter, return all packages
         if filter.is_none() {
             return packages.to_vec();
@@ -273,7 +275,7 @@ impl<'a, R: CommandRunner, P: PackageRepository> PackageListService<'a, R, P> {
     }
 
     /// Group packages by environment compatibility
-    pub fn list_packages_by_environment(&self) -> Result<String, PackageRepoError> {
+    pub(crate) fn list_packages_by_environment(&self) -> Result<String, PackageRepoError> {
         let packages = self.package_repo.list_packages()?;
 
         if packages.is_empty() {
@@ -391,8 +393,8 @@ mod tests {
     };
     use std::path::Path;
 
-    #[test]
-    fn test_list_empty_directory() {
+    #[tokio::test]
+    async fn test_list_empty_directory() {
         let mut fs = MockFileSystem::default();
         let package_dir = Path::new("/test/packages");
 
@@ -405,20 +407,20 @@ mod tests {
         fs.mock_path_exists(&package_dir, true);
         fs.mock_list_directory(&package_dir, &[]);
 
-        // Create a repository with an empty directory
-        let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
-        let runner = MockCommandRunner::new();
         let manager = ProgressManager::from(&config);
+        // Create a repository with an empty directory
+        let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory(), &manager);
+        let runner = MockCommandRunner::new();
 
         let cmd = PackageListService::new(&runner, &config, &manager, &repo);
 
-        let result = cmd.list_packages();
+        let result = cmd.list_packages().await;
         assert!(result.is_ok());
         assert!(result.unwrap().contains("No packages found"));
     }
 
-    #[test]
-    fn test_list_packages() {
+    #[tokio::test]
+    async fn test_list_packages() {
         let mut fs = MockFileSystem::default();
         let config = AppConfigBuilder::default()
             .environment("test-env")
@@ -452,8 +454,9 @@ mod tests {
         fs.mock_read_file(package1_path, package1_yaml);
         fs.mock_read_file(package2_path, package2_yaml);
 
+        let manager = ProgressManager::from(&config);
         // Create a repository with our mock filesystem
-        let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
+        let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory(), &manager);
 
         // Create mock runner that shows 'brew' as available
         let mut runner = MockCommandRunner::new();
@@ -462,11 +465,10 @@ mod tests {
             .with(mockall::predicate::eq("brew"))
             .returning(|_| true);
 
-        let manager = ProgressManager::from(&config);
         let cmd = PackageListService::new(&runner, &config, &manager, &repo);
 
         // Test the list_packages function with our repo
-        let result = cmd.list_packages();
+        let result = cmd.list_packages().await;
         assert!(result.is_ok());
         let output = result.unwrap();
 
@@ -479,8 +481,8 @@ mod tests {
         assert!(output.contains("Not compatible with current environment"));
     }
 
-    #[test]
-    fn test_list_packages_verbose() {
+    #[tokio::test]
+    async fn test_list_packages_verbose() {
         let mut fs = MockFileSystem::default();
         let config = AppConfigBuilder::default()
             .environment("test-env")
@@ -507,8 +509,9 @@ mod tests {
         fs.mock_list_directory(package_dir, &[&package_path]);
         fs.mock_read_file(package_path, package_yaml);
 
+        let manager = ProgressManager::from(&config);
         // Create a repository with our mock filesystem
-        let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
+        let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory(), &manager);
 
         // Create mock runner with command availability
         let mut runner = MockCommandRunner::new();
@@ -521,11 +524,10 @@ mod tests {
             .with(mockall::predicate::eq("apt"))
             .returning(|_| true);
 
-        let manager = ProgressManager::from(&config);
         let cmd = PackageListService::new(&runner, &config, &manager, &repo);
 
         // Test the list_packages function with our repo
-        let result = cmd.list_packages();
+        let result = cmd.list_packages().await;
         assert!(result.is_ok());
         let output = result.unwrap();
 
@@ -573,9 +575,10 @@ mod tests {
             .package_directory("/test/packages")
             .use_colors(false) // (Colors mess up output matching in tests)
             .build();
-        let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
-        let runner = MockCommandRunner::new();
+
         let manager = ProgressManager::from(&config);
+        let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory(), &manager);
+        let runner = MockCommandRunner::new();
         let cmd = PackageListService::new(&runner, &config, &manager, &repo);
 
         // Filter by name
@@ -649,10 +652,10 @@ mod tests {
         fs.mock_read_file(package2_path, package2_yaml);
         fs.mock_read_file(package3_path, package3_yaml);
 
-        // Create a repository with our mock filesystem
-        let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory());
-        let runner = MockCommandRunner::new();
         let manager = ProgressManager::from(&config);
+        // Create a repository with our mock filesystem
+        let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory(), &manager);
+        let runner = MockCommandRunner::new();
         let cmd = PackageListService::new(&runner, &config, &manager, &repo);
 
         // Test grouping by environment

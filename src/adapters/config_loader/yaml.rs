@@ -12,17 +12,17 @@ use crate::{
     },
 };
 
-pub struct YamlConfigLoader<'a, F: FileSystem> {
-    fs: &'a F,
+pub struct Yaml<'a> {
+    fs: &'a dyn FileSystem,
 }
 
-impl<'a, F: FileSystem> YamlConfigLoader<'a, F> {
-    pub fn new(fs: &'a F) -> Self {
+impl<'a> Yaml<'a> {
+    pub fn new(fs: &'a dyn FileSystem) -> Self {
         Self { fs }
     }
 }
 
-impl<F: FileSystem> ConfigLoader for YamlConfigLoader<'_, F> {
+impl ConfigLoader for Yaml<'_> {
     fn load_config(&self, app_args: &ApplicationArguments) -> Result<AppConfig, ConfigLoadError> {
         let config_paths = self.find_config_paths();
 
@@ -140,7 +140,7 @@ mod tests {
         fs.mock_config_dir(&config_dir);
         fs.mock_path_exists(config_dir.join("selfie").join("config.yaml"), true);
 
-        let loader = YamlConfigLoader::new(&fs);
+        let loader = Yaml::new(&fs);
 
         let paths = loader.find_config_paths();
 
@@ -160,7 +160,7 @@ mod tests {
         fs.mock_path_exists(&package_dir, true);
         fs.mock_expand_path(&package_dir, &package_dir);
 
-        let loader = YamlConfigLoader::new(&fs);
+        let loader = Yaml::new(&fs);
         let args = ApplicationArgumentsBuilder::default()
             .environment("test-env")
             .package_directory(package_dir)
@@ -182,7 +182,7 @@ mod tests {
         fs.mock_path_exists(config_dir.join("config.yaml"), false);
         fs.mock_path_exists(config_dir.join("config.yml"), false);
 
-        let loader = YamlConfigLoader::new(&fs);
+        let loader = Yaml::new(&fs);
 
         // Should return error
         let result = loader.load_config(&ApplicationArguments::default());
@@ -216,7 +216,7 @@ mod tests {
 
         fs.mock_expand_path("/test/packages", "/test/packages");
 
-        let loader = YamlConfigLoader::new(&fs);
+        let loader = Yaml::new(&fs);
         let config = loader
             .load_config(&ApplicationArguments::default())
             .unwrap();

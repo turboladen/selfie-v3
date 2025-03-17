@@ -1,4 +1,4 @@
-// src/package_installer/dependency.rs
+// src/services/package/installer/dependency.rs
 use thiserror::Error;
 
 use crate::{
@@ -9,7 +9,7 @@ use crate::{
 };
 
 #[derive(Error, Debug)]
-pub enum DependencyResolverError {
+pub(crate) enum DependencyResolverError {
     #[error("Package not found: {0}")]
     PackageNotFound(String),
 
@@ -29,13 +29,13 @@ pub enum DependencyResolverError {
     EnvironmentNotSupported(String, String),
 }
 
-pub struct DependencyResolver<'a, P: PackageRepository> {
-    package_repo: &'a P,
+pub(crate) struct DependencyResolver<'a> {
+    package_repo: &'a dyn PackageRepository,
     config: &'a AppConfig,
 }
 
-impl<'a, P: PackageRepository> DependencyResolver<'a, P> {
-    pub fn new(package_repo: &'a P, config: &'a AppConfig) -> Self {
+impl<'a> DependencyResolver<'a> {
+    pub(crate) fn new(package_repo: &'a dyn PackageRepository, config: &'a AppConfig) -> Self {
         Self {
             package_repo,
             config,
@@ -44,7 +44,7 @@ impl<'a, P: PackageRepository> DependencyResolver<'a, P> {
 
     /// Resolve dependencies for a package and return an ordered list of packages
     /// that need to be installed
-    pub fn resolve_dependencies(
+    pub(crate) fn resolve_dependencies(
         &self,
         package_name: &str,
     ) -> Result<Vec<Package>, DependencyResolverError> {
@@ -56,11 +56,18 @@ impl<'a, P: PackageRepository> DependencyResolver<'a, P> {
         let installation_order = match graph.installation_order() {
             Ok(order) => order,
             Err(DependencyGraphError::CircularDependency(msg, path)) => {
+                let cycles = graph.find_cycles();
+
                 // Convert the graph error to our error type with the cycle path
                 return Err(DependencyResolverError::CircularDependency(format!(
-                    "{} (path: {})",
+                    "{} (path: {}) | {}",
                     msg,
-                    path.join(" -> ")
+                    path.join(" -> "),
+                    cycles
+                        .into_iter()
+                        .map(|v| v.join(", "))
+                        .collect::<Vec<_>>()
+                        .join("\n")
                 )));
             }
             Err(e) => return Err(DependencyResolverError::GraphError(e)),

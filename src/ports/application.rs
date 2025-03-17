@@ -1,23 +1,20 @@
 // src/ports/application.rs
 use std::path::PathBuf;
 
-use thiserror::Error;
-
-use crate::domain::{application::commands::ApplicationCommand, config::ConfigValidationError};
-
-use super::config_loader::ConfigLoadError;
+use crate::domain::application::commands::ApplicationCommand;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ApplicationArguments {
-    pub environment: Option<String>,
-    pub package_directory: Option<PathBuf>,
+    pub(crate) environment: Option<String>,
+    pub(crate) package_directory: Option<PathBuf>,
     pub verbose: bool,
     pub no_color: bool,
-    pub command: ApplicationCommand,
+    pub(crate) command: ApplicationCommand,
 }
 
 #[derive(Debug, Default)]
-pub struct ApplicationArgumentsBuilder {
+#[cfg(test)]
+pub(crate) struct ApplicationArgumentsBuilder {
     environment: Option<String>,
     package_directory: Option<PathBuf>,
     verbose: bool,
@@ -25,17 +22,14 @@ pub struct ApplicationArgumentsBuilder {
     command: ApplicationCommand,
 }
 
+#[cfg(test)]
 impl ApplicationArgumentsBuilder {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn environment(mut self, environment: &str) -> Self {
+    pub(crate) fn environment(mut self, environment: &str) -> Self {
         self.environment = Some(environment.to_string());
         self
     }
 
-    pub fn package_directory<P>(mut self, package_directory: P) -> Self
+    pub(crate) fn package_directory<P>(mut self, package_directory: P) -> Self
     where
         PathBuf: From<P>,
     {
@@ -43,22 +37,22 @@ impl ApplicationArgumentsBuilder {
         self
     }
 
-    pub fn verbose(mut self, verbose: bool) -> Self {
+    pub(crate) fn verbose(mut self, verbose: bool) -> Self {
         self.verbose = verbose;
         self
     }
 
-    pub fn no_color(mut self, no_color: bool) -> Self {
+    pub(crate) fn no_color(mut self, no_color: bool) -> Self {
         self.no_color = no_color;
         self
     }
 
-    pub fn command(mut self, command: ApplicationCommand) -> Self {
+    pub(crate) fn command(mut self, command: ApplicationCommand) -> Self {
         self.command = command;
         self
     }
 
-    pub fn build(self) -> ApplicationArguments {
+    pub(crate) fn build(self) -> ApplicationArguments {
         ApplicationArguments {
             environment: self.environment,
             package_directory: self.package_directory,
@@ -69,29 +63,15 @@ impl ApplicationArgumentsBuilder {
     }
 }
 
-#[derive(Error, Debug)]
-pub enum ApplicationError {
-    #[error("Invalid application arguments: {0}")]
-    InvalidArguments(String),
-
-    #[error("Configuration error: {0}")]
-    ConfigError(#[from] ConfigValidationError),
-
-    #[error("Command execution error: {0}")]
-    ExecutionError(String),
-
-    #[error(transparent)]
-    ConfigLoadError(#[from] ConfigLoadError),
-}
-
 pub trait ArgumentParser {
     /// Parse arguments into the application's domain model
-    fn parse_arguments() -> Result<ApplicationArguments, ApplicationError>;
+    fn parse_arguments() -> Result<ApplicationArguments, anyhow::Error>;
 }
 
+#[async_trait::async_trait]
 pub trait ApplicationCommandRouter {
     /// Process an application command and return an exit code
-    fn process_command(&self, args: ApplicationArguments) -> Result<i32, ApplicationError>;
+    async fn process_command(&self, args: ApplicationArguments) -> Result<i32, anyhow::Error>;
 
     /// Get a human-readable description of a command
     fn get_command_description(&self, command: &ApplicationCommand) -> String;
