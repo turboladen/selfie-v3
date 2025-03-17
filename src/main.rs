@@ -55,7 +55,7 @@ async fn main() -> Result<(), anyhow::Error> {
             progress_manager.print_error(format!("Error: {}", err));
 
             // // If we have detailed error information and verbose is enabled, print it
-            // if progress_manager.verbose() {
+            // if app_config.verbose() {
             //     // Create context for the error
             //     let context =
             //         ErrorContext::default().with_message("Error occurred while processing command");
