@@ -1,0 +1,10 @@
+---
+name: curl
+version: 0.1.0
+homepage:
+description:
+
+environments:
+  macos:
+    install:
+    check: command -v bash-language-server

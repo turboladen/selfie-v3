@@ -1,0 +1,12 @@
+---
+name: nodejs
+version: 0.1.0
+homepage:
+description:
+
+environments:
+  macos:
+    install: fnm install --lts
+    check: command -v node
+    dependencies:
+      - fnm
