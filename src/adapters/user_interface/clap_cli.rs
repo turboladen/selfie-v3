@@ -5,7 +5,7 @@ use clap::{Args, Parser, Subcommand};
 
 use crate::{
     domain,
-    ports::application::{ApplicationArguments, ApplicationError, ArgumentParser},
+    ports::application::{ApplicationArguments, ArgumentParser},
 };
 
 /// Selfie - A package manager and dotfile manager
@@ -96,7 +96,7 @@ pub(crate) enum ConfigSubcommands {
 }
 
 impl ArgumentParser for ClapCli {
-    fn parse_arguments() -> Result<ApplicationArguments, ApplicationError> {
+    fn parse_arguments() -> Result<ApplicationArguments, anyhow::Error> {
         let clap_args = Self::parse();
 
         // Convert from Clap-specific format to application format

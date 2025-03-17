@@ -1,11 +1,7 @@
 // src/ports/application.rs
 use std::path::PathBuf;
 
-use thiserror::Error;
-
-use crate::domain::{application::commands::ApplicationCommand, config::ConfigValidationError};
-
-use super::config_loader::ConfigLoadError;
+use crate::domain::application::commands::ApplicationCommand;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ApplicationArguments {
@@ -67,30 +63,15 @@ impl ApplicationArgumentsBuilder {
     }
 }
 
-#[derive(Error, Debug)]
-pub enum ApplicationError {
-    #[error("Invalid application arguments: {0}")]
-    InvalidArguments(String),
-
-    #[error("Configuration error: {0}")]
-    ConfigError(#[from] ConfigValidationError),
-
-    #[error("Command execution error: {0}")]
-    ExecutionError(String),
-
-    #[error(transparent)]
-    ConfigLoadError(#[from] ConfigLoadError),
-}
-
 pub trait ArgumentParser {
     /// Parse arguments into the application's domain model
-    fn parse_arguments() -> Result<ApplicationArguments, ApplicationError>;
+    fn parse_arguments() -> Result<ApplicationArguments, anyhow::Error>;
 }
 
 #[async_trait::async_trait]
 pub trait ApplicationCommandRouter {
     /// Process an application command and return an exit code
-    async fn process_command(&self, args: ApplicationArguments) -> Result<i32, ApplicationError>;
+    async fn process_command(&self, args: ApplicationArguments) -> Result<i32, anyhow::Error>;
 
     /// Get a human-readable description of a command
     fn get_command_description(&self, command: &ApplicationCommand) -> String;

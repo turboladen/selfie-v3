@@ -29,13 +29,13 @@ pub(crate) enum DependencyResolverError {
     EnvironmentNotSupported(String, String),
 }
 
-pub(crate) struct DependencyResolver<'a, P: PackageRepository> {
-    package_repo: &'a P,
+pub(crate) struct DependencyResolver<'a> {
+    package_repo: &'a dyn PackageRepository,
     config: &'a AppConfig,
 }
 
-impl<'a, P: PackageRepository> DependencyResolver<'a, P> {
-    pub(crate) fn new(package_repo: &'a P, config: &'a AppConfig) -> Self {
+impl<'a> DependencyResolver<'a> {
+    pub(crate) fn new(package_repo: &'a dyn PackageRepository, config: &'a AppConfig) -> Self {
         Self {
             package_repo,
             config,

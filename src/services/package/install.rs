@@ -8,7 +8,7 @@ use dependency::{DependencyResolver, DependencyResolverError};
 use thiserror::Error;
 
 use crate::{
-    adapters::{package_repo::yaml::YamlPackageRepository, progress::ProgressManager},
+    adapters::progress::ProgressManager,
     domain::{
         config::AppConfig,
         errors::{
@@ -19,7 +19,7 @@ use crate::{
     },
     ports::{
         command::{CommandError, CommandRunner},
-        filesystem::{FileSystem, FileSystemError},
+        filesystem::FileSystemError,
         package_repo::{PackageRepoError, PackageRepository},
     },
     services::{command_validator::CommandValidator, enhanced_error_handler::EnhancedErrorHandler},
@@ -104,7 +104,8 @@ impl From<EnhancedDependencyError> for PackageInstallerError {
 }
 
 pub(crate) struct PackageInstaller<'a> {
-    fs: &'a dyn FileSystem,
+    package_repo: &'a dyn PackageRepository,
+    error_handler: &'a EnhancedErrorHandler<'a>,
     runner: &'a dyn CommandRunner,
     config: &'a AppConfig,
     progress_manager: &'a ProgressManager,
@@ -114,7 +115,8 @@ pub(crate) struct PackageInstaller<'a> {
 
 impl<'a> PackageInstaller<'a> {
     pub(crate) fn new(
-        fs: &'a dyn FileSystem,
+        package_repo: &'a dyn PackageRepository,
+        error_handler: &'a EnhancedErrorHandler<'_>,
         runner: &'a dyn CommandRunner,
         config: &'a AppConfig,
         progress_manager: &'a ProgressManager,
@@ -124,7 +126,8 @@ impl<'a> PackageInstaller<'a> {
         let command_validator = CommandValidator::new(runner);
 
         Self {
-            fs,
+            package_repo,
+            error_handler,
             runner,
             config,
             progress_manager,
@@ -138,34 +141,10 @@ impl<'a> PackageInstaller<'a> {
         &self,
         package_name: &str,
     ) -> Result<InstallationReport, PackageInstallerError> {
-        // Create package repository
-        let package_repo = YamlPackageRepository::new(
-            self.fs,
-            self.config.expanded_package_directory(),
-            self.progress_manager,
-        );
-
-        // Create error handler if needed
-        let error_handler =
-            EnhancedErrorHandler::new(self.fs, &package_repo, self.progress_manager);
-
         // Start timing the entire process
         let start_time = Instant::now();
 
-        // First, find the package to get its details
-        let main_package = package_repo
-            .get_package(package_name)
-            .map_err(|e| match e {
-                PackageRepoError::PackageNotFound(name) => {
-                    // Use enhanced error handling for not found errors
-                    let error_msg = error_handler.handle_package_not_found(&name);
-                    PackageInstallerError::PackageNotFound(error_msg)
-                }
-                PackageRepoError::MultiplePackagesFound(name) => {
-                    PackageInstallerError::MultiplePackagesFound(name)
-                }
-                _ => PackageInstallerError::PackageRepoError(e),
-            })?;
+        let main_package = self.get_package(package_name)?;
 
         // Print initial package info header
         let header = if self.progress_manager.use_colors() {
@@ -189,21 +168,20 @@ impl<'a> PackageInstaller<'a> {
         // ╭──────────────────────╮
         // │ Resolve dependencies │
         // ╰──────────────────────╯
-        let packages = match self.resolve_dependencies(package_name, &package_repo) {
+        let packages = match self.resolve_dependencies(package_name, self.package_repo) {
             Ok(packages) => packages,
             Err(err) => {
                 // Use enhanced error handling for dependency errors
-                if let PackageInstallerError::CircularDependency(cycle_str) = &err {
+                if let DependencyResolverError::CircularDependency(cycle_str) = &err {
                     if let Some(cycle) = self.parse_cycle_string(cycle_str) {
-                        let error_msg = error_handler.handle_circular_dependency(&cycle);
+                        let error_msg = self.error_handler.handle_circular_dependency(&cycle);
                         self.progress_manager.print_error(&error_msg);
-                        return Err(PackageInstallerError::EnhancedError(error_msg));
                     }
                 }
 
                 self.progress_manager
                     .print_error(format!("Dependency resolution failed: {}", err));
-                return Err(err);
+                return Err(err.into());
             }
         };
 
@@ -223,16 +201,14 @@ impl<'a> PackageInstaller<'a> {
 
             // All packages except the last one are dependencies
             for package in packages.iter().take(packages.len() - 1) {
-                self.install_dependency(package, &package_repo, start_time, &mut dependency_results)
+                self.install_dependency(package, start_time, &mut dependency_results)
                     .await?
             }
         }
 
         // Now install the main package
         let main_package = packages.last().unwrap();
-        let main_result = self
-            .install_single_package(main_package, &package_repo, 2)
-            .await?;
+        let main_result = self.install_single_package(main_package, 2).await?;
 
         // Get the total installation time and create the final result
         let total_duration = start_time.elapsed();
@@ -251,7 +227,6 @@ impl<'a> PackageInstaller<'a> {
     async fn install_dependency(
         &self,
         package: &Package,
-        package_repo: &impl PackageRepository,
         start_time: Instant,
         dependency_results: &mut Vec<InstallationReport>,
     ) -> Result<(), PackageInstallerError> {
@@ -291,7 +266,7 @@ impl<'a> PackageInstaller<'a> {
         }
 
         // Install the dependency
-        match self.install_single_package(package, package_repo, 6).await {
+        match self.install_single_package(package, 6).await {
             Ok(result) => {
                 // Only continue if installation was successful or package was already installed
                 match result.status {
@@ -330,47 +305,8 @@ impl<'a> PackageInstaller<'a> {
         &self,
         package_name: &str,
     ) -> Result<bool, PackageInstallerError> {
-        // Create a package repository
-        let package_repo = YamlPackageRepository::new(
-            self.fs,
-            self.config.expanded_package_directory(),
-            self.progress_manager,
-        );
-
-        // Create error handler if needed
-        let error_handler =
-            EnhancedErrorHandler::new(self.fs, &package_repo, self.progress_manager);
-
         // Find the package
-        let package = package_repo.get_package(package_name).map_err(|e| {
-            match e {
-                PackageRepoError::DirectoryNotFound(dir_path) => {
-                    // This is a path not found error
-                    let error_msg = error_handler.handle_path_not_found(Path::new(&dir_path));
-                    PackageInstallerError::EnhancedError(error_msg)
-                }
-                PackageRepoError::IoError(ref io_err) => {
-                    // Check if it's a file not found error
-                    if io_err.kind() == std::io::ErrorKind::NotFound {
-                        // Unfortunately we don't have the specific path here
-                        // We could extract it from the error message
-                        let error_text = io_err.to_string();
-                        PackageInstallerError::EnhancedError(error_text)
-                    } else {
-                        PackageInstallerError::PackageRepoError(e)
-                    }
-                }
-                PackageRepoError::PackageNotFound(name) => {
-                    // Use enhanced error handling for not found errors
-                    let error_msg = error_handler.handle_package_not_found(&name);
-                    PackageInstallerError::EnhancedError(error_msg)
-                }
-                PackageRepoError::MultiplePackagesFound(name) => {
-                    PackageInstallerError::MultiplePackagesFound(name)
-                }
-                _ => PackageInstallerError::PackageRepoError(e),
-            }
-        })?;
+        let package = self.get_package(package_name)?;
 
         // Check if package supports current environment
         if !package.environments.contains_key(self.config.environment()) {
@@ -395,21 +331,54 @@ impl<'a> PackageInstaller<'a> {
         }
 
         // Check dependencies if requested
-        let _ = self.resolve_dependencies(package_name, &package_repo)?;
+        let _ = self.resolve_dependencies(package_name, self.package_repo)?;
 
         // If we got here, the package is installable
         Ok(true)
+    }
+
+    fn get_package(&self, package_name: &str) -> Result<Package, PackageInstallerError> {
+        self.package_repo
+            .get_package(package_name)
+            .map_err(|e| match e {
+                PackageRepoError::DirectoryNotFound(dir_path) => {
+                    // This is a path not found error
+                    let error_msg = self
+                        .error_handler
+                        .handle_path_not_found(Path::new(&dir_path));
+                    PackageInstallerError::EnhancedError(error_msg)
+                }
+                PackageRepoError::IoError(ref io_err) => {
+                    // Check if it's a file not found error
+                    if io_err.kind() == std::io::ErrorKind::NotFound {
+                        // Unfortunately we don't have the specific path here
+                        // We could extract it from the error message
+                        let error_text = io_err.to_string();
+                        PackageInstallerError::EnhancedError(error_text)
+                    } else {
+                        PackageInstallerError::PackageRepoError(e)
+                    }
+                }
+                PackageRepoError::PackageNotFound(name) => {
+                    // Use enhanced error handling for not found errors
+                    let error_msg = self.error_handler.handle_package_not_found(&name);
+                    PackageInstallerError::EnhancedError(error_msg)
+                }
+                PackageRepoError::MultiplePackagesFound(name) => {
+                    PackageInstallerError::MultiplePackagesFound(name)
+                }
+                _ => PackageInstallerError::PackageRepoError(e),
+            })
     }
 
     /// Resolve dependencies for a package
     fn resolve_dependencies(
         &self,
         package_name: &str,
-        package_repo: &impl PackageRepository,
-    ) -> Result<Vec<Package>, PackageInstallerError> {
+        package_repo: &dyn PackageRepository,
+    ) -> Result<Vec<Package>, DependencyResolverError> {
         // Create dependency resolver and resolve dependencies
-        let resolver = DependencyResolver::new(package_repo, self.config);
-        Ok(resolver.resolve_dependencies(package_name)?)
+        DependencyResolver::new(package_repo, self.config).resolve_dependencies(package_name)
     }
 
     /// Verify that all required commands are available
@@ -453,7 +422,6 @@ impl<'a> PackageInstaller<'a> {
     async fn install_single_package(
         &self,
         package: &Package,
-        package_repo: &impl PackageRepository,
         indent_level: usize,
     ) -> Result<InstallationReport, PackageInstallerError> {
         let indent = " ".repeat(indent_level);
@@ -472,9 +440,8 @@ impl<'a> PackageInstaller<'a> {
             )
             .with_context(context);
 
-            let error_handler =
-                EnhancedErrorHandler::new(self.fs, package_repo, self.progress_manager);
-            let user_message = error_handler
+            let user_message = self
+                .error_handler
                 .handle_environment_not_found(self.config.environment(), &package.name);
 
             PackageInstallerError::EnhancedError(user_message)
@@ -640,12 +607,13 @@ impl<'a> PackageInstaller<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
     use super::*;
     use crate::{
         domain::{config::AppConfigBuilder, package::PackageBuilder},
-        ports::{command::MockCommandRunner, filesystem::MockFileSystem},
+        ports::{
+            command::MockCommandRunner, filesystem::MockFileSystem,
+            package_repo::MockPackageRepository,
+        },
     };
 
     fn create_test_package() -> Package {
@@ -663,31 +631,37 @@ mod tests {
             .build()
     }
 
-    fn create_installer_deps() -> (MockFileSystem, MockCommandRunner, ProgressManager) {
+    fn create_installer_deps() -> (
+        MockFileSystem,
+        MockCommandRunner,
+        MockPackageRepository,
+        ProgressManager,
+    ) {
         (
             MockFileSystem::new(),
             MockCommandRunner::new(),
+            MockPackageRepository::default(),
             ProgressManager::new(false, true),
         )
     }
 
     #[tokio::test]
-    async fn test_installation_manager_install_success() {
+    async fn test_install_success() {
         let package = create_test_package();
         let config = create_test_config();
-        let (mut fs, mut runner, progress_manager) = create_installer_deps();
+        let (fs, mut runner, mut repo, progress_manager) = create_installer_deps();
 
-        fs.mock_path_exists("/test/path", true);
-        fs.mock_path_exists("/test/path/test-package.yaml", true);
-        fs.mock_path_exists("/test/path/test-package.yml", false);
-        fs.mock_read_file("/test/path/test-package.yaml", package.to_yaml().unwrap());
+        repo.mock_get_package_ok(&package.name, package.clone());
+
+        let eeh = EnhancedErrorHandler::new(&fs, &repo, &progress_manager);
 
         runner.mock_execute_success_1("test check", "Not found");
         runner.mock_execute_success_0("test install", "Installed successfully");
         runner.mock_is_command_available("test", true);
 
-        let manager = PackageInstaller::new(&fs, &runner, &config, &progress_manager, true);
-        let result = manager.install_package(&package.name).await;
+        let installer =
+            PackageInstaller::new(&repo, &eeh, &runner, &config, &progress_manager, true);
+        let result = installer.install_package(&package.name).await;
 
         assert!(result.is_ok());
         let installation = result.unwrap();
@@ -695,21 +669,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_installation_manager_already_installed() {
+    async fn test_already_installed() {
         let package = create_test_package();
         let config = create_test_config();
-        let (mut fs, mut runner, progress_manager) = create_installer_deps();
+        let (fs, mut runner, mut repo, progress_manager) = create_installer_deps();
 
-        fs.mock_path_exists("/test/path", true);
-        fs.mock_path_exists("/test/path/test-package.yaml", true);
-        fs.mock_path_exists("/test/path/test-package.yml", false);
-        fs.mock_read_file("/test/path/test-package.yaml", package.to_yaml().unwrap());
+        repo.mock_get_package_ok(&package.name, package.clone());
+
+        let eeh = EnhancedErrorHandler::new(&fs, &repo, &progress_manager);
 
         runner.mock_execute_success_0("test check", "Found"); // Already installed
         runner.mock_is_command_available("test", true);
 
-        let manager = PackageInstaller::new(&fs, &runner, &config, &progress_manager, true);
-        let result = manager.install_package(&package.name).await;
+        let installer =
+            PackageInstaller::new(&repo, &eeh, &runner, &config, &progress_manager, true);
+        let result = installer.install_package(&package.name).await;
 
         assert!(result.is_ok());
         let installation = result.unwrap();
@@ -717,43 +691,43 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_installation_manager_install_failure() {
+    async fn test_install_failure() {
         let package = create_test_package();
         let config = create_test_config();
-        let (mut fs, mut runner, progress_manager) = create_installer_deps();
+        let (fs, mut runner, mut repo, progress_manager) = create_installer_deps();
 
-        fs.mock_path_exists("/test/path", true);
-        fs.mock_path_exists("/test/path/test-package.yaml", true);
-        fs.mock_path_exists("/test/path/test-package.yml", false);
-        fs.mock_read_file("/test/path/test-package.yaml", package.to_yaml().unwrap());
+        repo.mock_get_package_ok(&package.name, package.clone());
+
+        let eeh = EnhancedErrorHandler::new(&fs, &repo, &progress_manager);
 
         runner.mock_execute_success_1("test check", "Not found");
         runner.mock_execute_success_1("test install", "Installation failed");
         runner.mock_is_command_available("test", true);
 
-        let manager = PackageInstaller::new(&fs, &runner, &config, &progress_manager, true);
-        let result = manager.install_package(&package.name).await;
+        let installer =
+            PackageInstaller::new(&repo, &eeh, &runner, &config, &progress_manager, true);
+        let result = installer.install_package(&package.name).await;
         dbg!(&result);
 
         assert!(result.is_err());
     }
 
     #[tokio::test]
-    async fn test_installation_manager_environment_incompatible() {
+    async fn test_environment_incompatible() {
         let package = create_test_package();
         let config = AppConfigBuilder::default()
             .environment("different-env")
             .package_directory("/test/path")
             .build();
-        let (mut fs, runner, progress_manager) = create_installer_deps();
+        let (fs, runner, mut repo, progress_manager) = create_installer_deps();
 
-        fs.mock_path_exists("/test/path", true);
-        fs.mock_path_exists("/test/path/test-package.yaml", true);
-        fs.mock_path_exists("/test/path/test-package.yml", false);
-        fs.mock_read_file("/test/path/test-package.yaml", package.to_yaml().unwrap());
+        repo.mock_get_package_ok(&package.name, package.clone());
 
-        let manager = PackageInstaller::new(&fs, &runner, &config, &progress_manager, true);
-        let result = manager.install_package(&package.name).await;
+        let eeh = EnhancedErrorHandler::new(&fs, &repo, &progress_manager);
+
+        let installer =
+            PackageInstaller::new(&repo, &eeh, &runner, &config, &progress_manager, true);
+        let result = installer.install_package(&package.name).await;
 
         assert!(result.is_err());
     }
@@ -761,8 +735,9 @@ mod tests {
     #[test]
     fn test_parse_cycle_string() {
         let config = create_test_config();
-        let (fs, runner, progress_manager) = create_installer_deps();
-        let manager = PackageInstaller::new(&fs, &runner, &config, &progress_manager, true);
+        let (fs, runner, repo, progress_manager) = create_installer_deps();
+        let eeh = EnhancedErrorHandler::new(&fs, &repo, &progress_manager);
+        let manager = PackageInstaller::new(&repo, &eeh, &runner, &config, &progress_manager, true);
 
         // Test basic cycle parsing
         let cycle_str = "package1 -> package2 -> package3 -> package1";
@@ -785,8 +760,7 @@ mod tests {
     #[tokio::test]
     async fn test_package_install_end_to_end() {
         // Create mock environment
-        let mut fs = MockFileSystem::default();
-        let mut runner = MockCommandRunner::new();
+        let (fs, mut runner, mut repo, progress_manager) = create_installer_deps();
 
         // Create config
         let config = AppConfigBuilder::default()
@@ -804,22 +778,19 @@ mod tests {
             check: rg check
     "#;
 
-        let package_dir = Path::new("/test/packages");
-        fs.mock_path_exists(&package_dir, true);
-
-        let ripgrep = package_dir.join("ripgrep.yaml");
-        fs.mock_path_exists(&ripgrep, true);
-        fs.mock_path_exists(package_dir.join("ripgrep.yml"), false);
-        fs.mock_read_file(&ripgrep, package_yaml);
+        repo.mock_get_package_ok("ripgrep", Package::from_yaml(package_yaml).unwrap());
 
         // Set up mock command responses
         runner.mock_execute_success_1("rg check", "Not found");
         runner.mock_execute_success_0("rg install", "Installed successfully");
 
+        let eeh = EnhancedErrorHandler::new(&fs, &repo, &progress_manager);
+
         let progress_manager = ProgressManager::new(false, true);
 
         // Create package installer (using the new consolidated version)
-        let installer = PackageInstaller::new(&fs, &runner, &config, &progress_manager, false);
+        let installer =
+            PackageInstaller::new(&repo, &eeh, &runner, &config, &progress_manager, false);
 
         // Run the installation
         let result = installer.install_package("ripgrep").await;
@@ -833,8 +804,7 @@ mod tests {
     #[tokio::test]
     async fn test_package_install_with_dependencies() {
         // Create mock environment
-        let mut fs = MockFileSystem::default();
-        let mut runner = MockCommandRunner::new();
+        let (fs, mut runner, mut repo, progress_manager) = create_installer_deps();
 
         // Create config
         let config = AppConfigBuilder::default()
@@ -863,18 +833,10 @@ mod tests {
             check: rust check
     "#;
 
-        let package_dir = Path::new("/test/packages");
-        fs.mock_path_exists(&package_dir, true);
+        repo.mock_get_package_ok("ripgrep", Package::from_yaml(package_yaml).unwrap());
+        repo.mock_get_package_ok("rust", Package::from_yaml(dependency_yaml).unwrap());
 
-        let ripgrep = package_dir.join("ripgrep.yaml");
-        fs.mock_path_exists(&ripgrep, true);
-        fs.mock_path_exists(package_dir.join("ripgrep.yml"), false);
-        fs.mock_read_file(&ripgrep, package_yaml);
-
-        let rust = package_dir.join("rust.yaml");
-        fs.mock_path_exists(&rust, true);
-        fs.mock_path_exists(package_dir.join("rust.yml"), false);
-        fs.mock_read_file(&rust, dependency_yaml);
+        let eeh = EnhancedErrorHandler::new(&fs, &repo, &progress_manager);
 
         // Set up mock command responses
         runner.mock_execute_success_1("rg check", "Not found");
@@ -885,7 +847,8 @@ mod tests {
         let progress_manager = ProgressManager::new(false, true);
 
         // Create package installer
-        let installer = PackageInstaller::new(&fs, &runner, &config, &progress_manager, false);
+        let installer =
+            PackageInstaller::new(&repo, &eeh, &runner, &config, &progress_manager, false);
 
         // Run the installation
         let result = installer.install_package("ripgrep").await;
@@ -903,8 +866,7 @@ mod tests {
     #[tokio::test]
     async fn test_package_install_with_complex_dependencies() {
         // Create mock environment
-        let mut fs = MockFileSystem::default();
-        let mut runner = MockCommandRunner::new();
+        let (fs, mut runner, mut repo, progress_manager) = create_installer_deps();
 
         // Create config
         let config = AppConfigBuilder::default()
@@ -953,29 +915,10 @@ mod tests {
             install: dep3-install
             check: dep3-check
     "#;
-
-        let package_dir = Path::new("/test/packages");
-        fs.mock_path_exists(&package_dir, true);
-
-        let main_pkg = package_dir.join("main-pkg.yaml");
-        fs.mock_path_exists(&main_pkg, true);
-        fs.mock_path_exists(package_dir.join("main-pkg.yml"), false);
-        fs.mock_read_file(&main_pkg, main_pkg_yaml);
-
-        let dep1 = package_dir.join("dep1.yaml");
-        fs.mock_path_exists(&dep1, true);
-        fs.mock_path_exists(package_dir.join("dep1.yml"), false);
-        fs.mock_read_file(&dep1, dep1_yaml);
-
-        let dep2 = package_dir.join("dep2.yaml");
-        fs.mock_path_exists(&dep2, true);
-        fs.mock_path_exists(package_dir.join("dep2.yml"), false);
-        fs.mock_read_file(&dep2, dep2_yaml);
-
-        let dep3 = package_dir.join("dep3.yaml");
-        fs.mock_path_exists(&dep3, true);
-        fs.mock_path_exists(package_dir.join("dep3.yml"), false);
-        fs.mock_read_file(&dep3, dep3_yaml);
+        repo.mock_get_package_ok("main-pkg", Package::from_yaml(main_pkg_yaml).unwrap());
+        repo.mock_get_package_ok("dep1", Package::from_yaml(dep1_yaml).unwrap());
+        repo.mock_get_package_ok("dep2", Package::from_yaml(dep2_yaml).unwrap());
+        repo.mock_get_package_ok("dep3", Package::from_yaml(dep3_yaml).unwrap());
 
         // Set up mock command responses - all need to be installed
         runner.mock_execute_success_1("main-check", "Not found");
@@ -987,10 +930,12 @@ mod tests {
         runner.mock_execute_success_1("dep3-check", "Not found");
         runner.mock_execute_success_0("dep3-install", "Installed successfully");
 
+        let eeh = EnhancedErrorHandler::new(&fs, &repo, &progress_manager);
         let progress_manager = ProgressManager::new(false, true);
 
         // Create package installer
-        let installer = PackageInstaller::new(&fs, &runner, &config, &progress_manager, false);
+        let installer =
+            PackageInstaller::new(&repo, &eeh, &runner, &config, &progress_manager, false);
 
         // Run the installation
         let result = installer.install_package("main-pkg").await;

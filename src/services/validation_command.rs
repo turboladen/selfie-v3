@@ -1,7 +1,9 @@
+use std::path::Path;
+
 // src/services/validation_command.rs
 use crate::{
     adapters::{package_repo::yaml::YamlPackageRepository, progress::ProgressManager},
-    domain::{application::commands::PackageCommand, config::AppConfig},
+    domain::config::AppConfig,
     ports::filesystem::FileSystem,
     services::package::validate::PackageValidator,
 };
@@ -44,68 +46,57 @@ impl<'a> ValidationCommand<'a> {
     }
 
     /// Execute the validate command
-    pub(crate) async fn execute(&self, cmd: &PackageCommand) -> ValidationCommandResult {
-        match cmd {
-            PackageCommand::Validate {
-                package_name,
-                package_path,
-            } => {
-                self.progress_manager
-                    .print_progress(format!("Validating package '{}'", package_name));
+    pub(crate) async fn execute(
+        &self,
+        package_name: &str,
+        package_path: Option<&Path>,
+    ) -> ValidationCommandResult {
+        self.progress_manager
+            .print_progress(format!("Validating package '{}'", package_name));
 
-                // Create package repository
-                let package_repo = YamlPackageRepository::new(
-                    self.fs,
-                    self.config.expanded_package_directory(),
-                    self.progress_manager,
-                );
+        // Create package repository
+        let package_repo = YamlPackageRepository::new(
+            self.fs,
+            self.config.expanded_package_directory(),
+            self.progress_manager,
+        );
 
-                // Create the enhanced validator
-                let validator = PackageValidator::new(
-                    self.fs,
-                    self.config,
-                    &package_repo,
-                    self.command_validator,
-                );
+        // Create the enhanced validator
+        let validator =
+            PackageValidator::new(self.fs, self.config, &package_repo, self.command_validator);
 
-                // Validate package
-                let result = if let Some(path) = package_path {
-                    validator.validate_package_file(path).await
+        // Validate package
+        let result = if let Some(path) = package_path {
+            validator.validate_package_file(path).await
+        } else {
+            validator.validate_package_by_name(package_name).await
+        };
+
+        match result {
+            Ok(validation_result) => {
+                // Format the validation result
+                let formatted = validation_result.format_validation_result(self.progress_manager);
+
+                if validation_result.is_valid() {
+                    self.progress_manager.print_success("Validation successful");
+                    ValidationCommandResult::Valid(formatted)
                 } else {
-                    validator.validate_package_by_name(package_name).await
-                };
-
-                match result {
-                    Ok(validation_result) => {
-                        // Format the validation result
-                        let formatted =
-                            validation_result.format_validation_result(self.progress_manager);
-
-                        if validation_result.is_valid() {
-                            self.progress_manager.print_success("Validation successful");
-                            ValidationCommandResult::Valid(formatted)
-                        } else {
-                            self.progress_manager.print_error("Validation failed");
-                            ValidationCommandResult::Invalid(formatted)
-                        }
-                    }
-                    Err(err) => {
-                        // More verbose error handling
-                        if self.config.verbose() {
-                            self.progress_manager
-                                .print_progress(format!("Error details: {:#?}", err));
-                        }
-
-                        self.progress_manager.print_error("Validation failed");
-
-                        let e = err;
-                        ValidationCommandResult::Error(format!("Error: {}", e))
-                    }
+                    self.progress_manager.print_error("Validation failed");
+                    ValidationCommandResult::Invalid(formatted)
                 }
             }
-            _ => ValidationCommandResult::Error(
-                "Invalid command. Expected 'validate <package-name>'".to_string(),
-            ),
+            Err(err) => {
+                // More verbose error handling
+                if self.config.verbose() {
+                    self.progress_manager
+                        .print_progress(format!("Error details: {:#?}", err));
+                }
+
+                self.progress_manager.print_error("Validation failed");
+
+                let e = err;
+                ValidationCommandResult::Error(format!("Error: {}", e))
+            }
         }
     }
 }
@@ -116,7 +107,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        domain::{application::commands::PackageCommand, config::AppConfigBuilder},
+        domain::config::AppConfigBuilder,
         ports::{command::MockCommandRunner, filesystem::MockFileSystem},
     };
 
@@ -155,14 +146,9 @@ mod tests {
 
         let cmd = ValidationCommand::new(&fs, &config, &progress_manager, &command_validator);
 
-        let package_cmd = PackageCommand::Validate {
-            package_name: "test-package".to_string(),
-            package_path: None,
-        };
-
         // This would need to be more thoroughly mocked to test actual validation
         // For now we're just testing that the command structure works
-        let result = cmd.execute(&package_cmd).await;
+        let result = cmd.execute("test-package", None).await;
 
         match result {
             ValidationCommandResult::Invalid(_) => {
@@ -230,12 +216,7 @@ mod tests {
         let command = ValidationCommand::new(&fs, &config, &progress_manager, &command_validator);
 
         // Test validation on valid package
-        let valid_cmd = crate::domain::application::commands::PackageCommand::Validate {
-            package_name: "valid-package".to_string(),
-            package_path: None,
-        };
-
-        let result = command.execute(&valid_cmd).await;
+        let result = command.execute("valid-package", None).await;
         match result {
             ValidationCommandResult::Valid(output) => {
                 assert!(output.contains("valid-package"));
@@ -245,12 +226,7 @@ mod tests {
         }
 
         // Test validation on invalid package
-        let invalid_cmd = crate::domain::application::commands::PackageCommand::Validate {
-            package_name: "invalid-package".to_string(),
-            package_path: None,
-        };
-
-        let result = command.execute(&invalid_cmd).await;
+        let result = command.execute("invalid-package", None).await;
         match result {
             ValidationCommandResult::Invalid(output) => {
                 assert!(output.contains("invalid-package"));
@@ -262,12 +238,7 @@ mod tests {
         }
 
         // Test validation with path parameter
-        let path_cmd = crate::domain::application::commands::PackageCommand::Validate {
-            package_name: "any-name".to_string(),
-            package_path: Some(valid_path),
-        };
-
-        let result = command.execute(&path_cmd).await;
+        let result = command.execute("any-name", Some(&valid_path)).await;
         match result {
             ValidationCommandResult::Valid(_) => {
                 // Expected result
