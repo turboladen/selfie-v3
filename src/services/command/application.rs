@@ -14,18 +14,14 @@ use crate::{
 
 use super::package::PackageCommandService;
 
-pub struct ApplicationCommandService<'a> {
-    fs: &'a dyn FileSystem,
-    runner: Box<dyn CommandRunner>,
+pub struct ApplicationCommandService<'a, F: FileSystem, R: CommandRunner> {
+    fs: &'a F,
+    runner: R,
     app_config: &'a AppConfig,
 }
 
-impl<'a> ApplicationCommandService<'a> {
-    pub fn new(
-        fs: &'a dyn FileSystem,
-        runner: Box<dyn CommandRunner>,
-        app_config: &'a AppConfig,
-    ) -> Self {
+impl<'a, F: FileSystem, R: CommandRunner> ApplicationCommandService<'a, F, R> {
+    pub fn new(fs: &'a F, runner: R, app_config: &'a AppConfig) -> Self {
         Self {
             fs,
             runner,
@@ -35,7 +31,9 @@ impl<'a> ApplicationCommandService<'a> {
 }
 
 #[async_trait::async_trait]
-impl ApplicationCommandRouter for ApplicationCommandService<'_> {
+impl<F: FileSystem, R: CommandRunner> ApplicationCommandRouter
+    for ApplicationCommandService<'_, F, R>
+{
     async fn process_command(&self, args: ApplicationArguments) -> Result<i32, anyhow::Error> {
         // Create a progress manager using the unified AppConfig
         let progress_manager = ProgressManager::from(self.app_config);
@@ -54,7 +52,7 @@ impl ApplicationCommandRouter for ApplicationCommandService<'_> {
                 );
                 let package_command_service = PackageCommandService::new(
                     self.fs,
-                    &*self.runner,
+                    &self.runner,
                     &package_repo,
                     &progress_manager,
                     self.app_config,

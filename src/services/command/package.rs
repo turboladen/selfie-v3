@@ -31,19 +31,22 @@ pub(super) enum PackageListCommandError {
     ConfigError(#[from] ConfigValidationError),
 }
 
-pub(super) struct PackageCommandService<'a> {
-    fs: &'a dyn FileSystem,
-    runner: &'a dyn CommandRunner,
-    package_repo: &'a dyn PackageRepository,
+pub(super) struct PackageCommandService<'a, F: FileSystem, CR: CommandRunner, PR: PackageRepository>
+{
+    fs: &'a F,
+    runner: &'a CR,
+    package_repo: &'a PR,
     progress_manager: &'a ProgressManager,
     app_config: &'a AppConfig,
 }
 
-impl<'a> PackageCommandService<'a> {
+impl<'a, F: FileSystem, CR: CommandRunner, PR: PackageRepository>
+    PackageCommandService<'a, F, CR, PR>
+{
     pub(super) fn new(
-        fs: &'a dyn FileSystem,
-        runner: &'a dyn CommandRunner,
-        package_repo: &'a dyn PackageRepository,
+        fs: &'a F,
+        runner: &'a CR,
+        package_repo: &'a PR,
         progress_manager: &'a ProgressManager,
         app_config: &'a AppConfig,
     ) -> Self {

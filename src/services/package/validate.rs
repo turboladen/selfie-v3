@@ -10,6 +10,7 @@ use crate::{
         validation::{ValidationErrorCategory, ValidationIssue, ValidationResult},
     },
     ports::{
+        command::CommandRunner,
         filesystem::{FileSystem, FileSystemError},
         package_repo::{PackageRepoError, PackageRepository},
     },
@@ -41,20 +42,20 @@ pub(crate) enum PackageValidatorError {
 }
 
 /// Validates package files with detailed error reporting and command validation
-pub(crate) struct PackageValidator<'a> {
-    fs: &'a dyn FileSystem,
+pub(crate) struct PackageValidator<'a, F: FileSystem, PR: PackageRepository, CR: CommandRunner> {
+    fs: &'a F,
     config: &'a AppConfig,
-    package_repo: &'a dyn PackageRepository,
-    command_validator: &'a CommandValidator<'a>,
+    package_repo: &'a PR,
+    command_validator: &'a CommandValidator<'a, CR>,
 }
 
-impl<'a> PackageValidator<'a> {
+impl<'a, F: FileSystem, PR: PackageRepository, CR: CommandRunner> PackageValidator<'a, F, PR, CR> {
     /// Create a new package validator
     pub(crate) fn new(
-        fs: &'a dyn FileSystem,
+        fs: &'a F,
         config: &'a AppConfig,
-        package_repo: &'a dyn PackageRepository,
-        command_validator: &'a CommandValidator<'a>,
+        package_repo: &'a PR,
+        command_validator: &'a CommandValidator<'a, CR>,
     ) -> Self {
         Self {
             fs,
@@ -166,7 +167,9 @@ impl<'a> PackageValidator<'a> {
         // We only check commands for the current environment
         if let Some(env_config) = package.environments.get(self.config.environment()) {
             // Extract base command from install command
-            if let Some(base_cmd) = CommandValidator::extract_base_command(&env_config.install) {
+            if let Some(base_cmd) =
+                CommandValidator::<CR>::extract_base_command(&env_config.install)
+            {
                 let availability_result = self
                     .command_validator
                     .check_command_availability(self.config.environment(), base_cmd)
@@ -185,7 +188,7 @@ impl<'a> PackageValidator<'a> {
 
             // Check command if present
             if let Some(check_cmd) = &env_config.check {
-                if let Some(base_cmd) = CommandValidator::extract_base_command(check_cmd) {
+                if let Some(base_cmd) = CommandValidator::<CR>::extract_base_command(check_cmd) {
                     let availability_result = self
                         .command_validator
                         .check_command_availability(self.config.environment(), base_cmd)

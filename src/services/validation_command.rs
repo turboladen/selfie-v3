@@ -4,7 +4,7 @@ use std::path::Path;
 use crate::{
     adapters::{package_repo::yaml::YamlPackageRepository, progress::ProgressManager},
     domain::config::AppConfig,
-    ports::filesystem::FileSystem,
+    ports::{command::CommandRunner, filesystem::FileSystem},
     services::package::validate::PackageValidator,
 };
 
@@ -22,20 +22,20 @@ pub(crate) enum ValidationCommandResult {
 }
 
 /// Handles the 'package validate' command
-pub(crate) struct ValidationCommand<'a> {
-    fs: &'a dyn FileSystem,
+pub(crate) struct ValidationCommand<'a, F: FileSystem, CR: CommandRunner> {
+    fs: &'a F,
     config: &'a AppConfig,
     progress_manager: &'a ProgressManager,
-    command_validator: &'a CommandValidator<'a>,
+    command_validator: &'a CommandValidator<'a, CR>,
 }
 
-impl<'a> ValidationCommand<'a> {
+impl<'a, F: FileSystem, CR: CommandRunner> ValidationCommand<'a, F, CR> {
     /// Create a new validate command handler
     pub(crate) fn new(
-        fs: &'a dyn FileSystem,
+        fs: &'a F,
         config: &'a AppConfig,
         progress_manager: &'a ProgressManager,
-        command_validator: &'a CommandValidator,
+        command_validator: &'a CommandValidator<'a, CR>,
     ) -> Self {
         Self {
             fs,

@@ -48,13 +48,13 @@ pub(crate) struct CommandValidationResult {
 }
 
 /// Service for validating shell commands in package definitions
-pub(crate) struct CommandValidator<'a> {
-    runner: &'a dyn CommandRunner,
+pub(crate) struct CommandValidator<'a, CR: CommandRunner> {
+    runner: &'a CR,
 }
 
-impl<'a> CommandValidator<'a> {
+impl<'a, CR: CommandRunner> CommandValidator<'a, CR> {
     /// Create a new command validator
-    pub(crate) fn new(runner: &'a dyn CommandRunner) -> Self {
+    pub(crate) fn new(runner: &'a CR) -> Self {
         Self { runner }
     }
 
@@ -314,15 +314,17 @@ mod tests {
     #[test]
     fn test_extract_base_command() {
         assert_eq!(
-            CommandValidator::extract_base_command("echo hello"),
+            CommandValidator::<MockCommandRunner>::extract_base_command("echo hello"),
             Some("echo")
         );
         assert_eq!(
-            CommandValidator::extract_base_command("brew install ripgrep"),
+            CommandValidator::<MockCommandRunner>::extract_base_command("brew install ripgrep"),
             Some("brew")
         );
         assert_eq!(
-            CommandValidator::extract_base_command("  apt-get install -y git  "),
+            CommandValidator::<MockCommandRunner>::extract_base_command(
+                "  apt-get install -y git  "
+            ),
             Some("apt-get")
         );
     }

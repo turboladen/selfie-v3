@@ -20,20 +20,20 @@ pub(crate) enum PackageListResult {
 }
 
 /// Handles the 'package list' command with enhanced command availability checking
-pub(crate) struct PackageListService<'a> {
-    runner: &'a dyn CommandRunner,
+pub(crate) struct PackageListService<'a, CR: CommandRunner, PR: PackageRepository> {
+    runner: &'a CR,
     config: &'a AppConfig,
     progress_manager: &'a ProgressManager,
-    package_repo: &'a dyn PackageRepository,
+    package_repo: &'a PR,
 }
 
-impl<'a> PackageListService<'a> {
+impl<'a, CR: CommandRunner, PR: PackageRepository> PackageListService<'a, CR, PR> {
     /// Create a new list command handler
     pub(crate) fn new(
-        runner: &'a dyn CommandRunner,
+        runner: &'a CR,
         config: &'a AppConfig,
         progress_manager: &'a ProgressManager,
-        package_repo: &'a dyn PackageRepository,
+        package_repo: &'a PR,
     ) -> Self {
         Self {
             runner,
@@ -115,7 +115,7 @@ impl<'a> PackageListService<'a> {
                 if let Some(env_config) = package.environments.get(self.config.environment()) {
                     // Extract base command
                     if let Some(base_cmd) =
-                        CommandValidator::extract_base_command(&env_config.install)
+                        CommandValidator::<CR>::extract_base_command(&env_config.install)
                     {
                         let cmd_available = self.runner.is_command_available(base_cmd).await;
 

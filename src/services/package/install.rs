@@ -103,21 +103,21 @@ impl From<EnhancedDependencyError> for PackageInstallerError {
     }
 }
 
-pub(crate) struct PackageInstaller<'a> {
-    package_repo: &'a dyn PackageRepository,
+pub(crate) struct PackageInstaller<'a, PR: PackageRepository, CR: CommandRunner> {
+    package_repo: &'a PR,
     error_handler: &'a EnhancedErrorHandler<'a>,
-    runner: &'a dyn CommandRunner,
+    runner: &'a CR,
     config: &'a AppConfig,
     progress_manager: &'a ProgressManager,
     check_commands: bool,
-    command_validator: CommandValidator<'a>, // Add CommandValidator
+    command_validator: CommandValidator<'a, CR>,
 }
 
-impl<'a> PackageInstaller<'a> {
+impl<'a, PR: PackageRepository, CR: CommandRunner> PackageInstaller<'a, PR, CR> {
     pub(crate) fn new(
-        package_repo: &'a dyn PackageRepository,
+        package_repo: &'a PR,
         error_handler: &'a EnhancedErrorHandler<'_>,
-        runner: &'a dyn CommandRunner,
+        runner: &'a CR,
         config: &'a AppConfig,
         progress_manager: &'a ProgressManager,
         check_commands: bool,
@@ -316,7 +316,8 @@ impl<'a> PackageInstaller<'a> {
         // Check if required commands are available
         if self.check_commands {
             if let Some(env_config) = package.environments.get(self.config.environment()) {
-                if let Some(base_cmd) = CommandValidator::extract_base_command(&env_config.install)
+                if let Some(base_cmd) =
+                    CommandValidator::<CR>::extract_base_command(&env_config.install)
                 {
                     let availability_result = self
                         .command_validator
@@ -389,7 +390,8 @@ impl<'a> PackageInstaller<'a> {
         for package in packages {
             if let Some(env_config) = package.environments.get(self.config.environment()) {
                 // Extract and check base command
-                if let Some(base_cmd) = CommandValidator::extract_base_command(&env_config.install)
+                if let Some(base_cmd) =
+                    CommandValidator::<CR>::extract_base_command(&env_config.install)
                 {
                     let availability_result = self
                         .command_validator
@@ -583,7 +585,7 @@ impl<'a> PackageInstaller<'a> {
 
     /// Extract the base command from a command string
     fn extract_base_command(command: &str) -> Option<&str> {
-        CommandValidator::extract_base_command(command)
+        CommandValidator::<CR>::extract_base_command(command)
     }
 
     /// Parse a cycle string into a vector of package names

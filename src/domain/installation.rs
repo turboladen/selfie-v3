@@ -196,9 +196,9 @@ impl Installation {
     }
 
     /// Execute the check command to see if package is already installed
-    pub(crate) async fn execute_check(
+    pub(crate) async fn execute_check<R: CommandRunner>(
         self,
-        runner: &dyn CommandRunner,
+        runner: &R,
     ) -> Result<Self, InstallationError> {
         match &self {
             Self::Checking { env_config, .. } => {
@@ -231,9 +231,9 @@ impl Installation {
     }
 
     /// Execute the install command
-    pub(crate) async fn execute_install(
+    pub(crate) async fn execute_install<R: CommandRunner>(
         self,
-        runner: &dyn CommandRunner,
+        runner: &R,
     ) -> Result<Self, InstallationError> {
         match &self.clone() {
             Self::NotAlreadyInstalled { env_config, .. } => {

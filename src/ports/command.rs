@@ -5,6 +5,13 @@ use std::time::Duration;
 use async_trait::async_trait;
 use thiserror::Error;
 
+pub enum OutputChunk {
+    Stdout(String),
+    Stderr(String),
+    StdoutPartial(String), // For data without a newline
+    StderrPartial(String), // For data without a newline
+}
+
 /// Port for command execution
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
@@ -18,6 +25,15 @@ pub trait CommandRunner: Send + Sync {
         command: &str,
         timeout: Duration,
     ) -> Result<CommandOutput, CommandError>;
+
+    async fn execute_streaming<F>(
+        &self,
+        command: &str,
+        timeout: Duration,
+        output_callback: F,
+    ) -> Result<CommandOutput, CommandError>
+    where
+        F: FnMut(OutputChunk) + Send + 'static;
 
     /// Check if a command is available in the current environment
     async fn is_command_available(&self, command: &str) -> bool;

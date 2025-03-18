@@ -7,15 +7,15 @@ use crate::ports::filesystem::FileSystem;
 use crate::ports::package_repo::{PackageRepoError, PackageRepository};
 
 #[derive(Clone)]
-pub(crate) struct YamlPackageRepository<'a> {
-    fs: &'a dyn FileSystem,
+pub(crate) struct YamlPackageRepository<'a, F: FileSystem> {
+    fs: &'a F,
     package_dir: PathBuf,
     progress_manager: &'a ProgressManager,
 }
 
-impl<'a> YamlPackageRepository<'a> {
+impl<'a, F: FileSystem> YamlPackageRepository<'a, F> {
     pub(crate) fn new(
-        fs: &'a dyn FileSystem,
+        fs: &'a F,
         package_dir: PathBuf,
         progress_manager: &'a ProgressManager,
     ) -> Self {
@@ -49,7 +49,7 @@ impl<'a> YamlPackageRepository<'a> {
     }
 }
 
-impl PackageRepository for YamlPackageRepository<'_> {
+impl<F: FileSystem> PackageRepository for YamlPackageRepository<'_, F> {
     fn get_package(&self, name: &str) -> Result<Package, PackageRepoError> {
         let package_files = self.find_package_files(name)?;
 
