@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use thiserror::Error;
 
-use crate::ports::command::{CommandError, CommandOutput, CommandRunner};
+use crate::ports::command::{CommandError, CommandOutput, CommandRunner, OutputChunk};
 
 use super::package::EnvironmentConfig;
 
@@ -195,11 +195,15 @@ impl Installation {
         }
     }
 
-    /// Execute the check command to see if package is already installed
-    pub(crate) async fn execute_check<R: CommandRunner>(
+    // Add streaming version of execute_check
+    pub(crate) async fn execute_check_streaming<CR: CommandRunner, F>(
         self,
-        runner: &R,
-    ) -> Result<Self, InstallationError> {
+        runner: &CR,
+        output_callback: F,
+    ) -> Result<Self, InstallationError>
+    where
+        F: FnMut(OutputChunk) + Send + 'static,
+    {
         match &self {
             Self::Checking { env_config, .. } => {
                 // If there's no check command, assume not installed
@@ -209,8 +213,11 @@ impl Installation {
 
                 let check_cmd = env_config.check.as_ref().unwrap();
 
-                // Execute the check command
-                match runner.execute(check_cmd).await {
+                // Execute the check command with streaming
+                match runner
+                    .execute_streaming(check_cmd, Duration::from_secs(60), output_callback)
+                    .await
+                {
                     Ok(output) => {
                         if output.success {
                             Ok(self.mark_already_installed())
@@ -230,17 +237,28 @@ impl Installation {
         }
     }
 
-    /// Execute the install command
-    pub(crate) async fn execute_install<R: CommandRunner>(
+    // Add streaming version of execute_install
+    pub(crate) async fn execute_install_streaming<CR: CommandRunner, F>(
         self,
-        runner: &R,
-    ) -> Result<Self, InstallationError> {
+        runner: &CR,
+        output_callback: F,
+    ) -> Result<Self, InstallationError>
+    where
+        F: FnMut(OutputChunk) + Send + 'static,
+    {
         match &self.clone() {
             Self::NotAlreadyInstalled { env_config, .. } => {
                 let installing = self.start_installing();
 
-                // Execute the install command
-                match runner.execute(&env_config.install).await {
+                // Execute the install command with streaming
+                match runner
+                    .execute_streaming(
+                        &env_config.install,
+                        Duration::from_secs(600),
+                        output_callback,
+                    )
+                    .await
+                {
                     Ok(output) => {
                         if output.success {
                             Ok(installing.complete(output))
@@ -434,6 +452,8 @@ impl InstallationReport {
 mod tests {
     use super::*;
 
+    use std::sync::{Arc, Mutex};
+
     use crate::ports::command::MockCommandRunner;
 
     fn create_test_env_config() -> EnvironmentConfig {
@@ -498,7 +518,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_execute_check_no_check_command() {
+    async fn test_execute_check_streaming_no_check_command() {
         let env_config = EnvironmentConfig {
             install: "test install".to_string(),
             check: None,
@@ -508,75 +528,266 @@ mod tests {
         let installation = Installation::new(env_config).start();
         let runner = MockCommandRunner::new();
 
-        let result = installation.execute_check(&runner).await;
-        assert!(result.is_ok());
+        // Use Arc<Mutex<Vec>> to share ownership between closure and test
+        let streamed_outputs = Arc::new(Mutex::new(Vec::new()));
+        let outputs_clone = streamed_outputs.clone();
 
+        let result = installation
+            .execute_check_streaming(&runner, move |chunk| {
+                let mut outputs = outputs_clone.lock().unwrap();
+                match chunk {
+                    OutputChunk::Stdout(line) => outputs.push(format!("stdout: {}", line)),
+                    OutputChunk::Stderr(line) => outputs.push(format!("stderr: {}", line)),
+                }
+            })
+            .await;
+
+        assert!(result.is_ok());
         let state = result.unwrap();
         assert!(matches!(state, Installation::NotAlreadyInstalled { .. }));
+
+        // No outputs expected since no check command
+        assert!(streamed_outputs.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
-    async fn test_execute_check_success() {
+    async fn test_execute_check_streaming_success() {
         let env_config = create_test_env_config();
         let installation = Installation::new(env_config).start();
 
         let mut runner = MockCommandRunner::new();
-        runner.mock_execute_success_0("test check", "Package found");
 
-        let result = installation.execute_check(&runner).await;
+        // Add mock for execute_streaming
+        let output = CommandOutput {
+            stdout: "Package found\n".to_string(),
+            stderr: String::new(),
+            status: 0,
+            success: true,
+            duration: Duration::from_millis(100),
+        };
+
+        runner
+            .expect_execute_streaming()
+            .withf(|cmd, _, _| cmd == "test check")
+            .returning(move |_, _, mut callback| {
+                // Simulate streaming output
+                callback(OutputChunk::Stdout("Package found\n".to_string()));
+                Ok(output.clone())
+            });
+
+        // Use Arc<Mutex<Vec>> for thread-safe sharing
+        let streamed_outputs = Arc::new(Mutex::new(Vec::new()));
+        let outputs_clone = streamed_outputs.clone();
+
+        let result = installation
+            .execute_check_streaming(&runner, move |chunk| {
+                let mut outputs = outputs_clone.lock().unwrap();
+                match chunk {
+                    OutputChunk::Stdout(line) => outputs.push(format!("stdout: {}", line)),
+                    OutputChunk::Stderr(line) => outputs.push(format!("stderr: {}", line)),
+                }
+            })
+            .await;
+
         assert!(result.is_ok());
-
         let state = result.unwrap();
         assert!(matches!(state, Installation::AlreadyInstalled { .. }));
+
+        // Verify streamed outputs
+        let outputs = streamed_outputs.lock().unwrap();
+        assert_eq!(outputs.len(), 1);
+        assert_eq!(outputs[0], "stdout: Package found\n");
     }
 
     #[tokio::test]
-    async fn test_execute_check_not_found() {
+    async fn test_execute_check_streaming_not_found() {
         let env_config = create_test_env_config();
         let installation = Installation::new(env_config).start();
 
         let mut runner = MockCommandRunner::new();
-        runner.mock_execute_success_1("test check", "Not found");
 
-        let result = installation.execute_check(&runner).await;
+        // Add mock for execute_streaming
+        let output = CommandOutput {
+            stdout: String::new(),
+            stderr: "Not found\n".to_string(),
+            status: 1,
+            success: false,
+            duration: Duration::from_millis(100),
+        };
+
+        runner
+            .expect_execute_streaming()
+            .withf(|cmd, _, _| cmd == "test check")
+            .returning(move |_, _, mut callback| {
+                // Simulate streaming output
+                callback(OutputChunk::Stderr("Not found\n".to_string()));
+                Ok(output.clone())
+            });
+
+        // Use Arc<Mutex<Vec>> for thread-safe sharing
+        let streamed_outputs = Arc::new(Mutex::new(Vec::new()));
+        let outputs_clone = streamed_outputs.clone();
+
+        let result = installation
+            .execute_check_streaming(&runner, move |chunk| {
+                let mut outputs = outputs_clone.lock().unwrap();
+                match chunk {
+                    OutputChunk::Stdout(line) => outputs.push(format!("stdout: {}", line)),
+                    OutputChunk::Stderr(line) => outputs.push(format!("stderr: {}", line)),
+                }
+            })
+            .await;
+
         assert!(result.is_ok());
-
         let state = result.unwrap();
         assert!(matches!(state, Installation::NotAlreadyInstalled { .. }));
+
+        // Verify streamed outputs
+        let outputs = streamed_outputs.lock().unwrap();
+        assert_eq!(outputs.len(), 1);
+        assert_eq!(outputs[0], "stderr: Not found\n");
     }
 
     #[tokio::test]
-    async fn test_execute_install_success() {
+    async fn test_execute_install_streaming_success() {
         let env_config = create_test_env_config();
         let installation = Installation::new(env_config)
             .start()
             .mark_not_already_installed();
 
         let mut runner = MockCommandRunner::new();
-        runner.mock_execute_success_0("test install", "Installed successfully");
 
-        let result = installation.execute_install(&runner).await;
+        // Add mock for execute_streaming
+        let output = CommandOutput {
+            stdout: "Installing...\nInstalled successfully\n".to_string(),
+            stderr: String::new(),
+            status: 0,
+            success: true,
+            duration: Duration::from_millis(200),
+        };
+
+        runner
+            .expect_execute_streaming()
+            .withf(|cmd, _, _| cmd == "test install")
+            .returning(move |_, _, mut callback| {
+                // Simulate streaming output with multiple lines
+                callback(OutputChunk::Stdout("Installing...\n".to_string()));
+                callback(OutputChunk::Stdout("Installed successfully\n".to_string()));
+                Ok(output.clone())
+            });
+
+        // Use Arc<Mutex<Vec>> for thread-safe sharing
+        let streamed_outputs = Arc::new(Mutex::new(Vec::new()));
+        let outputs_clone = streamed_outputs.clone();
+
+        let result = installation
+            .execute_install_streaming(&runner, move |chunk| {
+                let mut outputs = outputs_clone.lock().unwrap();
+                match chunk {
+                    OutputChunk::Stdout(line) => outputs.push(format!("stdout: {}", line)),
+                    OutputChunk::Stderr(line) => outputs.push(format!("stderr: {}", line)),
+                }
+            })
+            .await;
+
         assert!(result.is_ok());
-
         let state = result.unwrap();
         assert!(matches!(state, Installation::Complete { .. }));
+
+        // Verify streamed outputs
+        let outputs = streamed_outputs.lock().unwrap();
+        assert_eq!(outputs.len(), 2);
+        assert_eq!(outputs[0], "stdout: Installing...\n");
+        assert_eq!(outputs[1], "stdout: Installed successfully\n");
     }
 
     #[tokio::test]
-    async fn test_execute_install_failure() {
+    async fn test_execute_install_streaming_failure() {
         let env_config = create_test_env_config();
         let installation = Installation::new(env_config)
             .start()
             .mark_not_already_installed();
 
         let mut runner = MockCommandRunner::new();
-        runner.mock_execute_success_1("test install", "Installation failed");
 
-        let result = installation.execute_install(&runner).await;
+        // Add mock for execute_streaming
+        let output = CommandOutput {
+            stdout: "Starting installation...\n".to_string(),
+            stderr: "Error: Installation failed\n".to_string(),
+            status: 1,
+            success: false,
+            duration: Duration::from_millis(200),
+        };
+
+        runner
+            .expect_execute_streaming()
+            .withf(|cmd, _, _| cmd == "test install")
+            .returning(move |_, _, mut callback| {
+                // Simulate streaming output with stdout and stderr
+                callback(OutputChunk::Stdout(
+                    "Starting installation...\n".to_string(),
+                ));
+                callback(OutputChunk::Stderr(
+                    "Error: Installation failed\n".to_string(),
+                ));
+                Ok(output.clone())
+            });
+
+        // Use Arc<Mutex<Vec>> for thread-safe sharing
+        let streamed_outputs = Arc::new(Mutex::new(Vec::new()));
+        let outputs_clone = streamed_outputs.clone();
+
+        let result = installation
+            .execute_install_streaming(&runner, move |chunk| {
+                let mut outputs = outputs_clone.lock().unwrap();
+                match chunk {
+                    OutputChunk::Stdout(line) => outputs.push(format!("stdout: {}", line)),
+                    OutputChunk::Stderr(line) => outputs.push(format!("stderr: {}", line)),
+                }
+            })
+            .await;
+
         assert!(result.is_ok());
-
         let state = result.unwrap();
         assert!(matches!(state, Installation::Failed { .. }));
+
+        // Verify streamed outputs
+        let outputs = streamed_outputs.lock().unwrap();
+        assert_eq!(outputs.len(), 2);
+        assert_eq!(outputs[0], "stdout: Starting installation...\n");
+        assert_eq!(outputs[1], "stderr: Error: Installation failed\n");
+    }
+
+    #[tokio::test]
+    async fn test_execute_streaming_error_handling() {
+        let env_config = create_test_env_config();
+        let installation = Installation::new(env_config)
+            .start()
+            .mark_not_already_installed();
+
+        let mut runner = MockCommandRunner::new();
+
+        // Mock a timeout error
+        runner
+            .expect_execute_streaming()
+            .withf(|cmd, _, _| cmd == "test install")
+            .returning(|_, timeout, _| Err(CommandError::Timeout(timeout)));
+
+        // Execute the command
+        let result = installation
+            .execute_install_streaming(&runner, |_| {})
+            .await;
+
+        assert!(result.is_ok());
+        let state = result.unwrap();
+
+        // Verify it transitioned to Failed state with appropriate message
+        match state {
+            Installation::Failed { error_message, .. } => {
+                assert!(error_message.contains("Command timed out after 600s"));
+            }
+            _ => panic!("Expected Failed state, got {:?}", state),
+        }
     }
 
     #[test]

@@ -8,8 +8,6 @@ use thiserror::Error;
 pub enum OutputChunk {
     Stdout(String),
     Stderr(String),
-    StdoutPartial(String), // For data without a newline
-    StderrPartial(String), // For data without a newline
 }
 
 /// Port for command execution
@@ -87,25 +85,32 @@ impl MockCommandRunner {
             .returning(move |_| result);
     }
 
-    pub(crate) fn mock_execute_ok(&mut self, command: &str, output: CommandOutput) {
+    pub(crate) fn mock_execute_streaming_ok(
+        &mut self,
+        command: &str,
+        timeout: Duration,
+        output: CommandOutput,
+    ) {
         let cmd = command.to_string();
 
-        self.expect_execute()
-            .with(mockall::predicate::eq(cmd))
-            .returning(move |_| Ok(output.clone()));
+        self.expect_execute_streaming()
+            .with(
+                mockall::predicate::eq(cmd),
+                mockall::predicate::eq(timeout),
+                mockall::predicate::always(),
+            )
+            .return_const(Ok(output));
     }
 
-    pub(crate) fn mock_execute_err(&mut self, command: &str, error: CommandError) {
-        let cmd = command.to_string();
-
-        self.expect_execute()
-            .with(mockall::predicate::eq(cmd))
-            .returning(move |_| Err(error.clone()));
-    }
-
-    pub(crate) fn mock_execute_success_0(&mut self, command: &str, stdout: &str) {
-        self.mock_execute_ok(
+    pub(crate) fn mock_execute_streaming_success_0(
+        &mut self,
+        command: &str,
+        timeout: u64,
+        stdout: &str,
+    ) {
+        self.mock_execute_streaming_ok(
             command,
+            Duration::from_secs(timeout),
             CommandOutput {
                 stdout: stdout.to_string(),
                 stderr: String::new(),
@@ -116,9 +121,15 @@ impl MockCommandRunner {
         );
     }
 
-    pub(crate) fn mock_execute_success_1(&mut self, command: &str, stderr: &str) {
-        self.mock_execute_ok(
+    pub(crate) fn mock_execute_streaming_success_1(
+        &mut self,
+        command: &str,
+        timeout: u64,
+        stderr: &str,
+    ) {
+        self.mock_execute_streaming_ok(
             command,
+            Duration::from_secs(timeout),
             CommandOutput {
                 stdout: String::new(),
                 stderr: stderr.to_string(),

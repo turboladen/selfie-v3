@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use futures::TryFutureExt;
-use tokio::io::AsyncReadExt;
+use tokio::io::AsyncBufReadExt;
 use tokio::process::Command;
 
 use crate::ports::command::{CommandError, CommandOutput, CommandRunner, OutputChunk};
@@ -98,11 +98,12 @@ impl CommandRunner for ShellCommandRunner {
         }
     }
 
+    // In src/adapters/command/shell.rs
     async fn execute_streaming<F>(
         &self,
         command: &str,
         timeout: Duration,
-        mut output_callback: F,
+        mut callback: F,
     ) -> Result<CommandOutput, CommandError>
     where
         F: FnMut(OutputChunk) + Send + 'static,
@@ -125,26 +126,16 @@ impl CommandRunner for ShellCommandRunner {
         let mut child = cmd.spawn().map_err(CommandError::from)?;
 
         // Get stdout and stderr
-        let mut stdout =
-            tokio::io::BufReader::new(child.stdout.take().expect("Failed to get stdout"));
-        let mut stderr =
-            tokio::io::BufReader::new(child.stderr.take().expect("Failed to get stderr"));
+        let mut stdout = tokio::io::BufReader::new(child.stdout.take().unwrap());
+        let mut stderr = tokio::io::BufReader::new(child.stderr.take().unwrap());
 
         // Collect full output
         let mut full_stdout = String::new();
         let mut full_stderr = String::new();
 
-        // Track partial lines
-        let mut stdout_partial = String::new();
-        let mut stderr_partial = String::new();
-
         // Create buffers
-        let mut stdout_buf = [0u8; 1024];
-        let mut stderr_buf = [0u8; 1024];
-
-        // Track if stdout/stderr are done
-        let mut stdout_done = false;
-        let mut stderr_done = false;
+        let mut stdout_buf = Vec::with_capacity(1024);
+        let mut stderr_buf = Vec::with_capacity(1024);
 
         // Create the timeout future
         let timeout_future = tokio::time::sleep(timeout);
@@ -160,82 +151,35 @@ impl CommandRunner for ShellCommandRunner {
                 }
 
                 // Read from stdout
-                result = stdout.read(&mut stdout_buf), if !stdout_done => {
+                result = stdout.read_until(b'\n', &mut stdout_buf) => {
                     match result {
-                        Ok(0) => { stdout_done = true; }
-                        Ok(n) => {
-                            let data = String::from_utf8_lossy(&stdout_buf[..n]).to_string();
-                            full_stdout.push_str(&data);
-
-                            // Process line by line
-                            for (i, chunk) in data.split('\n').enumerate() {
-                                if i == 0 && !chunk.is_empty() {
-                                    // First chunk - append to partial line
-                                    stdout_partial.push_str(chunk);
-                                    if data.contains('\n') {
-                                        // Line is complete
-                                        output_callback(OutputChunk::Stdout(stdout_partial.clone()));
-                                        stdout_partial.clear();
-                                    } else {
-                                        // Still a partial line
-                                        output_callback(OutputChunk::StdoutPartial(stdout_partial.clone()));
-                                    }
-                                } else if i > 0 {
-                                    // Middle/end chunks
-                                    if !chunk.is_empty() || i < data.split('\n').count() - 1 {
-                                        stdout_partial.push_str(chunk);
-                                        if i < data.split('\n').count() - 1 || data.ends_with('\n') {
-                                            // Complete line
-                                            output_callback(OutputChunk::Stdout(stdout_partial.clone()));
-                                            stdout_partial.clear();
-                                        } else {
-                                            // Partial line
-                                            output_callback(OutputChunk::StdoutPartial(stdout_partial.clone()));
-                                        }
-                                    }
-                                }
-                            }
-                        },
+                        Ok(0) => {}  // End of stream
+                        Ok(_) => {
+                            let line = String::from_utf8_lossy(&stdout_buf).to_string();
+                            full_stdout.push_str(&line);
+                            callback(OutputChunk::Stdout(line));
+                            stdout_buf.clear();
+                        }
                         Err(e) => return Err(CommandError::IoError(e.to_string())),
                     }
                 }
 
-                // Read from stderr (similar logic)
-                result = stderr.read(&mut stderr_buf), if !stderr_done => {
-                    // Same logic as stdout but with stderr callbacks
+                // Read from stderr
+                result = stderr.read_until(b'\n', &mut stderr_buf) => {
                     match result {
-                        Ok(0) => { stderr_done = true; }
-                        Ok(n) => {
-                            let data = String::from_utf8_lossy(&stderr_buf[..n]).to_string();
-                            full_stderr.push_str(&data);
-
-                            // Similar line processing logic with stderr callbacks
-                            for (i, chunk) in data.split('\n').enumerate() {
-                                if i == 0 && !chunk.is_empty() {
-                                    stderr_partial.push_str(chunk);
-                                    if data.contains('\n') {
-                                        output_callback(OutputChunk::Stderr(stderr_partial.clone()));
-                                        stderr_partial.clear();
-                                    } else {
-                                        output_callback(OutputChunk::StderrPartial(stderr_partial.clone()));
-                                    }
-                                } else if i > 0 && (!chunk.is_empty() || i < data.split('\n').count() - 1) {
-                                    stderr_partial.push_str(chunk);
-                                    if i < data.split('\n').count() - 1 || data.ends_with('\n') {
-                                        output_callback(OutputChunk::Stderr(stderr_partial.clone()));
-                                        stderr_partial.clear();
-                                    } else {
-                                        output_callback(OutputChunk::StderrPartial(stderr_partial.clone()));
-                                    }
-                                }
-                            }
-                        },
+                        Ok(0) => {}  // End of stream
+                        Ok(_) => {
+                            let line = String::from_utf8_lossy(&stderr_buf).to_string();
+                            full_stderr.push_str(&line);
+                            callback(OutputChunk::Stderr(line));
+                            stderr_buf.clear();
+                        }
                         Err(e) => return Err(CommandError::IoError(e.to_string())),
                     }
                 }
 
-                // Wait for the process to complete when streams are done
-                status = child.wait(), if stdout_done && stderr_done => {
+                // Wait for process completion
+                status = child.wait() => {
                     let status = status.map_err(CommandError::from)?;
                     let duration = start_time.elapsed();
 

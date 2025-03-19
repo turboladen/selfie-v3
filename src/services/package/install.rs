@@ -18,7 +18,7 @@ use crate::{
         package::Package,
     },
     ports::{
-        command::{CommandError, CommandRunner},
+        command::{CommandError, CommandRunner, OutputChunk},
         filesystem::FileSystemError,
         package_repo::{PackageRepoError, PackageRepository},
     },
@@ -449,11 +449,41 @@ impl<'a, PR: PackageRepository, CR: CommandRunner> PackageInstaller<'a, PR, CR> 
             PackageInstallerError::EnhancedError(user_message)
         })?;
 
+        // Create a callback closure for output
+        let progress_manager = self.progress_manager;
+        let indent_clone = indent.clone();
+        let output_handler = move |chunk: OutputChunk| match chunk {
+            OutputChunk::Stdout(line) => {
+                if progress_manager.verbose() {
+                    progress_manager.print_verbose(format!(
+                        "{}  stdout: {}",
+                        indent_clone,
+                        line.trim()
+                    ));
+                }
+            }
+            OutputChunk::Stderr(line) => {
+                if progress_manager.verbose() {
+                    progress_manager.print_warning(format!(
+                        "{}  stderr: {}",
+                        indent_clone,
+                        line.trim()
+                    ));
+                }
+            }
+        };
+
         // Create installation and start it
         let installation = Installation::new(env_config.clone()).start();
 
+        self.progress_manager
+            .print_progress(format!("{}⌛ Checking installation status...", indent));
+
         // Check if already installed
-        let installation = match installation.execute_check(self.runner).await {
+        let installation = match installation
+            .execute_check_streaming(self.runner, output_handler.clone())
+            .await
+        {
             Ok(state) => state,
             Err(err) => return Err(PackageInstallerError::InstallationError(err)),
         };
@@ -507,7 +537,10 @@ impl<'a, PR: PackageRepository, CR: CommandRunner> PackageInstaller<'a, PR, CR> 
             .print_progress(format!("{}⌛ Installing...", indent));
 
         // Execute installation
-        let installation = match installation.execute_install(self.runner).await {
+        let installation = match installation
+            .execute_install_streaming(self.runner, output_handler)
+            .await
+        {
             Ok(state) => state,
             Err(err) => return Err(PackageInstallerError::InstallationError(err)),
         };
@@ -533,23 +566,6 @@ impl<'a, PR: PackageRepository, CR: CommandRunner> PackageInstaller<'a, PR, CR> 
                         installation.status()
                     )),
                 ));
-            }
-        }
-
-        // Print verbose output if enabled
-        if self.progress_manager.verbose() {
-            if let Installation::Complete { command_output, .. } = &installation {
-                self.progress_manager.print_verbose("Command stdout:");
-                for line in command_output.stdout.lines() {
-                    self.progress_manager.print_verbose(format!("  {}", line));
-                }
-
-                if !command_output.stderr.is_empty() {
-                    self.progress_manager.print_verbose("Command stderr:");
-                    for line in command_output.stderr.lines() {
-                        self.progress_manager.print_verbose(format!("  {}", line));
-                    }
-                }
             }
         }
 
@@ -657,8 +673,8 @@ mod tests {
 
         let eeh = EnhancedErrorHandler::new(&fs, &repo, progress_manager);
 
-        runner.mock_execute_success_1("test check", "Not found");
-        runner.mock_execute_success_0("test install", "Installed successfully");
+        runner.mock_execute_streaming_success_1("test check", 60, "Not found");
+        runner.mock_execute_streaming_success_0("test install", 600, "Installed successfully");
         runner.mock_is_command_available("test", true);
 
         let installer =
@@ -680,7 +696,7 @@ mod tests {
 
         let eeh = EnhancedErrorHandler::new(&fs, &repo, progress_manager);
 
-        runner.mock_execute_success_0("test check", "Found"); // Already installed
+        runner.mock_execute_streaming_success_0("test check", 60, "Found");
         runner.mock_is_command_available("test", true);
 
         let installer =
@@ -702,14 +718,13 @@ mod tests {
 
         let eeh = EnhancedErrorHandler::new(&fs, &repo, progress_manager);
 
-        runner.mock_execute_success_1("test check", "Not found");
-        runner.mock_execute_success_1("test install", "Installation failed");
+        runner.mock_execute_streaming_success_1("test check", 60, "Not found");
+        runner.mock_execute_streaming_success_1("test install", 600, "Installation failed");
         runner.mock_is_command_available("test", true);
 
         let installer =
             PackageInstaller::new(&repo, &eeh, &runner, &config, progress_manager, true);
         let result = installer.install_package(&package.name).await;
-        dbg!(&result);
 
         assert!(result.is_err());
     }
@@ -783,8 +798,8 @@ mod tests {
         repo.mock_get_package_ok("ripgrep", Package::from_yaml(package_yaml).unwrap());
 
         // Set up mock command responses
-        runner.mock_execute_success_1("rg check", "Not found");
-        runner.mock_execute_success_0("rg install", "Installed successfully");
+        runner.mock_execute_streaming_success_1("rg check", 60, "Not found");
+        runner.mock_execute_streaming_success_0("rg install", 600, "Installed successfully");
 
         let eeh = EnhancedErrorHandler::new(&fs, &repo, progress_manager);
 
@@ -841,10 +856,10 @@ mod tests {
         let eeh = EnhancedErrorHandler::new(&fs, &repo, progress_manager);
 
         // Set up mock command responses
-        runner.mock_execute_success_1("rg check", "Not found");
-        runner.mock_execute_success_0("rg install", "Installed successfully");
-        runner.mock_execute_success_1("rust check", "Not found");
-        runner.mock_execute_success_0("rust install", "Installed successfully");
+        runner.mock_execute_streaming_success_1("rg check", 60, "Not found");
+        runner.mock_execute_streaming_success_0("rg install", 600, "Installed successfully");
+        runner.mock_execute_streaming_success_1("rust check", 60, "Not found");
+        runner.mock_execute_streaming_success_0("rust install", 600, "Installed successfully");
 
         let progress_manager = ProgressManager::new(false, true);
 
@@ -923,14 +938,14 @@ mod tests {
         repo.mock_get_package_ok("dep3", Package::from_yaml(dep3_yaml).unwrap());
 
         // Set up mock command responses - all need to be installed
-        runner.mock_execute_success_1("main-check", "Not found");
-        runner.mock_execute_success_0("main-install", "Installed successfully");
-        runner.mock_execute_success_1("dep1-check", "Not found");
-        runner.mock_execute_success_0("dep1-install", "Installed successfully");
-        runner.mock_execute_success_1("dep2-check", "Not found");
-        runner.mock_execute_success_0("dep2-install", "Installed successfully");
-        runner.mock_execute_success_1("dep3-check", "Not found");
-        runner.mock_execute_success_0("dep3-install", "Installed successfully");
+        runner.mock_execute_streaming_success_1("main-check", 60, "Not found");
+        runner.mock_execute_streaming_success_0("main-install", 600, "Installed successfully");
+        runner.mock_execute_streaming_success_1("dep1-check", 60, "Not found");
+        runner.mock_execute_streaming_success_0("dep1-install", 600, "Installed successfully");
+        runner.mock_execute_streaming_success_1("dep2-check", 60, "Not found");
+        runner.mock_execute_streaming_success_0("dep2-install", 600, "Installed successfully");
+        runner.mock_execute_streaming_success_1("dep3-check", 60, "Not found");
+        runner.mock_execute_streaming_success_0("dep3-install", 600, "Installed successfully");
 
         let eeh = EnhancedErrorHandler::new(&fs, &repo, progress_manager);
         let progress_manager = ProgressManager::new(false, true);

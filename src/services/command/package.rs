@@ -78,23 +78,7 @@ impl<'a, F: FileSystem, CR: CommandRunner, PR: PackageRepository>
         );
 
         match installer.install_package(package_name).await {
-            Ok(result) => {
-                if self.app_config.verbose() {
-                    if let Some(output) = &result.command_output {
-                        if !output.stdout.is_empty() {
-                            self.progress_manager
-                                .print_info("\n\nCommand output (stdout):\n");
-                            self.progress_manager.print_progress(&output.stdout);
-                        }
-                        if !output.stderr.is_empty() {
-                            self.progress_manager
-                                .print_warning("\n\nCommand output (stderr):\n");
-                            self.progress_manager.print_progress(&output.stderr);
-                        }
-                    }
-                }
-                Ok(0)
-            }
+            Ok(_) => Ok(0),
             Err(err) => {
                 // Check for filesystem errors specifically
                 match &err {
