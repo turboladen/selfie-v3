@@ -196,7 +196,7 @@ impl Installation {
     }
 
     // Add streaming version of execute_check
-    pub(crate) async fn execute_check_streaming<CR: CommandRunner, F>(
+    pub(crate) async fn execute_check<CR: CommandRunner, F>(
         self,
         runner: &CR,
         output_callback: F,
@@ -237,8 +237,7 @@ impl Installation {
         }
     }
 
-    // Add streaming version of execute_install
-    pub(crate) async fn execute_install_streaming<CR: CommandRunner, F>(
+    pub(crate) async fn execute_install<CR: CommandRunner, F>(
         self,
         runner: &CR,
         output_callback: F,
@@ -533,7 +532,7 @@ mod tests {
         let outputs_clone = streamed_outputs.clone();
 
         let result = installation
-            .execute_check_streaming(&runner, move |chunk| {
+            .execute_check(&runner, move |chunk| {
                 let mut outputs = outputs_clone.lock().unwrap();
                 match chunk {
                     OutputChunk::Stdout(line) => outputs.push(format!("stdout: {}", line)),
@@ -580,7 +579,7 @@ mod tests {
         let outputs_clone = streamed_outputs.clone();
 
         let result = installation
-            .execute_check_streaming(&runner, move |chunk| {
+            .execute_check(&runner, move |chunk| {
                 let mut outputs = outputs_clone.lock().unwrap();
                 match chunk {
                     OutputChunk::Stdout(line) => outputs.push(format!("stdout: {}", line)),
@@ -629,7 +628,7 @@ mod tests {
         let outputs_clone = streamed_outputs.clone();
 
         let result = installation
-            .execute_check_streaming(&runner, move |chunk| {
+            .execute_check(&runner, move |chunk| {
                 let mut outputs = outputs_clone.lock().unwrap();
                 match chunk {
                     OutputChunk::Stdout(line) => outputs.push(format!("stdout: {}", line)),
@@ -681,7 +680,7 @@ mod tests {
         let outputs_clone = streamed_outputs.clone();
 
         let result = installation
-            .execute_install_streaming(&runner, move |chunk| {
+            .execute_install(&runner, move |chunk| {
                 let mut outputs = outputs_clone.lock().unwrap();
                 match chunk {
                     OutputChunk::Stdout(line) => outputs.push(format!("stdout: {}", line)),
@@ -738,7 +737,7 @@ mod tests {
         let outputs_clone = streamed_outputs.clone();
 
         let result = installation
-            .execute_install_streaming(&runner, move |chunk| {
+            .execute_install(&runner, move |chunk| {
                 let mut outputs = outputs_clone.lock().unwrap();
                 match chunk {
                     OutputChunk::Stdout(line) => outputs.push(format!("stdout: {}", line)),
@@ -774,9 +773,7 @@ mod tests {
             .returning(|_, timeout, _| Err(CommandError::Timeout(timeout)));
 
         // Execute the command
-        let result = installation
-            .execute_install_streaming(&runner, |_| {})
-            .await;
+        let result = installation.execute_install(&runner, |_| {}).await;
 
         assert!(result.is_ok());
         let state = result.unwrap();

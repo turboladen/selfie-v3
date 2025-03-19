@@ -481,7 +481,7 @@ impl<'a, PR: PackageRepository, CR: CommandRunner> PackageInstaller<'a, PR, CR> 
 
         // Check if already installed
         let installation = match installation
-            .execute_check_streaming(self.runner, output_handler.clone())
+            .execute_check(self.runner, output_handler.clone())
             .await
         {
             Ok(state) => state,
@@ -538,7 +538,7 @@ impl<'a, PR: PackageRepository, CR: CommandRunner> PackageInstaller<'a, PR, CR> 
 
         // Execute installation
         let installation = match installation
-            .execute_install_streaming(self.runner, output_handler)
+            .execute_install(self.runner, output_handler)
             .await
         {
             Ok(state) => state,
