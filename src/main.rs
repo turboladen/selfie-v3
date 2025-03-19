@@ -36,11 +36,12 @@ async fn main() -> Result<(), anyhow::Error> {
             args,
         )
     };
+
     let cmd_service = {
         let runner = ShellCommandRunner::new("/bin/sh", app_config.command_timeout());
 
         // Create the command service to route and execute the command
-        ApplicationCommandService::new(&fs, Box::new(runner), &app_config)
+        ApplicationCommandService::new(&fs, runner, &app_config)
     };
 
     // Process the command and get an exit code

@@ -134,7 +134,7 @@ impl Package {
     }
 
     // Load a Package from a file using the FileSystem trait
-    pub(crate) fn from_file(fs: &dyn FileSystem, path: &Path) -> Result<Self, PackageParseError> {
+    pub(crate) fn from_file<F: FileSystem>(fs: &F, path: &Path) -> Result<Self, PackageParseError> {
         let content = fs
             .read_file(path)
             .map_err(|e| PackageParseError::FileSystemError(e.to_string()))?;

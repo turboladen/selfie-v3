@@ -15,8 +15,8 @@ use crate::services::suggestion_provider::SuggestionProvider;
 /// Enhanced error handler that provides rich contextual error information
 pub(crate) struct EnhancedErrorHandler<'a> {
     fs: &'a dyn FileSystem,
-    progress_manager: &'a ProgressManager,
-    formatter: ErrorFormatter<'a>,
+    progress_manager: ProgressManager,
+    formatter: ErrorFormatter,
     suggestion_provider: SuggestionProvider<'a>,
     package_repo: &'a dyn PackageRepository,
 }
@@ -26,7 +26,7 @@ impl<'a> EnhancedErrorHandler<'a> {
     pub(crate) fn new(
         fs: &'a dyn FileSystem,
         package_repo: &'a dyn PackageRepository,
-        progress_manager: &'a ProgressManager,
+        progress_manager: ProgressManager,
     ) -> Self {
         Self {
             fs,
@@ -244,7 +244,7 @@ mod tests {
             .expect_list_packages()
             .returning(move || Ok(packages.clone()));
 
-        let handler = EnhancedErrorHandler::new(&fs, &package_repo, &progress_manager);
+        let handler = EnhancedErrorHandler::new(&fs, &package_repo, progress_manager);
 
         // Test error message with suggestion
         let error_msg = handler.handle_package_not_found("rigrep");
@@ -278,7 +278,7 @@ mod tests {
         fs.mock_path_exists("/nonexistent/dir", false);
         fs.mock_path_exists("/nonexistent/dir/file.txt", false);
 
-        let handler = EnhancedErrorHandler::new(&fs, &package_repo, &progress_manager);
+        let handler = EnhancedErrorHandler::new(&fs, &package_repo, progress_manager);
 
         // Test error with suggestion
         let error_msg = handler.handle_path_not_found(&dir.join("config.yml"));
@@ -299,7 +299,7 @@ mod tests {
         let package_repo = MockPackageRepository::new();
         let progress_manager = ProgressManager::default();
 
-        let handler = EnhancedErrorHandler::new(&fs, &package_repo, &progress_manager);
+        let handler = EnhancedErrorHandler::new(&fs, &package_repo, progress_manager);
 
         let cycle = vec![
             "package-a".to_string(),
@@ -319,7 +319,7 @@ mod tests {
         let package_repo = MockPackageRepository::new();
         let progress_manager = ProgressManager::default();
 
-        let handler = EnhancedErrorHandler::new(&fs, &package_repo, &progress_manager);
+        let handler = EnhancedErrorHandler::new(&fs, &package_repo, progress_manager);
 
         // Test with single quotes
         assert_eq!(
@@ -365,7 +365,7 @@ mod tests {
         });
 
         // Create the error handler
-        let error_handler = EnhancedErrorHandler::new(&fs, &package_repo, &progress_manager);
+        let error_handler = EnhancedErrorHandler::new(&fs, &package_repo, progress_manager);
 
         // Test the package not found error
         let error_message = error_handler.handle_package_not_found("rigrep");

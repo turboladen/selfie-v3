@@ -180,7 +180,7 @@ impl ValidationResult {
             .collect()
     }
 
-    pub(crate) fn format_validation_result(&self, progress_manager: &ProgressManager) -> String {
+    pub(crate) fn format_validation_result(&self, progress_manager: ProgressManager) -> String {
         let mut output = String::new();
 
         if self.is_valid() {
@@ -518,7 +518,7 @@ mod tests {
         let progress_manager = ProgressManager::default();
 
         // Format the result
-        let formatted = result.format_validation_result(&progress_manager);
+        let formatted = result.format_validation_result(progress_manager);
 
         // Check the output contains expected content
         assert!(formatted.contains("Validation failed"));

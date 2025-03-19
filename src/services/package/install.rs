@@ -18,7 +18,7 @@ use crate::{
         package::Package,
     },
     ports::{
-        command::{CommandError, CommandRunner},
+        command::{CommandError, CommandRunner, OutputChunk},
         filesystem::FileSystemError,
         package_repo::{PackageRepoError, PackageRepository},
     },
@@ -103,23 +103,23 @@ impl From<EnhancedDependencyError> for PackageInstallerError {
     }
 }
 
-pub(crate) struct PackageInstaller<'a> {
-    package_repo: &'a dyn PackageRepository,
+pub(crate) struct PackageInstaller<'a, PR: PackageRepository, CR: CommandRunner> {
+    package_repo: &'a PR,
     error_handler: &'a EnhancedErrorHandler<'a>,
-    runner: &'a dyn CommandRunner,
+    runner: &'a CR,
     config: &'a AppConfig,
-    progress_manager: &'a ProgressManager,
+    progress_manager: ProgressManager,
     check_commands: bool,
-    command_validator: CommandValidator<'a>, // Add CommandValidator
+    command_validator: CommandValidator<'a, CR>,
 }
 
-impl<'a> PackageInstaller<'a> {
+impl<'a, PR: PackageRepository, CR: CommandRunner> PackageInstaller<'a, PR, CR> {
     pub(crate) fn new(
-        package_repo: &'a dyn PackageRepository,
+        package_repo: &'a PR,
         error_handler: &'a EnhancedErrorHandler<'_>,
-        runner: &'a dyn CommandRunner,
+        runner: &'a CR,
         config: &'a AppConfig,
-        progress_manager: &'a ProgressManager,
+        progress_manager: ProgressManager,
         check_commands: bool,
     ) -> Self {
         // Create CommandValidator instance
@@ -316,7 +316,8 @@ impl<'a> PackageInstaller<'a> {
         // Check if required commands are available
         if self.check_commands {
             if let Some(env_config) = package.environments.get(self.config.environment()) {
-                if let Some(base_cmd) = CommandValidator::extract_base_command(&env_config.install)
+                if let Some(base_cmd) =
+                    CommandValidator::<CR>::extract_base_command(&env_config.install)
                 {
                     let availability_result = self
                         .command_validator
@@ -389,7 +390,8 @@ impl<'a> PackageInstaller<'a> {
         for package in packages {
             if let Some(env_config) = package.environments.get(self.config.environment()) {
                 // Extract and check base command
-                if let Some(base_cmd) = CommandValidator::extract_base_command(&env_config.install)
+                if let Some(base_cmd) =
+                    CommandValidator::<CR>::extract_base_command(&env_config.install)
                 {
                     let availability_result = self
                         .command_validator
@@ -447,11 +449,41 @@ impl<'a> PackageInstaller<'a> {
             PackageInstallerError::EnhancedError(user_message)
         })?;
 
+        // Create a callback closure for output
+        let progress_manager = self.progress_manager;
+        let indent_clone = indent.clone();
+        let output_handler = move |chunk: OutputChunk| match chunk {
+            OutputChunk::Stdout(line) => {
+                if progress_manager.verbose() {
+                    progress_manager.print_verbose(format!(
+                        "{}  stdout: {}",
+                        indent_clone,
+                        line.trim()
+                    ));
+                }
+            }
+            OutputChunk::Stderr(line) => {
+                if progress_manager.verbose() {
+                    progress_manager.print_warning(format!(
+                        "{}  stderr: {}",
+                        indent_clone,
+                        line.trim()
+                    ));
+                }
+            }
+        };
+
         // Create installation and start it
         let installation = Installation::new(env_config.clone()).start();
 
+        self.progress_manager
+            .print_progress(format!("{}⌛ Checking installation status...", indent));
+
         // Check if already installed
-        let installation = match installation.execute_check(self.runner).await {
+        let installation = match installation
+            .execute_check(self.runner, output_handler.clone())
+            .await
+        {
             Ok(state) => state,
             Err(err) => return Err(PackageInstallerError::InstallationError(err)),
         };
@@ -505,7 +537,10 @@ impl<'a> PackageInstaller<'a> {
             .print_progress(format!("{}⌛ Installing...", indent));
 
         // Execute installation
-        let installation = match installation.execute_install(self.runner).await {
+        let installation = match installation
+            .execute_install(self.runner, output_handler)
+            .await
+        {
             Ok(state) => state,
             Err(err) => return Err(PackageInstallerError::InstallationError(err)),
         };
@@ -531,23 +566,6 @@ impl<'a> PackageInstaller<'a> {
                         installation.status()
                     )),
                 ));
-            }
-        }
-
-        // Print verbose output if enabled
-        if self.progress_manager.verbose() {
-            if let Installation::Complete { command_output, .. } = &installation {
-                self.progress_manager.print_verbose("Command stdout:");
-                for line in command_output.stdout.lines() {
-                    self.progress_manager.print_verbose(format!("  {}", line));
-                }
-
-                if !command_output.stderr.is_empty() {
-                    self.progress_manager.print_verbose("Command stderr:");
-                    for line in command_output.stderr.lines() {
-                        self.progress_manager.print_verbose(format!("  {}", line));
-                    }
-                }
             }
         }
 
@@ -583,7 +601,7 @@ impl<'a> PackageInstaller<'a> {
 
     /// Extract the base command from a command string
     fn extract_base_command(command: &str) -> Option<&str> {
-        CommandValidator::extract_base_command(command)
+        CommandValidator::<CR>::extract_base_command(command)
     }
 
     /// Parse a cycle string into a vector of package names
@@ -653,14 +671,14 @@ mod tests {
 
         repo.mock_get_package_ok(&package.name, package.clone());
 
-        let eeh = EnhancedErrorHandler::new(&fs, &repo, &progress_manager);
+        let eeh = EnhancedErrorHandler::new(&fs, &repo, progress_manager);
 
-        runner.mock_execute_success_1("test check", "Not found");
-        runner.mock_execute_success_0("test install", "Installed successfully");
+        runner.mock_execute_streaming_success_1("test check", 60, "Not found");
+        runner.mock_execute_streaming_success_0("test install", 600, "Installed successfully");
         runner.mock_is_command_available("test", true);
 
         let installer =
-            PackageInstaller::new(&repo, &eeh, &runner, &config, &progress_manager, true);
+            PackageInstaller::new(&repo, &eeh, &runner, &config, progress_manager, true);
         let result = installer.install_package(&package.name).await;
 
         assert!(result.is_ok());
@@ -676,13 +694,13 @@ mod tests {
 
         repo.mock_get_package_ok(&package.name, package.clone());
 
-        let eeh = EnhancedErrorHandler::new(&fs, &repo, &progress_manager);
+        let eeh = EnhancedErrorHandler::new(&fs, &repo, progress_manager);
 
-        runner.mock_execute_success_0("test check", "Found"); // Already installed
+        runner.mock_execute_streaming_success_0("test check", 60, "Found");
         runner.mock_is_command_available("test", true);
 
         let installer =
-            PackageInstaller::new(&repo, &eeh, &runner, &config, &progress_manager, true);
+            PackageInstaller::new(&repo, &eeh, &runner, &config, progress_manager, true);
         let result = installer.install_package(&package.name).await;
 
         assert!(result.is_ok());
@@ -698,16 +716,15 @@ mod tests {
 
         repo.mock_get_package_ok(&package.name, package.clone());
 
-        let eeh = EnhancedErrorHandler::new(&fs, &repo, &progress_manager);
+        let eeh = EnhancedErrorHandler::new(&fs, &repo, progress_manager);
 
-        runner.mock_execute_success_1("test check", "Not found");
-        runner.mock_execute_success_1("test install", "Installation failed");
+        runner.mock_execute_streaming_success_1("test check", 60, "Not found");
+        runner.mock_execute_streaming_success_1("test install", 600, "Installation failed");
         runner.mock_is_command_available("test", true);
 
         let installer =
-            PackageInstaller::new(&repo, &eeh, &runner, &config, &progress_manager, true);
+            PackageInstaller::new(&repo, &eeh, &runner, &config, progress_manager, true);
         let result = installer.install_package(&package.name).await;
-        dbg!(&result);
 
         assert!(result.is_err());
     }
@@ -723,10 +740,10 @@ mod tests {
 
         repo.mock_get_package_ok(&package.name, package.clone());
 
-        let eeh = EnhancedErrorHandler::new(&fs, &repo, &progress_manager);
+        let eeh = EnhancedErrorHandler::new(&fs, &repo, progress_manager);
 
         let installer =
-            PackageInstaller::new(&repo, &eeh, &runner, &config, &progress_manager, true);
+            PackageInstaller::new(&repo, &eeh, &runner, &config, progress_manager, true);
         let result = installer.install_package(&package.name).await;
 
         assert!(result.is_err());
@@ -736,8 +753,8 @@ mod tests {
     fn test_parse_cycle_string() {
         let config = create_test_config();
         let (fs, runner, repo, progress_manager) = create_installer_deps();
-        let eeh = EnhancedErrorHandler::new(&fs, &repo, &progress_manager);
-        let manager = PackageInstaller::new(&repo, &eeh, &runner, &config, &progress_manager, true);
+        let eeh = EnhancedErrorHandler::new(&fs, &repo, progress_manager);
+        let manager = PackageInstaller::new(&repo, &eeh, &runner, &config, progress_manager, true);
 
         // Test basic cycle parsing
         let cycle_str = "package1 -> package2 -> package3 -> package1";
@@ -781,16 +798,16 @@ mod tests {
         repo.mock_get_package_ok("ripgrep", Package::from_yaml(package_yaml).unwrap());
 
         // Set up mock command responses
-        runner.mock_execute_success_1("rg check", "Not found");
-        runner.mock_execute_success_0("rg install", "Installed successfully");
+        runner.mock_execute_streaming_success_1("rg check", 60, "Not found");
+        runner.mock_execute_streaming_success_0("rg install", 600, "Installed successfully");
 
-        let eeh = EnhancedErrorHandler::new(&fs, &repo, &progress_manager);
+        let eeh = EnhancedErrorHandler::new(&fs, &repo, progress_manager);
 
         let progress_manager = ProgressManager::new(false, true);
 
         // Create package installer (using the new consolidated version)
         let installer =
-            PackageInstaller::new(&repo, &eeh, &runner, &config, &progress_manager, false);
+            PackageInstaller::new(&repo, &eeh, &runner, &config, progress_manager, false);
 
         // Run the installation
         let result = installer.install_package("ripgrep").await;
@@ -836,19 +853,19 @@ mod tests {
         repo.mock_get_package_ok("ripgrep", Package::from_yaml(package_yaml).unwrap());
         repo.mock_get_package_ok("rust", Package::from_yaml(dependency_yaml).unwrap());
 
-        let eeh = EnhancedErrorHandler::new(&fs, &repo, &progress_manager);
+        let eeh = EnhancedErrorHandler::new(&fs, &repo, progress_manager);
 
         // Set up mock command responses
-        runner.mock_execute_success_1("rg check", "Not found");
-        runner.mock_execute_success_0("rg install", "Installed successfully");
-        runner.mock_execute_success_1("rust check", "Not found");
-        runner.mock_execute_success_0("rust install", "Installed successfully");
+        runner.mock_execute_streaming_success_1("rg check", 60, "Not found");
+        runner.mock_execute_streaming_success_0("rg install", 600, "Installed successfully");
+        runner.mock_execute_streaming_success_1("rust check", 60, "Not found");
+        runner.mock_execute_streaming_success_0("rust install", 600, "Installed successfully");
 
         let progress_manager = ProgressManager::new(false, true);
 
         // Create package installer
         let installer =
-            PackageInstaller::new(&repo, &eeh, &runner, &config, &progress_manager, false);
+            PackageInstaller::new(&repo, &eeh, &runner, &config, progress_manager, false);
 
         // Run the installation
         let result = installer.install_package("ripgrep").await;
@@ -921,21 +938,21 @@ mod tests {
         repo.mock_get_package_ok("dep3", Package::from_yaml(dep3_yaml).unwrap());
 
         // Set up mock command responses - all need to be installed
-        runner.mock_execute_success_1("main-check", "Not found");
-        runner.mock_execute_success_0("main-install", "Installed successfully");
-        runner.mock_execute_success_1("dep1-check", "Not found");
-        runner.mock_execute_success_0("dep1-install", "Installed successfully");
-        runner.mock_execute_success_1("dep2-check", "Not found");
-        runner.mock_execute_success_0("dep2-install", "Installed successfully");
-        runner.mock_execute_success_1("dep3-check", "Not found");
-        runner.mock_execute_success_0("dep3-install", "Installed successfully");
+        runner.mock_execute_streaming_success_1("main-check", 60, "Not found");
+        runner.mock_execute_streaming_success_0("main-install", 600, "Installed successfully");
+        runner.mock_execute_streaming_success_1("dep1-check", 60, "Not found");
+        runner.mock_execute_streaming_success_0("dep1-install", 600, "Installed successfully");
+        runner.mock_execute_streaming_success_1("dep2-check", 60, "Not found");
+        runner.mock_execute_streaming_success_0("dep2-install", 600, "Installed successfully");
+        runner.mock_execute_streaming_success_1("dep3-check", 60, "Not found");
+        runner.mock_execute_streaming_success_0("dep3-install", 600, "Installed successfully");
 
-        let eeh = EnhancedErrorHandler::new(&fs, &repo, &progress_manager);
+        let eeh = EnhancedErrorHandler::new(&fs, &repo, progress_manager);
         let progress_manager = ProgressManager::new(false, true);
 
         // Create package installer
         let installer =
-            PackageInstaller::new(&repo, &eeh, &runner, &config, &progress_manager, false);
+            PackageInstaller::new(&repo, &eeh, &runner, &config, progress_manager, false);
 
         // Run the installation
         let result = installer.install_package("main-pkg").await;

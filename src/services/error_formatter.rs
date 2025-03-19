@@ -9,13 +9,13 @@ use crate::adapters::progress::{MessageType, ProgressManager};
 use crate::domain::validation::ValidationResult;
 
 /// Helper for formatting user-friendly error messages
-pub(crate) struct ErrorFormatter<'a> {
-    pub(crate) progress_manager: &'a ProgressManager,
+pub(crate) struct ErrorFormatter {
+    pub(crate) progress_manager: ProgressManager,
 }
 
-impl<'a> ErrorFormatter<'a> {
+impl ErrorFormatter {
     /// Create a new error formatter
-    pub(crate) fn new(progress_manager: &'a ProgressManager) -> Self {
+    pub(crate) fn new(progress_manager: ProgressManager) -> Self {
         Self { progress_manager }
     }
 
@@ -277,7 +277,7 @@ mod tests {
     #[test]
     fn test_format_package_not_found() {
         let progress_manager = ProgressManager::default();
-        let formatter = ErrorFormatter::new(&progress_manager);
+        let formatter = ErrorFormatter::new(progress_manager);
 
         let suggestions = vec!["ripgrep".to_string(), "ripgrep-all".to_string()];
         let output = formatter.format_package_not_found("rigrep", &suggestions);
@@ -294,7 +294,7 @@ mod tests {
     #[test]
     fn test_format_command_error() {
         let progress_manager = ProgressManager::default();
-        let formatter = ErrorFormatter::new(&progress_manager);
+        let formatter = ErrorFormatter::new(progress_manager);
 
         let output = formatter.format_command_error(
             "brew install ripgrep",
@@ -316,7 +316,7 @@ mod tests {
     #[test]
     fn test_format_circular_dependency() {
         let progress_manager = ProgressManager::default();
-        let formatter = ErrorFormatter::new(&progress_manager);
+        let formatter = ErrorFormatter::new(progress_manager);
 
         let cycle = vec![
             "package-a".to_string(),
@@ -335,7 +335,7 @@ mod tests {
     #[test]
     fn test_format_permission_error() {
         let progress_manager = ProgressManager::default();
-        let formatter = ErrorFormatter::new(&progress_manager);
+        let formatter = ErrorFormatter::new(progress_manager);
 
         let path = PathBuf::from("/protected/file.txt");
         let output = formatter.format_permission_error(&path, "read");

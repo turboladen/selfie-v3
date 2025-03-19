@@ -7,9 +7,10 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use futures::TryFutureExt;
+use tokio::io::AsyncBufReadExt;
 use tokio::process::Command;
 
-use crate::ports::command::{CommandError, CommandOutput, CommandRunner};
+use crate::ports::command::{CommandError, CommandOutput, CommandRunner, OutputChunk};
 
 /// Shell command runner implementation
 #[derive(Clone)]
@@ -96,6 +97,93 @@ impl CommandRunner for ShellCommandRunner {
             Err(_) => false,
         }
     }
+
+    async fn execute_streaming<F>(
+        &self,
+        command: &str,
+        timeout: Duration,
+        mut callback: F,
+    ) -> Result<CommandOutput, CommandError>
+    where
+        F: FnMut(OutputChunk) + Send + 'static,
+    {
+        let start_time = Instant::now();
+        let mut cmd = Command::new(&self.shell);
+        cmd.arg("-c")
+            .arg(command)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        // Add environment variables
+        for (key, value) in &self.environment {
+            cmd.env(key, value);
+        }
+
+        let mut child = cmd.spawn().map_err(CommandError::from)?;
+
+        let mut stdout = tokio::io::BufReader::new(child.stdout.take().unwrap());
+        let mut stderr = tokio::io::BufReader::new(child.stderr.take().unwrap());
+
+        let mut full_stdout = String::new();
+        let mut full_stderr = String::new();
+
+        let mut stdout_buf = Vec::with_capacity(1024);
+        let mut stderr_buf = Vec::with_capacity(1024);
+
+        let timeout_future = tokio::time::sleep(timeout);
+        tokio::pin!(timeout_future);
+
+        loop {
+            tokio::select! {
+                _ = &mut timeout_future => {
+                    let _ = child.kill().await;
+                    return Err(CommandError::Timeout(timeout));
+                },
+                result = stdout.read_until(b'\n', &mut stdout_buf) => {
+                    handle_read_result(result, &mut full_stdout, &mut stdout_buf, &mut callback, OutputChunk::Stdout)?;
+                },
+                result = stderr.read_until(b'\n', &mut stderr_buf) => {
+                    handle_read_result(result, &mut full_stderr, &mut stderr_buf, &mut callback, OutputChunk::Stderr)?;
+                },
+                status = child.wait() => {
+                    let status = status.map_err(CommandError::from)?;
+                    let duration = start_time.elapsed();
+
+                    return Ok(CommandOutput {
+                        stdout: full_stdout,
+                        stderr: full_stderr,
+                        status: status.code().unwrap_or(-1),
+                        success: status.success(),
+                        duration,
+                    });
+                }
+            }
+        }
+    }
+}
+
+fn handle_read_result<F>(
+    result: Result<usize, tokio::io::Error>,
+    full_output: &mut String,
+    buffer: &mut Vec<u8>,
+    callback: &mut F,
+    output_type: fn(String) -> OutputChunk,
+) -> Result<(), CommandError>
+where
+    F: FnMut(OutputChunk) + Send + 'static,
+{
+    match result {
+        Ok(0) => {} // End of stream
+        Ok(_) => {
+            let line = String::from_utf8_lossy(buffer).to_string();
+            full_output.push_str(&line);
+            callback(output_type(line));
+            buffer.clear();
+        }
+        Err(e) => return Err(CommandError::IoError(e.to_string())),
+    }
+    Ok(())
 }
 
 #[cfg(test)]

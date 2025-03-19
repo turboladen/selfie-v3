@@ -31,20 +31,23 @@ pub(super) enum PackageListCommandError {
     ConfigError(#[from] ConfigValidationError),
 }
 
-pub(super) struct PackageCommandService<'a> {
-    fs: &'a dyn FileSystem,
-    runner: &'a dyn CommandRunner,
-    package_repo: &'a dyn PackageRepository,
-    progress_manager: &'a ProgressManager,
+pub(super) struct PackageCommandService<'a, F: FileSystem, CR: CommandRunner, PR: PackageRepository>
+{
+    fs: &'a F,
+    runner: &'a CR,
+    package_repo: &'a PR,
+    progress_manager: ProgressManager,
     app_config: &'a AppConfig,
 }
 
-impl<'a> PackageCommandService<'a> {
+impl<'a, F: FileSystem, CR: CommandRunner, PR: PackageRepository>
+    PackageCommandService<'a, F, CR, PR>
+{
     pub(super) fn new(
-        fs: &'a dyn FileSystem,
-        runner: &'a dyn CommandRunner,
-        package_repo: &'a dyn PackageRepository,
-        progress_manager: &'a ProgressManager,
+        fs: &'a F,
+        runner: &'a CR,
+        package_repo: &'a PR,
+        progress_manager: ProgressManager,
         app_config: &'a AppConfig,
     ) -> Self {
         Self {
@@ -68,30 +71,14 @@ impl<'a> PackageCommandService<'a> {
         let installer = PackageInstaller::new(
             self.package_repo,
             error_handler,
-            &*self.runner,
+            self.runner,
             self.app_config,
-            &self.progress_manager,
+            self.progress_manager,
             true, // Enable command checking
         );
 
         match installer.install_package(package_name).await {
-            Ok(result) => {
-                if self.app_config.verbose() {
-                    if let Some(output) = &result.command_output {
-                        if !output.stdout.is_empty() {
-                            self.progress_manager
-                                .print_info("\n\nCommand output (stdout):\n");
-                            self.progress_manager.print_progress(&output.stdout);
-                        }
-                        if !output.stderr.is_empty() {
-                            self.progress_manager
-                                .print_warning("\n\nCommand output (stderr):\n");
-                            self.progress_manager.print_progress(&output.stderr);
-                        }
-                    }
-                }
-                Ok(0)
-            }
+            Ok(_) => Ok(0),
             Err(err) => {
                 // Check for filesystem errors specifically
                 match &err {
@@ -121,9 +108,9 @@ impl<'a> PackageCommandService<'a> {
         self.app_config.validate_minimal()?;
 
         let list_cmd = PackageListService::new(
-            &*self.runner,
+            self.runner,
             self.app_config,
-            &self.progress_manager,
+            self.progress_manager,
             self.package_repo,
         );
 
@@ -170,12 +157,12 @@ impl<'a> PackageCommandService<'a> {
         // Don't propagate the error; let the ?command run through even if the
         // config is bad.
         let _ = self.app_config.validate();
-        let command_validator = CommandValidator::new(&*self.runner);
+        let command_validator = CommandValidator::new(self.runner);
 
         let validate_cmd = ValidationCommand::new(
             self.fs,
             self.app_config,
-            &self.progress_manager,
+            self.progress_manager,
             &command_validator,
         );
 

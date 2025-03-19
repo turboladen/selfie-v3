@@ -7,18 +7,14 @@ use crate::ports::filesystem::FileSystem;
 use crate::ports::package_repo::{PackageRepoError, PackageRepository};
 
 #[derive(Clone)]
-pub(crate) struct YamlPackageRepository<'a> {
-    fs: &'a dyn FileSystem,
+pub(crate) struct YamlPackageRepository<'a, F: FileSystem> {
+    fs: &'a F,
     package_dir: PathBuf,
-    progress_manager: &'a ProgressManager,
+    progress_manager: ProgressManager,
 }
 
-impl<'a> YamlPackageRepository<'a> {
-    pub(crate) fn new(
-        fs: &'a dyn FileSystem,
-        package_dir: PathBuf,
-        progress_manager: &'a ProgressManager,
-    ) -> Self {
+impl<'a, F: FileSystem> YamlPackageRepository<'a, F> {
+    pub(crate) fn new(fs: &'a F, package_dir: PathBuf, progress_manager: ProgressManager) -> Self {
         Self {
             fs,
             package_dir,
@@ -49,7 +45,7 @@ impl<'a> YamlPackageRepository<'a> {
     }
 }
 
-impl PackageRepository for YamlPackageRepository<'_> {
+impl<F: FileSystem> PackageRepository for YamlPackageRepository<'_, F> {
     fn get_package(&self, name: &str) -> Result<Package, PackageRepoError> {
         let package_files = self.find_package_files(name)?;
 
@@ -153,7 +149,7 @@ mod tests {
         fs.mock_read_file(package_path, yaml);
 
         let progress_manager = ProgressManager::default();
-        let repo = YamlPackageRepository::new(&fs, package_dir, &progress_manager);
+        let repo = YamlPackageRepository::new(&fs, package_dir, progress_manager);
         let package = repo.get_package("ripgrep").unwrap();
 
         assert_eq!(package.name, "ripgrep");
@@ -177,7 +173,7 @@ mod tests {
             .returning(|_| false);
 
         let progress_manager = ProgressManager::default();
-        let repo = YamlPackageRepository::new(&fs, package_dir, &progress_manager);
+        let repo = YamlPackageRepository::new(&fs, package_dir, progress_manager);
         let result = repo.get_package("nonexistent");
 
         assert!(matches!(result, Err(PackageRepoError::PackageNotFound(_))));
@@ -193,7 +189,7 @@ mod tests {
             .returning(|_| false);
 
         let progress_manager = ProgressManager::default();
-        let repo = YamlPackageRepository::new(&fs, package_dir, &progress_manager);
+        let repo = YamlPackageRepository::new(&fs, package_dir, progress_manager);
         let result = repo.get_package("ripgrep");
 
         assert!(matches!(
@@ -216,7 +212,7 @@ mod tests {
         fs.mock_path_exists(&yml_path, true);
 
         let progress_manager = ProgressManager::default();
-        let repo = YamlPackageRepository::new(&fs, package_dir, &progress_manager);
+        let repo = YamlPackageRepository::new(&fs, package_dir, progress_manager);
         let result = repo.get_package("ripgrep");
 
         assert!(matches!(
@@ -257,7 +253,7 @@ mod tests {
             .returning(|_| false);
 
         let progress_manager = ProgressManager::default();
-        let repo = YamlPackageRepository::new(&fs, package_dir, &progress_manager);
+        let repo = YamlPackageRepository::new(&fs, package_dir, progress_manager);
 
         // Should find ripgrep.yaml
         let files = repo.find_package_files("ripgrep").unwrap();
@@ -314,7 +310,7 @@ mod tests {
         fs.mock_read_file(package_dir.join("invalid.yaml"), "not valid yaml: :");
 
         let progress_manager = ProgressManager::default();
-        let repo = YamlPackageRepository::new(&fs, package_dir, &progress_manager);
+        let repo = YamlPackageRepository::new(&fs, package_dir, progress_manager);
         let packages = repo.list_packages().unwrap();
 
         // Should find both valid packages
@@ -350,7 +346,7 @@ mod tests {
             });
 
         let progress_manager = ProgressManager::default();
-        let repo = YamlPackageRepository::new(&fs, PathBuf::from("/dummy"), &progress_manager); // Path doesn't matter here
+        let repo = YamlPackageRepository::new(&fs, PathBuf::from("/dummy"), progress_manager); // Path doesn't matter here
         let yaml_files = repo.list_yaml_files(&dir).unwrap();
 
         // Should find all yaml/yml files regardless of case
