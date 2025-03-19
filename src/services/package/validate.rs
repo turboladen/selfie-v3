@@ -374,7 +374,7 @@ environments:
 
         let progress_manager = ProgressManager::default();
         let package_repo =
-            YamlPackageRepository::new(&fs, config.expanded_package_directory(), &progress_manager);
+            YamlPackageRepository::new(&fs, config.expanded_package_directory(), progress_manager);
         let command_validator = CommandValidator::new(&runner);
         let validator = PackageValidator::new(&fs, &config, &package_repo, &command_validator);
         let result = validator
@@ -410,7 +410,7 @@ environments:
 
         let progress_manager = ProgressManager::default();
         let package_repo =
-            YamlPackageRepository::new(&fs, config.expanded_package_directory(), &progress_manager);
+            YamlPackageRepository::new(&fs, config.expanded_package_directory(), progress_manager);
         let command_validator = CommandValidator::new(&runner);
         let validator = PackageValidator::new(&fs, &config, &package_repo, &command_validator);
         let result = validator
@@ -452,7 +452,7 @@ environments:
 
         let progress_manager = ProgressManager::default();
         let package_repo =
-            YamlPackageRepository::new(&fs, config.expanded_package_directory(), &progress_manager);
+            YamlPackageRepository::new(&fs, config.expanded_package_directory(), progress_manager);
         let command_validator = CommandValidator::new(&runner);
         let validator = PackageValidator::new(&fs, &config, &package_repo, &command_validator);
         let result = validator
@@ -486,7 +486,7 @@ environments:
 
         let progress_manager = ProgressManager::default();
         let package_repo =
-            YamlPackageRepository::new(&fs, config.expanded_package_directory(), &progress_manager);
+            YamlPackageRepository::new(&fs, config.expanded_package_directory(), progress_manager);
         let command_validator = CommandValidator::new(&runner);
         let validator = PackageValidator::new(&fs, &config, &package_repo, &command_validator);
         let result = validator

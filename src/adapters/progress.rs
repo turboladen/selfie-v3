@@ -23,7 +23,7 @@ pub(crate) enum MessageType {
 }
 
 /// Streamlined progress manager
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub struct ProgressManager {
     use_colors: bool,
     verbose: bool,

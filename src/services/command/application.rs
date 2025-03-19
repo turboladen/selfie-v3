@@ -48,17 +48,17 @@ impl<F: FileSystem, R: CommandRunner> ApplicationCommandRouter
                 let package_repo = YamlPackageRepository::new(
                     self.fs,
                     self.app_config.expanded_package_directory(),
-                    &progress_manager,
+                    progress_manager,
                 );
                 let package_command_service = PackageCommandService::new(
                     self.fs,
                     &self.runner,
                     &package_repo,
-                    &progress_manager,
+                    progress_manager,
                     self.app_config,
                 );
                 let error_handler =
-                    EnhancedErrorHandler::new(self.fs, &package_repo, &progress_manager);
+                    EnhancedErrorHandler::new(self.fs, &package_repo, progress_manager);
 
                 match &pkg_cmd {
                     PackageCommand::Install { package_name } => {

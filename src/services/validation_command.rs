@@ -25,7 +25,7 @@ pub(crate) enum ValidationCommandResult {
 pub(crate) struct ValidationCommand<'a, F: FileSystem, CR: CommandRunner> {
     fs: &'a F,
     config: &'a AppConfig,
-    progress_manager: &'a ProgressManager,
+    progress_manager: ProgressManager,
     command_validator: &'a CommandValidator<'a, CR>,
 }
 
@@ -34,7 +34,7 @@ impl<'a, F: FileSystem, CR: CommandRunner> ValidationCommand<'a, F, CR> {
     pub(crate) fn new(
         fs: &'a F,
         config: &'a AppConfig,
-        progress_manager: &'a ProgressManager,
+        progress_manager: ProgressManager,
         command_validator: &'a CommandValidator<'a, CR>,
     ) -> Self {
         Self {
@@ -144,7 +144,7 @@ mod tests {
         let progress_manager = ProgressManager::from(&config);
         let command_validator = CommandValidator::new(&runner);
 
-        let cmd = ValidationCommand::new(&fs, &config, &progress_manager, &command_validator);
+        let cmd = ValidationCommand::new(&fs, &config, progress_manager, &command_validator);
 
         // This would need to be more thoroughly mocked to test actual validation
         // For now we're just testing that the command structure works
@@ -213,7 +213,7 @@ mod tests {
 
         let progress_manager = ProgressManager::default();
         let command_validator = CommandValidator::new(&runner);
-        let command = ValidationCommand::new(&fs, &config, &progress_manager, &command_validator);
+        let command = ValidationCommand::new(&fs, &config, progress_manager, &command_validator);
 
         // Test validation on valid package
         let result = command.execute("valid-package", None).await;

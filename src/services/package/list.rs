@@ -23,7 +23,7 @@ pub(crate) enum PackageListResult {
 pub(crate) struct PackageListService<'a, CR: CommandRunner, PR: PackageRepository> {
     runner: &'a CR,
     config: &'a AppConfig,
-    progress_manager: &'a ProgressManager,
+    progress_manager: ProgressManager,
     package_repo: &'a PR,
 }
 
@@ -32,7 +32,7 @@ impl<'a, CR: CommandRunner, PR: PackageRepository> PackageListService<'a, CR, PR
     pub(crate) fn new(
         runner: &'a CR,
         config: &'a AppConfig,
-        progress_manager: &'a ProgressManager,
+        progress_manager: ProgressManager,
         package_repo: &'a PR,
     ) -> Self {
         Self {
@@ -409,10 +409,10 @@ mod tests {
 
         let manager = ProgressManager::from(&config);
         // Create a repository with an empty directory
-        let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory(), &manager);
+        let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory(), manager);
         let runner = MockCommandRunner::new();
 
-        let cmd = PackageListService::new(&runner, &config, &manager, &repo);
+        let cmd = PackageListService::new(&runner, &config, manager, &repo);
 
         let result = cmd.list_packages().await;
         assert!(result.is_ok());
@@ -456,7 +456,7 @@ mod tests {
 
         let manager = ProgressManager::from(&config);
         // Create a repository with our mock filesystem
-        let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory(), &manager);
+        let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory(), manager);
 
         // Create mock runner that shows 'brew' as available
         let mut runner = MockCommandRunner::new();
@@ -465,7 +465,7 @@ mod tests {
             .with(mockall::predicate::eq("brew"))
             .returning(|_| true);
 
-        let cmd = PackageListService::new(&runner, &config, &manager, &repo);
+        let cmd = PackageListService::new(&runner, &config, manager, &repo);
 
         // Test the list_packages function with our repo
         let result = cmd.list_packages().await;
@@ -511,7 +511,7 @@ mod tests {
 
         let manager = ProgressManager::from(&config);
         // Create a repository with our mock filesystem
-        let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory(), &manager);
+        let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory(), manager);
 
         // Create mock runner with command availability
         let mut runner = MockCommandRunner::new();
@@ -524,7 +524,7 @@ mod tests {
             .with(mockall::predicate::eq("apt"))
             .returning(|_| true);
 
-        let cmd = PackageListService::new(&runner, &config, &manager, &repo);
+        let cmd = PackageListService::new(&runner, &config, manager, &repo);
 
         // Test the list_packages function with our repo
         let result = cmd.list_packages().await;
@@ -577,9 +577,9 @@ mod tests {
             .build();
 
         let manager = ProgressManager::from(&config);
-        let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory(), &manager);
+        let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory(), manager);
         let runner = MockCommandRunner::new();
-        let cmd = PackageListService::new(&runner, &config, &manager, &repo);
+        let cmd = PackageListService::new(&runner, &config, manager, &repo);
 
         // Filter by name
         let filtered = cmd.filter_packages(&packages, Some("rip"));
@@ -654,9 +654,9 @@ mod tests {
 
         let manager = ProgressManager::from(&config);
         // Create a repository with our mock filesystem
-        let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory(), &manager);
+        let repo = YamlPackageRepository::new(&fs, config.expanded_package_directory(), manager);
         let runner = MockCommandRunner::new();
-        let cmd = PackageListService::new(&runner, &config, &manager, &repo);
+        let cmd = PackageListService::new(&runner, &config, manager, &repo);
 
         // Test grouping by environment
         let result = cmd.list_packages_by_environment();

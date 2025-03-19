@@ -108,7 +108,7 @@ pub(crate) struct PackageInstaller<'a, PR: PackageRepository, CR: CommandRunner>
     error_handler: &'a EnhancedErrorHandler<'a>,
     runner: &'a CR,
     config: &'a AppConfig,
-    progress_manager: &'a ProgressManager,
+    progress_manager: ProgressManager,
     check_commands: bool,
     command_validator: CommandValidator<'a, CR>,
 }
@@ -119,7 +119,7 @@ impl<'a, PR: PackageRepository, CR: CommandRunner> PackageInstaller<'a, PR, CR> 
         error_handler: &'a EnhancedErrorHandler<'_>,
         runner: &'a CR,
         config: &'a AppConfig,
-        progress_manager: &'a ProgressManager,
+        progress_manager: ProgressManager,
         check_commands: bool,
     ) -> Self {
         // Create CommandValidator instance
@@ -655,14 +655,14 @@ mod tests {
 
         repo.mock_get_package_ok(&package.name, package.clone());
 
-        let eeh = EnhancedErrorHandler::new(&fs, &repo, &progress_manager);
+        let eeh = EnhancedErrorHandler::new(&fs, &repo, progress_manager);
 
         runner.mock_execute_success_1("test check", "Not found");
         runner.mock_execute_success_0("test install", "Installed successfully");
         runner.mock_is_command_available("test", true);
 
         let installer =
-            PackageInstaller::new(&repo, &eeh, &runner, &config, &progress_manager, true);
+            PackageInstaller::new(&repo, &eeh, &runner, &config, progress_manager, true);
         let result = installer.install_package(&package.name).await;
 
         assert!(result.is_ok());
@@ -678,13 +678,13 @@ mod tests {
 
         repo.mock_get_package_ok(&package.name, package.clone());
 
-        let eeh = EnhancedErrorHandler::new(&fs, &repo, &progress_manager);
+        let eeh = EnhancedErrorHandler::new(&fs, &repo, progress_manager);
 
         runner.mock_execute_success_0("test check", "Found"); // Already installed
         runner.mock_is_command_available("test", true);
 
         let installer =
-            PackageInstaller::new(&repo, &eeh, &runner, &config, &progress_manager, true);
+            PackageInstaller::new(&repo, &eeh, &runner, &config, progress_manager, true);
         let result = installer.install_package(&package.name).await;
 
         assert!(result.is_ok());
@@ -700,14 +700,14 @@ mod tests {
 
         repo.mock_get_package_ok(&package.name, package.clone());
 
-        let eeh = EnhancedErrorHandler::new(&fs, &repo, &progress_manager);
+        let eeh = EnhancedErrorHandler::new(&fs, &repo, progress_manager);
 
         runner.mock_execute_success_1("test check", "Not found");
         runner.mock_execute_success_1("test install", "Installation failed");
         runner.mock_is_command_available("test", true);
 
         let installer =
-            PackageInstaller::new(&repo, &eeh, &runner, &config, &progress_manager, true);
+            PackageInstaller::new(&repo, &eeh, &runner, &config, progress_manager, true);
         let result = installer.install_package(&package.name).await;
         dbg!(&result);
 
@@ -725,10 +725,10 @@ mod tests {
 
         repo.mock_get_package_ok(&package.name, package.clone());
 
-        let eeh = EnhancedErrorHandler::new(&fs, &repo, &progress_manager);
+        let eeh = EnhancedErrorHandler::new(&fs, &repo, progress_manager);
 
         let installer =
-            PackageInstaller::new(&repo, &eeh, &runner, &config, &progress_manager, true);
+            PackageInstaller::new(&repo, &eeh, &runner, &config, progress_manager, true);
         let result = installer.install_package(&package.name).await;
 
         assert!(result.is_err());
@@ -738,8 +738,8 @@ mod tests {
     fn test_parse_cycle_string() {
         let config = create_test_config();
         let (fs, runner, repo, progress_manager) = create_installer_deps();
-        let eeh = EnhancedErrorHandler::new(&fs, &repo, &progress_manager);
-        let manager = PackageInstaller::new(&repo, &eeh, &runner, &config, &progress_manager, true);
+        let eeh = EnhancedErrorHandler::new(&fs, &repo, progress_manager);
+        let manager = PackageInstaller::new(&repo, &eeh, &runner, &config, progress_manager, true);
 
         // Test basic cycle parsing
         let cycle_str = "package1 -> package2 -> package3 -> package1";
@@ -786,13 +786,13 @@ mod tests {
         runner.mock_execute_success_1("rg check", "Not found");
         runner.mock_execute_success_0("rg install", "Installed successfully");
 
-        let eeh = EnhancedErrorHandler::new(&fs, &repo, &progress_manager);
+        let eeh = EnhancedErrorHandler::new(&fs, &repo, progress_manager);
 
         let progress_manager = ProgressManager::new(false, true);
 
         // Create package installer (using the new consolidated version)
         let installer =
-            PackageInstaller::new(&repo, &eeh, &runner, &config, &progress_manager, false);
+            PackageInstaller::new(&repo, &eeh, &runner, &config, progress_manager, false);
 
         // Run the installation
         let result = installer.install_package("ripgrep").await;
@@ -838,7 +838,7 @@ mod tests {
         repo.mock_get_package_ok("ripgrep", Package::from_yaml(package_yaml).unwrap());
         repo.mock_get_package_ok("rust", Package::from_yaml(dependency_yaml).unwrap());
 
-        let eeh = EnhancedErrorHandler::new(&fs, &repo, &progress_manager);
+        let eeh = EnhancedErrorHandler::new(&fs, &repo, progress_manager);
 
         // Set up mock command responses
         runner.mock_execute_success_1("rg check", "Not found");
@@ -850,7 +850,7 @@ mod tests {
 
         // Create package installer
         let installer =
-            PackageInstaller::new(&repo, &eeh, &runner, &config, &progress_manager, false);
+            PackageInstaller::new(&repo, &eeh, &runner, &config, progress_manager, false);
 
         // Run the installation
         let result = installer.install_package("ripgrep").await;
@@ -932,12 +932,12 @@ mod tests {
         runner.mock_execute_success_1("dep3-check", "Not found");
         runner.mock_execute_success_0("dep3-install", "Installed successfully");
 
-        let eeh = EnhancedErrorHandler::new(&fs, &repo, &progress_manager);
+        let eeh = EnhancedErrorHandler::new(&fs, &repo, progress_manager);
         let progress_manager = ProgressManager::new(false, true);
 
         // Create package installer
         let installer =
-            PackageInstaller::new(&repo, &eeh, &runner, &config, &progress_manager, false);
+            PackageInstaller::new(&repo, &eeh, &runner, &config, progress_manager, false);
 
         // Run the installation
         let result = installer.install_package("main-pkg").await;

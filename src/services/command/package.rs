@@ -36,7 +36,7 @@ pub(super) struct PackageCommandService<'a, F: FileSystem, CR: CommandRunner, PR
     fs: &'a F,
     runner: &'a CR,
     package_repo: &'a PR,
-    progress_manager: &'a ProgressManager,
+    progress_manager: ProgressManager,
     app_config: &'a AppConfig,
 }
 
@@ -47,7 +47,7 @@ impl<'a, F: FileSystem, CR: CommandRunner, PR: PackageRepository>
         fs: &'a F,
         runner: &'a CR,
         package_repo: &'a PR,
-        progress_manager: &'a ProgressManager,
+        progress_manager: ProgressManager,
         app_config: &'a AppConfig,
     ) -> Self {
         Self {
@@ -71,9 +71,9 @@ impl<'a, F: FileSystem, CR: CommandRunner, PR: PackageRepository>
         let installer = PackageInstaller::new(
             self.package_repo,
             error_handler,
-            &*self.runner,
+            self.runner,
             self.app_config,
-            &self.progress_manager,
+            self.progress_manager,
             true, // Enable command checking
         );
 
@@ -124,9 +124,9 @@ impl<'a, F: FileSystem, CR: CommandRunner, PR: PackageRepository>
         self.app_config.validate_minimal()?;
 
         let list_cmd = PackageListService::new(
-            &*self.runner,
+            self.runner,
             self.app_config,
-            &self.progress_manager,
+            self.progress_manager,
             self.package_repo,
         );
 
@@ -173,12 +173,12 @@ impl<'a, F: FileSystem, CR: CommandRunner, PR: PackageRepository>
         // Don't propagate the error; let the ?command run through even if the
         // config is bad.
         let _ = self.app_config.validate();
-        let command_validator = CommandValidator::new(&*self.runner);
+        let command_validator = CommandValidator::new(self.runner);
 
         let validate_cmd = ValidationCommand::new(
             self.fs,
             self.app_config,
-            &self.progress_manager,
+            self.progress_manager,
             &command_validator,
         );
 
