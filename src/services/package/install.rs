@@ -8,7 +8,7 @@ use dependency::{DependencyResolver, DependencyResolverError};
 use thiserror::Error;
 
 use crate::{
-    adapters::progress::ProgressManager,
+    adapters::{command::CommandOutputBuffer, progress::ProgressManager},
     domain::{
         config::AppConfig,
         errors::{
@@ -18,7 +18,7 @@ use crate::{
         package::Package,
     },
     ports::{
-        command::{CommandError, CommandRunner, OutputChunk},
+        command::{CommandError, CommandRunner},
         filesystem::FileSystemError,
         package_repo::{PackageRepoError, PackageRepository},
     },
@@ -449,39 +449,20 @@ impl<'a, PR: PackageRepository, CR: CommandRunner> PackageInstaller<'a, PR, CR> 
             PackageInstallerError::EnhancedError(user_message)
         })?;
 
-        // Create a callback closure for output
-        let progress_manager = self.progress_manager;
-        let indent_clone = indent.clone();
-        let output_handler = move |chunk: OutputChunk| match chunk {
-            OutputChunk::Stdout(line) => {
-                if progress_manager.verbose() {
-                    progress_manager.print_verbose(format!(
-                        "{}  stdout: {}",
-                        indent_clone,
-                        line.trim()
-                    ));
-                }
-            }
-            OutputChunk::Stderr(line) => {
-                if progress_manager.verbose() {
-                    progress_manager.print_warning(format!(
-                        "{}  stderr: {}",
-                        indent_clone,
-                        line.trim()
-                    ));
-                }
-            }
-        };
-
         // Create installation and start it
         let installation = Installation::new(env_config.clone()).start();
 
         self.progress_manager
             .print_progress(format!("{}⌛ Checking installation status...", indent));
 
+        let output_buffer =
+            CommandOutputBuffer::new(self.progress_manager, indent_level, self.config.verbose());
+
+        let output_callback = output_buffer.clone().into_callback();
+
         // Check if already installed
         let installation = match installation
-            .execute_check(self.runner, output_handler.clone())
+            .execute_check(self.runner, output_callback)
             .await
         {
             Ok(state) => state,
@@ -535,10 +516,11 @@ impl<'a, PR: PackageRepository, CR: CommandRunner> PackageInstaller<'a, PR, CR> 
         // Print installing message
         self.progress_manager
             .print_progress(format!("{}⌛ Installing...", indent));
+        let output_callback = output_buffer.clone().into_callback();
 
         // Execute installation
         let installation = match installation
-            .execute_install(self.runner, output_handler)
+            .execute_install(self.runner, output_callback)
             .await
         {
             Ok(state) => state,
